@@ -169,7 +169,7 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 | Structure | Mutating functions |
 |---|---|
 | `bodies[id]` (non-awake owner, or any transition) | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c:271-289`, `406-432`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, and the `b3Body_Set*`/`Enable*`/`AllowFastRotation` API family (`body.c:1601-2512`) |
-| non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback |
+| non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback, `b3UpdateBodyMassData` writing the owning body's `bodySim` regardless of awake state (the shape-creation family and `b3DestroyShape` when `updateBodyMass` is set, `b3Shape_SetDensity`, `b3Body_ApplyMassFromShapes`, `b3Body_SetType`, `b3Body_SetMotionLocks` on a fixed-rotation change) |
 | `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey`/`userShape` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*`/`Enable*` (`shape.c:1141-1684`), `b3Body_EnableHitEvents` (sets every owned shape's flags, `body.c:2524-2538`), unconditionally — the hot path never rewrites these fields, awake owner or not |
 | `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass), and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
 | tree proxy `categoryBits`, keyed by shape id | every call to `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass) and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`) — every site that creates a fresh proxy, all of which set its category bits from `shape->filter.categoryBits` at that moment; diverges from `shape->filter.categoryBits` whenever a live proxy persists through an `invokeContacts=false` `b3Shape_SetFilter` call, so it is journaled as its own field rather than derived from the shape record at restore |
@@ -598,7 +598,7 @@ in the same order recreates them with the same ids.
   `b3Body_GetName`/`b3Shape_GetName` resolve to the abandoned string, not the newly added one. The
   cache never frees an entry once added, so it grows with every distinct name ever inserted whether
   or not history is enabled; this design neither introduces nor bounds that growth, and the cache's
-  bytes are not counted against `maxBytes` (§8), which caps only the ring arena.
+  bytes are not counted against `maxBytes` (§8).
 
 ## 11. Cost, and what "faster" can mean here
 
@@ -722,11 +722,14 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
   O(world) and allocates, but it exists, it is tested, and it lets tests 2, 3 and 5 be written
   and the full-state hash be validated before any engine change. It also answers whether the
   game's correction path works end to end. This prototype's serializer clears body, shape, and
-  joint `userData` on restore (`world_snapshot.c`), so a caller relying on those pointers inside a
-  `preSolve`/filter/mixer callback, or reading them back off a regenerated move or joint event
-  (`solver.c` copies `body->userData`/`joint->userData` into the corresponding event), must
-  restore them itself immediately after a Phase 0 restore; Phase 1's own per-body/shape/joint
-  image and journal entries carry these fields naturally, so this limitation is Phase 0-only.
+  joint `userData` on restore, and leaves the world's own `userData` as whatever the shell
+  currently holds rather than restoring it to its value at T (`world_snapshot.c`), so a caller
+  relying on those pointers inside a `preSolve`/filter/mixer callback, reading them back off a
+  regenerated move or joint event (`solver.c` copies `body->userData`/`joint->userData` into the
+  corresponding event), or comparing `b3World_GetUserData` against a recorded value (test 2, §12),
+  must restore all four itself immediately after a Phase 0 restore; Phase 1's own per-body/shape/joint
+  image and world-scalar image (§5.1) carry these fields naturally, so this limitation is
+  Phase 0-only.
 - **Phase 1, hot image + cold journal.** Journal hooks, ring arena, in-place image restore,
   cold-hash guard, the wind-force pointer re-fetch after wake. Trees imaged raw as the temporary
   fallback.
