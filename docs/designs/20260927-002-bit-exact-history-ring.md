@@ -450,12 +450,18 @@ the retained window, so they are inert bytes awaiting physical overwrite, not a 
   never purged for falling off the new, wider grid — this ring only ever evicts the oldest slot,
   on ordinary FIFO wraparound. Widening the interval only reduces how many retained ticks carry an
   image on the usual K-th-tick cadence going forward; a capture takes an image outside that cadence
-  whenever skipping it would leave the current minimum window without one. Every tick in the window
-  still carries a journal segment (§6), and the minimum window always carries at least one image,
-  so if the minimum window's total required storage —
+  whenever skipping it would leave the current minimum window's oldest tick without an image at or
+  before it — keeping every tick in the minimum window reachable (requirement 4), not merely
+  physically retained. Every tick in the window still carries a journal segment (§6), and the
+  minimum window's oldest tick always carries an image, so if the minimum window's total required
+  storage —
   every tick's journal segment plus that one required image — exceeds `maxBytes`, the ring
   exceeds `maxBytes` for that window rather than dropping correctness-required state. `b3World_GetHistoryInfo` reports the effective interval and
-  window, and its `bytesUsed` reports true usage even when it is over budget.
+  window, and its `bytesUsed` reports true usage even when it is over budget. Both `maxBytes` and
+  `bytesUsed` count the arena's allocated capacity, not just the bytes its live slots currently
+  occupy — amortized realloc growth (this bullet, and the journal-room growth two bullets below)
+  can leave reserved capacity ahead of occupied bytes, and requirement 5's "bounded memory" promise
+  is about the ring's actual footprint, not a logical slot-bytes tally that could understate it.
 - Capacity growth (a scene grows) is a realloc of the arena with slot offsets preserved; rare
   after warm-up.
 - An image's size is known up front from the awake counts and each awake contact's own
@@ -474,6 +480,14 @@ world that has never been stepped) and sets `historyTick` to it, before any subs
 boundary — so the enable-time state is itself an imaged, restorable tick. API calls made between
 `b3World_EnableHistory` and the first subsequent step enter that tick's still-open journal segment
 (§9's existing open-segment handling).
+
+`historyTick` is its own counter, seeded from `stepIndex` at enable time but incremented once per
+subsequent `b3World_Step` call regardless of that call's `timeStep`: `stepIndex` (`solver.c`)
+advances only inside `b3Solve`, which a `timeStep <= 0` call skips, while the broad-phase pair
+update and sensor task both still run and are still captured (§6). `historyTick` and `stepIndex`
+can therefore diverge after any zero-time-step call; a caller mapping its own server ticks to
+history ticks must track `historyTick`'s own step-call count from enable, not assume it equals
+`stepIndex`.
 
 ## 9. Restore
 
@@ -605,8 +619,11 @@ Mitigations, in order of cost:
    awake by construction. This is the intended scoping mechanism and it costs nothing.
 2. **Capture interval** does not help resim; it only trades memory for replay length.
 3. **Time-sliced replay.** The caller may spread a long replay over several frames (e.g. 3
-   replayed ticks per frame plus the live tick), rendering the live world's current state after
-   each frame's batch of replayed ticks. This is ordinary rendering of the live world as replay
+   backlogged ticks per frame, each stepped strictly in tick order before any newer tick is
+   stepped), rendering the live world's current state after each frame's batch of replayed ticks.
+   The world only resumes stepping genuinely live input once replay has caught the backlog up to
+   the present, so what the caller renders lags real time by the backlog length divided by the
+   per-frame replay rate. This is ordinary rendering of the live world as replay
    steps through it, not a read from the ring — the ring has no read-only pose-access API, so
    this works at any `captureInterval` (§6). The caller must render each old-timeline tick before
    replaying past it, since re-stepping overwrites that slot in place (§8).
@@ -643,8 +660,13 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
 1. **Full state hash.** Extend `b3HashWorldState` (`recording.c:1188`, transforms and
    velocities only) to `b3World_ComputeStateHash`: bodies (excluding `bodyMoveIndex`, which §9
    always resets to none on restore and is therefore not restore-stable), sims, states, shapes
-   (filter, material, geometry), contact records, manifolds and impulses, joint records and joint
-   sims (including `collideConnected`), island membership and sleep partition, pool state, pair set
+   (filter, material — the `materialCount`-element `materials` array in full for a multi-material
+   shape, not just the inline fallback — and geometry: a hull, mesh, height-field, or compound
+   field hashed by its pointed-to content, never by pointer value, so a shared geometry buffer or
+   material array hashes identically across processes and platforms), contact records, manifolds
+   and impulses, joint records and joint
+   sims (including `collideConnected`), island membership and sleep partition, each island's own
+   `constraintRemoveCount` (split-candidacy state read by `solver.c` and `solver_set.c`), pool state, pair set
    membership, graph-colour `bodySet` bitsets (by logical bit value up to the body id pool's
    capacity, not raw block count), sensor
    overlaps, shape bounds (`shape->aabb` and `fatAABBs`), each shape's tree-proxy `categoryBits`,
@@ -662,10 +684,10 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
    `hash == hash recorded at P` at every intermediate tick, plus the same same-process `userData`
    comparison as test 2. This is the bit-exact claim.
 4. **Cold-hash guard (validation builds).** At capture, hash every cold structure §5.2 lists as
-   journaled, in full — sleeping sets, non-awake records, shape and joint fields journaled
-   regardless of owner awake state, non-awake shape bounds, pools, pair set, graph-colour
-   `bodySet` bitsets (by logical bit value, not raw block count), tree proxy `categoryBits`,
-   tree proxy reset entries, and sensor overlaps —
+   journaled, in full — sleeping sets, non-awake records, islands and their link arrays, shape
+   and joint fields journaled regardless of owner awake state, non-awake shape bounds, pools,
+   pair set, graph-colour `bodySet` bitsets (by logical bit value, not raw block count), tree
+   proxy `categoryBits`, tree proxy reset entries, sensor existence, and sensor overlaps —
    not a separately maintained subset that can drift out of sync with §5.2. At the
    next capture, recompute and compare after replaying the
    segment's entries against a shadow copy. A write that bypassed the journal fails here, in
