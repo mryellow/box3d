@@ -167,6 +167,7 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 | non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), `b3Shape_ApplyWind`, explosion callback |
 | `shapes[id]` fields other than `aabb`/`fatAABBs` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
 | `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`), since the awake hot path's first rewrite of them afterward is not itself journaled |
+| tree proxy `categoryBits`, keyed by shape id | proxy creation, and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`); diverges from `shape->filter.categoryBits` whenever `invokeContacts=false` leaves the proxy unsynced, so it is journaled as its own field rather than derived from the shape record at restore |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c:20-337`, `388-649`) |
@@ -330,14 +331,14 @@ smaller, or equal and its shape id is lower, instead of overwriting unconditiona
 few extra TOI evaluations on the rare multi-candidate sweep. After this, tree layout is
 a performance property, not a simulation property, and restore may rebuild it any way it likes:
 
-- for every shape whose fat AABB or category bits differ between the live tree and image T
-  (awake shapes at T, plus shapes with journaled records), `b3DynamicTree_MoveProxy` and
-  `b3DynamicTree_SetCategoryBits`; for a shape whose journaled body type at T differs from its
-  live proxy's tree (`B3_PROXY_TYPE(shape->proxyKey)`), a proxy cannot move between trees, so
-  destroy the live proxy and recreate it in the tree matching T instead; proxies created or
-  destroyed after T are handled by the journaled shape create/destroy, and a proxy replaced in
-  place by a filter or geometry-type setter (same tree, new key) is resynced the same way as a
-  moved one, without needing its own journal entry;
+- for every shape whose fat AABB differs between the live tree and image T (awake shapes at T,
+  plus shapes with journaled records), `b3DynamicTree_MoveProxy`; for every shape whose journaled
+  proxy `categoryBits` at T (§5.2) differs from the live proxy's, `b3DynamicTree_SetCategoryBits`
+  to that journaled value, never derived from the restored `shape->filter`, since the two can
+  have diverged; for a shape whose journaled body type at T differs from its live proxy's tree
+  (`B3_PROXY_TYPE(shape->proxyKey)`), a proxy cannot move between trees, so destroy the live
+  proxy and recreate it in the tree matching T, with T's journaled category bits, instead;
+  proxies created or destroyed after T are handled by the journaled shape create/destroy;
 - clear all moved bits, then for each shape id in image T's moved list, mark its current proxy
   moved (propagating to ancestors the same way the hot path does), resolving the id through the
   shape's own, already-restored `proxyKey` rather than a numeric proxy id, which a proxy
@@ -530,9 +531,9 @@ tie-break, a scalar grouping, a hash, and tests.
    velocities only) to `b3World_ComputeStateHash`: bodies, sims, states, shapes (filter,
    material, geometry), contact records, manifolds and impulses, joint sims, island membership
    and sleep partition, pool state, pair set membership, graph-colour `bodySet` bitsets, sensor
-   overlaps, shape bounds (`fatAABBs`) and moved-proxy membership, world scalars and flags, in id
-   order, hashing float bit patterns. This is the oracle for everything below and is worth exposing publicly for
-   lockstep desync detection.
+   overlaps, shape bounds (`fatAABBs`), each shape's tree-proxy `categoryBits`, and moved-proxy
+   membership, world scalars and flags, in id order, hashing float bit patterns. This is the
+   oracle for everything below and is worth exposing publicly for lockstep desync detection.
 2. **Restore exactness.** For each benchmark scene, step to steady state, then for 1,000 random
    (T, P) pairs inside the window, with random API churn between (creates, destroys, setters on
    sleeping bodies, forced sleep/wake toggles, explosions): `hash(Rewind(T)) == hash recorded at
@@ -541,7 +542,8 @@ tie-break, a scalar grouping, a hash, and tests.
    `hash == hash recorded at P` at every intermediate tick. This is the bit-exact claim.
 4. **Cold-hash guard (validation builds).** At capture, hash every cold structure that the
    journal claims is unchanged since the last capture unless journaled: sleeping sets, non-awake
-   records, pools, pair set, graph-colour `bodySet` bitsets. At the next capture, recompute and compare after replaying the
+   records, pools, pair set, graph-colour `bodySet` bitsets, tree proxy `categoryBits`. At the
+   next capture, recompute and compare after replaying the
    segment's entries against a shadow copy. A write that bypassed the journal fails here, in
    whichever test first exercises it. This is what makes §5.2's list a test rather than a
    promise.
