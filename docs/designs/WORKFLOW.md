@@ -211,7 +211,22 @@ themselves (their `status:` front matter records the round history and rationale
 7. Claude appends a `## Status` section: how this round's finding rate compares to recent
    rounds (still finding new categories of issue vs. narrowing to edge cases), whether any
    finding was a consequence of the immediately preceding round's own fix, and what happens
-   next (another fresh round, at the same full scope, or stopping).
+   next (another fresh round, at the same full scope, or stopping). End the section with a
+   one-line convergence tally, so the trend is legible without re-reading every round's prose:
+
+   `Round N: F findings (HN-MN-LN), A applied, D declined`
+
+   H/M/L are this round's own counts of `High`/`Medium`/`Low` findings straight from step 4's
+   table (never `Critical`/minor — this project's severities are exactly the three step 4 uses),
+   F = H+M+L. Follow it with the running series total in the same notation, computed by summing
+   every prior round's own tally plus this round's — cheap addition over numbers each round file
+   already states, never a re-read of their prose, e.g.:
+
+   `Series total: 100 findings (42H-45M-13L) across 26 rounds`
+
+   A `CONVERGED` round's own tally is trivially `0 findings (0H-0M-0L)`. This tally is a
+   convergence *signal*, not a stopping rule by itself — a falling count across recent rounds
+   supports stopping; a `CONVERGED` verdict (step 8) is what actually stops the series.
 8. Repeat with another round, always at the same full scope as every prior round, while findings
    keep surfacing real, source-confirmed issues. A `CONVERGED` verdict means this round, run
    full-scope and from scratch, found nothing wrong with what the doc currently claims — it is
