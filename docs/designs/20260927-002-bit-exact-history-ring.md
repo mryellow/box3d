@@ -241,7 +241,7 @@ A journal segment is an append-only byte stream. Entry kinds:
 | Kind | Payload | Undo / redo |
 |---|---|---|
 | record write | structure tag, id, old bytes, new bytes | copy old / copy new |
-| pool alloc/free | pool tag, id, source (free-list pop or bump index) | undo mirrors whichever source the alloc/free actually used, not always a push/pop |
+| pool alloc/free | pool tag, id, source (free-list pop or bump index) | undo mirrors whichever source the alloc/free actually used, not always a push/pop; a bump-index source also grows or shrinks the pool's paired sparse array in lockstep (`bodies`, `shapes` and `fatAABBs`, `contacts`, `joints`, `islands`, `solverSets`), keeping pool capacity and array count equal for `b3ValidateSolverSets` |
 | pair set add/remove | key | remove / add (self-inverse) |
 | bitset set/clear | colour, body id | clear / set |
 | set create (sleep) | set index, ownership handle | undo: detach arrays into the entry; redo: reattach |
@@ -360,9 +360,11 @@ If the CCD change is not accepted, the fallback is to image the kinematic, dynam
 trees raw (≈90 B per proxy per tick): same order as the engine's own rebuild copy, but O(proxies)
 ring memory for the kinematic and dynamic trees, which fails requirement 2 for
 `large_world`-shaped worlds and is fine for everything in `benchmark/`. CCD also queries the
-static tree (`solver.c`); since a static proxy never moves, its tree only needs re-imaging when a
-static shape is created, destroyed, or `b3World_RebuildStaticTree` is called, keeping its ring
-cost O(events) rather than O(static proxies) per tick.
+static tree (`solver.c`); its tree only needs re-imaging when a static shape is created or
+destroyed, `b3World_RebuildStaticTree` is called, or a static shape's proxy moves or resets
+(`b3Body_SetTransform` moves any body's shape proxies including a static body's; `b3ResetProxy`
+does the same for a shape setter), keeping its ring cost O(events) rather than O(static proxies)
+per tick.
 
 ## 8. Ring
 
