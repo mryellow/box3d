@@ -143,7 +143,7 @@ Sizes are single-precision (measured with a `sizeof` probe against `src/`).
 | `joints[id]` for awake joints | `b3Joint` 72 B | structural only, but cheap to image with the sims |
 | `islands[id]` + link arrays for awake islands | 64 B + 4/12/12 B per link | link/unlink on every begin/end touch |
 | moved proxies | shape id | `B3_MOVED_NODE` bits set in step t, consumed by pair update in t+1 (`broad_phase.c:653-698`) |
-| world scalars | one struct | `stepIndex`, `inv_h`, `inv_dt`, `compoundShapeCount` (selects a broad-phase path), `splitIslandId` (chosen end of t, consumed in t+1, `solver.c:2200`, `1717`), enable flags, gravity, thresholds, `endEventArrayIndex` |
+| world scalars | one struct | `stepIndex`, `inv_h`, `inv_dt`, `compoundShapeCount` (selects a broad-phase path), `splitIslandId` (chosen end of t, consumed in t+1, `solver.c:2200`, `1717`), enable flags, gravity, thresholds, `endEventArrayIndex`, `userData` (caller-opaque, never read internally, imaged like any other scalar field) |
 
 Two facts specific to box3d, unlike Box2D v3: there is no `b3ContactSim`, so the hot contact
 bytes live in the id-addressed `world->contacts` array plus heap manifolds and must be
@@ -170,7 +170,7 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 | non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback |
 | `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey`/`userShape` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
 | `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
-| tree proxy `categoryBits`, keyed by shape id | proxy creation, and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`); diverges from `shape->filter.categoryBits` whenever `invokeContacts=false` leaves the proxy unsynced, so it is journaled as its own field rather than derived from the shape record at restore |
+| tree proxy `categoryBits`, keyed by shape id | every call to `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass) and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`) — every site that creates a fresh proxy, all of which set its category bits from `shape->filter.categoryBits` at that moment; diverges from `shape->filter.categoryBits` whenever a live proxy persists through an `invokeContacts=false` `b3Shape_SetFilter` call, so it is journaled as its own field rather than derived from the shape record at restore |
 | tree proxy reset (destroy and recreate in the same tree), keyed by shape id | `b3ResetProxy` when called with `destroyProxy=true` (`b3Shape_SetFilter` with `invokeContacts=true`, and other shape setters that recreate the proxy); `shape->proxyKey` itself is never journaled or restored directly (it is excluded from the generic shape-record row above), since a reset changes it to a new numeric id from the tree's live free list without necessarily changing bounds, category, or body type — §7.4 uses this entry, not a `proxyKey` value, to know when a shape's proxy needs rebuilding |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files) |
@@ -346,40 +346,70 @@ rather than traversal order. `b3World_Explode` collects every candidate shape fr
 sorts by shape id, then wakes
 bodies and applies impulses in that order, instead of doing both inline during tree traversal.
 `b3RayCastClosestFcn` only overwrites the result when the candidate's fraction is strictly
-smaller, or equal and its shape id is lower, instead of overwriting unconditionally. Cost is a
+smaller, or equal and its shape id is lower, instead of overwriting unconditionally. This
+tie-break is incomplete for a shape type whose own internal cast keeps a running best-so-far
+fraction and only replaces it on a strictly smaller candidate (`b3RayCastMesh`, `mesh.c`;
+`b3ShapeCastHeightField`, `height_field.c`, which every height-field ray cast also runs through):
+such a shape silently reports no hit at all when its true nearest intersection exactly ties the
+query's current limit, so it can never reach the callback's shape-id comparison and can never win
+a tie against a shape type without that internal shrinking search — a residual order dependence on
+top of the two §10 already documents, not eliminated by this change. A compound child of either
+type inherits the same gap through the same functions; the tree traversal's own pruning
+(`b3DynamicTree_RayCast`, `<=`, not `<`) is not where the gap is. Cost is a
 few extra TOI evaluations on the rare multi-candidate sweep. After this, tree layout is
-a performance property, not a simulation property, and restore may rebuild it any way it likes:
+a performance property for the dynamic and kinematic trees, not a simulation property, and
+restore may rebuild either any way it likes (the static tree is never rebuilt by ordinary
+stepping — only explicitly, by `b3World_RebuildStaticTree` — so restore leaves its layout as
+whatever the bullets below produce, not DFS order):
 
-- for every shape owned by a body with a journaled transfer into or out of `b3_disabledSet` in the
-  walked range (`b3Body_Disable`/`b3Body_Enable` destroy and recreate every owned shape's proxy
-  without a shape create/destroy, body-type change, or proxy-reset entry), reconcile presence from
-  the body's already-restored `setIndex`: destroy the live proxy if the body is `b3_disabledSet` at
-  T; create one, in the tree matching T's body type with T's journaled category bits, if the body
-  is not `b3_disabledSet` at T and none exists; every subsequent bullet below then operates on a
-  proxy already known to exist;
-- for every shape whose fat AABB differs between the live tree and image T (awake shapes at T,
-  plus shapes with journaled records), `b3DynamicTree_MoveProxy`; for every shape whose journaled
-  proxy `categoryBits` at T (§5.2) differs from the live proxy's, `b3DynamicTree_SetCategoryBits`
-  to that journaled value, never derived from the restored `shape->filter`, since the two can
-  have diverged; for a shape whose journaled body type at T differs from its live proxy's tree
-  (`B3_PROXY_TYPE(shape->proxyKey)`), a proxy cannot move between trees, so destroy the live
-  proxy and recreate it in the tree matching T, with T's journaled category bits, instead; for a
-  shape with a journaled proxy-reset entry (§5.2) in the walked range, destroy the live proxy and
-  recreate it in the same tree with T's journaled category bits, even when its fat AABB, category,
-  and body type all already match the live proxy's, since a reset changes `shape->proxyKey` without
-  necessarily changing any of those three; proxies created or destroyed after T are handled by the
-  journaled shape create/destroy;
+- **Candidate set**, for both bullets below: a shape is examined if it is awake at T; has any
+  journaled entry keyed to its own shape id in the walked range (its general record, its
+  `aabb`/`fatAABBs` entry, its proxy `categoryBits` entry, or a proxy-reset entry — this includes
+  the shape's own creation or destruction, both unconditionally journaled); or is owned by a body
+  with a journaled transfer into or out of `b3_disabledSet`, or a journaled body-type change, in
+  the walked range — a body-type change recreates every owned shape's proxy (`b3Body_SetType`)
+  without journaling anything at the shape's own id, the same gap disable/enable would have left
+  were it not already covered by the disabled-transfer clause.
+- **Presence.** For every shape in the candidate set, decide whether it should have a live proxy
+  at T from state the walk and image copy have already restored: no, if the shape does not exist
+  at T or its owning body's restored `setIndex` is `b3_disabledSet`; yes otherwise. Destroy the
+  live proxy if one exists and should not; create one, in the tree matching T's restored body
+  type, if none exists and one should — passing T's already-restored `shape->aabb`/`fatAABBs[id]`
+  (§5.1, §5.2) directly as the new proxy's bounds and T's journaled proxy `categoryBits` (§5.2) as
+  its category, rather than calling the ordinary live proxy-creation path, which recomputes both
+  from the current transform and can leave a narrower fat AABB than T's — awake shapes coast on a
+  fat AABB wider than their tight bounds until movement escapes it (`solver.c`), and a fresh
+  recompute would silently shrink it. This bullet alone determines whether a shape has a proxy
+  after it runs; every bullet below only ever touches a proxy this bullet left in place, never one
+  it just created or destroyed.
+- **Properties**, for every shape in the candidate set whose proxy was already live before this
+  restore and remains live after the bullet above (a proxy that bullet just created or destroyed
+  is already exactly right, including its category bits, which restore sourced from T's journaled
+  `categoryBits` precisely because that can differ from what a live creation reading
+  `shape->filter` right now would produce): for every such shape whose fat AABB differs between the
+  live tree and image T, `b3DynamicTree_MoveProxy`; for every such shape whose journaled proxy
+  `categoryBits` at T (§5.2) differs from the live proxy's, `b3DynamicTree_SetCategoryBits` to that
+  journaled value, never derived from `shape->filter`, since the two can diverge while a proxy
+  persists live across an `invokeContacts=false` filter change; for a shape whose journaled body
+  type at T differs from its live proxy's tree (`B3_PROXY_TYPE(shape->proxyKey)`), a proxy cannot
+  move between trees, so destroy the live proxy and recreate it in the tree matching T, with T's
+  journaled category bits, instead; for a shape with a journaled proxy-reset entry (§5.2) in the
+  walked range, destroy the live proxy and recreate it in the same tree with T's journaled
+  category bits, even when its fat AABB, category, and body type all already match the live
+  proxy's, since a reset changes `shape->proxyKey` without necessarily changing any of those three;
 - clear all moved bits, then for each shape id in image T's moved list, mark its current proxy
   moved (propagating to ancestors the same way the hot path does), resolving the id through the
   shape's own, already-restored `proxyKey` rather than a numeric proxy id, which a proxy
-  recreated by the previous bullet need not still have;
-- the next step's rebuild puts the tree back into DFS order as usual.
+  recreated by either bullet above need not still have;
+- the next step's rebuild puts the dynamic and kinematic trees back into DFS order as usual; the
+  static tree keeps whatever layout the bullets above left it in until the caller next calls
+  `b3World_RebuildStaticTree`.
 
 Cost O(moved · log n). Ring cost for trees: zero.
 
-Two residual order dependences remain and are documented in §10: the order of `preSolve`
+Three residual order dependences remain: two documented in §10 (the order of `preSolve`
 callbacks CCD triggers during a sweep, and the traversal order seen by a caller's own cast,
-overlap, or mover callback.
+overlap, or mover callback), plus the closest-ray mesh tie-break gap above.
 
 If the CCD change is not accepted, the fallback is to image the kinematic, dynamic, and static
 trees raw (≈90 B per proxy per tick): same order as the engine's own rebuild copy, but O(proxies)
@@ -455,8 +485,11 @@ discards their old journal segments; the branch is implicit.
 5. **Scratch and events.** Clear event arrays, both end-event buffers, move events, and
    task-context bitsets, and reset every restored body's `bodyMoveIndex` to none. Events for
    step T are not re-delivered; end events that were queued between steps at P are dropped. For
-   every shape id, if its pre-restore live `userShape` debug-draw handle is non-`NULL` and the
-   shape's restored generation no longer matches the live one at that id (the slot held a
+   every shape with a journaled record in the walked range — the only shapes whose generation the
+   walk could have changed, since a shape's generation only ever changes at creation
+   (`shape->generation += 1`), itself an unconditionally journaled structural write — if its
+   pre-restore live `userShape` debug-draw handle is non-`NULL` and the shape's restored generation
+   no longer matches the live one at that id (the slot held a
    different, or no, shape at T), destroy that live handle (`world->destroyDebugShape`) and leave
    the restored shape's `userShape` `NULL` for lazy recreation on the next draw; when the
    generation matches, leave the live handle exactly as it is untouched, the same handle-reuse
@@ -588,7 +621,8 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
    membership, graph-colour `bodySet` bitsets (by logical bit value up to the body id pool's
    capacity, not raw block count), sensor
    overlaps, shape bounds (`shape->aabb` and `fatAABBs`), each shape's tree-proxy `categoryBits`,
-   and moved-proxy membership, world scalars and flags, in id order, hashing float bit patterns. This is the
+   and moved-proxy membership, world scalars and flags excluding `userData` (caller-opaque, not
+   simulation-affecting, and not portable across processes), in id order, hashing float bit patterns. This is the
    oracle for everything below and is worth exposing publicly for lockstep desync detection.
 2. **Restore exactness.** For each benchmark scene, step to steady state, then for 1,000 random
    (T, P) pairs inside the window, with random API churn between (creates, destroys, setters on
