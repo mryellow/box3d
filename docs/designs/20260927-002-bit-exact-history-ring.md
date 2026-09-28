@@ -319,6 +319,14 @@ table, bitset and tree modules each have two to four entry points, so those hook
 mechanical. The record sites are the audit surface; §12's cold-hash guard is what makes a
 missed site a failing test.
 
+A record-write hook captures old bytes only on that record's first touch within the currently
+open segment (a second hook call for the same record in the same tick, e.g. from a mutator that
+writes the same struct more than once, is a no-op against an entry that already exists for it).
+New bytes for every record touched in the segment are captured once, when the segment closes
+(§6 step 4), by reading each touched record's then-current live bytes — so a record written
+several times in one tick still gets exactly one entry, whose old/new bytes span the tick's net
+change, not each intermediate write.
+
 ### 7.4 Trees are derived, given one CCD change
 
 The exact tree layout matters to physics in two places. First, continuous collision passes the
@@ -459,6 +467,13 @@ the retained window, so they are inert bytes awaiting physical overwrite, not a 
 `historyTick`. Rewind sets it to T. Ordinary stepping after a rewind overwrites slots T+1… and
 discards their old journal segments; the branch is implicit.
 
+`b3World_EnableHistory` itself captures an image at the world's current `stepIndex` (0 for a
+world that has never been stepped) and sets `historyTick` to it, before any subsequent
+`b3World_Step` runs — the same capture as §6, run once at enable time instead of at a step
+boundary — so the enable-time state is itself an imaged, restorable tick. API calls made between
+`b3World_EnableHistory` and the first subsequent step enter that tick's still-open journal segment
+(§9's existing open-segment handling).
+
 ## 9. Restore
 
 `b3World_Rewind( worldId, T )`, at a step boundary, world not locked:
@@ -488,13 +503,14 @@ discards their old journal segments; the branch is implicit.
    every shape with a journaled record in the walked range — the only shapes whose generation the
    walk could have changed, since a shape's generation only ever changes at creation
    (`shape->generation += 1`), itself an unconditionally journaled structural write — if its
-   pre-restore live `userShape` debug-draw handle is non-`NULL` and the shape's restored generation
-   no longer matches the live one at that id (the slot held a
-   different, or no, shape at T), destroy that live handle (`world->destroyDebugShape`) and leave
-   the restored shape's `userShape` `NULL` for lazy recreation on the next draw; when the
-   generation matches, leave the live handle exactly as it is untouched, the same handle-reuse
-   this design borrows from the existing serializer's keyframe restore (`world_snapshot.c`). Set
-   `historyTick = T`.
+   pre-restore live `userShape` debug-draw handle is non-`NULL` and either the shape's restored
+   generation no longer matches the live one at that id (the slot held a different, or no, shape
+   at T) or the walked range includes a journaled geometry-changing write for this shape
+   (`b3Shape_SetSphere`/`SetCapsule`/`SetHull`/`SetMesh`, the only setters that destroy a live
+   handle without changing generation), destroy that live handle (`world->destroyDebugShape`) and
+   leave the restored shape's `userShape` `NULL` for lazy recreation on the next draw; otherwise
+   leave the live handle exactly as it is untouched, the same handle-reuse this design borrows
+   from the existing serializer's keyframe restore (`world_snapshot.c`). Set `historyTick = T`.
 6. In validation builds, run `b3ValidateSolverSets`, `b3ValidateContacts`,
    `b3ValidateConnectivity`, `b3DynamicTree_Validate`, then the cold-hash check (§12).
 
@@ -521,6 +537,9 @@ in the same order recreates them with the same ids.
   `preSolve` calls CCD triggers for its own candidates (`solver.c`), and the traversal order seen
   by a cast, overlap, or mover callback, follow tree traversal (§7.4) and may differ after a
   restore; a callback with order-dependent side effects breaks the contract for those two cases.
+  `b3World_CastRayClosest`'s shape-id tie-break (§7.4) is exact except against a mesh or
+  height-field shape, which can silently report no hit instead of losing the tie; a caller using
+  its result as a later input inherits that same residual order dependence.
   A query result's own `nodeVisits`/`leafVisits` counts are diagnostic, not simulation-affecting,
   and may also differ after a restore-rebuilt tree; a caller must not feed them back into
   simulation input.
@@ -621,15 +640,19 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
    membership, graph-colour `bodySet` bitsets (by logical bit value up to the body id pool's
    capacity, not raw block count), sensor
    overlaps, shape bounds (`shape->aabb` and `fatAABBs`), each shape's tree-proxy `categoryBits`,
-   and moved-proxy membership, world scalars and flags excluding `userData` (caller-opaque, not
-   simulation-affecting, and not portable across processes), in id order, hashing float bit patterns. This is the
+   and moved-proxy membership, world scalars and flags — every body's, shape's, and joint's own
+   `userData`, and the world's own `userData`, excluded throughout, caller-opaque and not portable
+   across processes — in id order, hashing float bit patterns. This is the
    oracle for everything below and is worth exposing publicly for lockstep desync detection.
 2. **Restore exactness.** For each benchmark scene, step to steady state, then for 1,000 random
    (T, P) pairs inside the window, with random API churn between (creates, destroys, setters on
    sleeping bodies, forced sleep/wake toggles, explosions): `hash(Rewind(T)) == hash recorded at
-   T`. Backward and forward.
+   T`. Backward and forward. Same-process only, also compare every body's, shape's, and joint's
+   `userData` pointer (via `b3*_GetUserData`) and the world's `userData` (via
+   `b3World_GetUserData`) against the value recorded at T, since the hash above excludes them.
 3. **Replay exactness.** After `Rewind(T)`, re-step to P replaying the recorded API calls:
-   `hash == hash recorded at P` at every intermediate tick. This is the bit-exact claim.
+   `hash == hash recorded at P` at every intermediate tick, plus the same same-process `userData`
+   comparison as test 2. This is the bit-exact claim.
 4. **Cold-hash guard (validation builds).** At capture, hash every cold structure §5.2 lists as
    journaled, in full — sleeping sets, non-awake records, shape and joint fields journaled
    regardless of owner awake state, non-awake shape bounds, pools, pair set, graph-colour
