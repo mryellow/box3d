@@ -447,10 +447,12 @@ in the same order recreates them with the same ids.
   the same order. Callers that want to keep a mispredicted spawn must recreate it.
 - **Mesh, height-field, and baked-compound geometry buffers are caller-owned**, unlike a hull
   (which the engine refcounts in its own database, §7.1). The engine only stores the pointer
-  passed at shape creation; a journaled record of such a shape only copies that pointer, not the
-  geometry. A caller enabling history must keep such a buffer alive for as long as any retained
-  tick could still reference the shape that used it — through the shape's destruction and until
-  the ring evicts the tick, not merely through the shape's own lifetime.
+  passed at shape creation or by a later geometry setter (`b3Shape_SetMesh` and its siblings); a
+  journaled record of such a write only copies the pointer, not the geometry. A caller enabling
+  history must keep every such buffer alive for as long as any retained tick could still
+  reference the shape with that pointer installed — through the shape's destruction or the
+  pointer's replacement, and until the ring evicts the tick, not merely through the buffer's own
+  intended lifetime.
 - **`b3World_Explode`** collects every candidate shape from its query, sorts by shape id, then
   wakes bodies and applies impulses in that order (§7.4); a replayed explode reproduces the same
   velocities and wake order as the original run, since shape ids are stable across a rewind and
