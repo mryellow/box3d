@@ -247,8 +247,9 @@ A journal segment is an append-only byte stream. Entry kinds:
 **Ownership transfer instead of copying.** When a sleeping set is destroyed by a wake, its
 arrays are not freed; the entry takes ownership. Undo hands them back. The same applies to an
 island destroyed by a merge or split, to a shape's `materials` array, to a mesh contact's
-`triangleCache` array, and to a destroyed sensor's `overlaps2` array (heap-owned allocations in
-§5.2's inventory) whenever a write would free or reallocate one: the entry takes ownership of the old array instead of storing its bytes inline,
+`triangleCache` array, and to a destroyed sensor's `hits`, `overlaps1`, and `overlaps2` arrays
+(heap-owned allocations, `overlaps2` in §5.2's inventory) whenever a write would free or
+reallocate one: the entry takes ownership of the old array instead of storing its bytes inline,
 so undo hands back a live array rather than dereferencing a freed pointer. A shape's `hull`
 pointer references a refcounted entry in the world's hull database (`b3AddHullToDatabase`/
 `b3RemoveHullFromDatabase`), freed when its count reaches zero: a journaled write whose forward
@@ -404,9 +405,10 @@ discards their old journal segments; the branch is implicit.
    (not reallocate) its three link arrays to the image counts and copy their content, then copy
    the rest of the `b3Island` record, excluding those arrays' own live data pointers. For each
    imaged contact: if the live slot has a manifold block of the right count, copy into it,
-   otherwise free and allocate one; then copy the rest of the `b3Contact` record, excluding the
-   `manifolds` pointer field, which the preceding step already set correctly. World scalars,
-   fat AABBs.
+   otherwise free and allocate one; for a mesh contact, likewise resize (not reallocate) the live
+   `triangleCache` to the image count and copy its content; then copy the rest of the `b3Contact`
+   record, excluding the `manifolds` and `meshContact.triangleCache` pointer fields, which the
+   preceding steps already set correctly. World scalars, fat AABBs.
 4. **Trees** per §7.4.
 5. **Scratch and events.** Clear event arrays, both end-event buffers, move events, and
    task-context bitsets, and reset every restored body's `bodyMoveIndex` to none. Events for
