@@ -6,12 +6,15 @@ This project uses OpenAI Codex CLI as a second reviewer for the design docs unde
 This document describes how that review loop is run and where its output lives.
 
 Only the process is described here — content decisions it produced live in the design docs
-themselves (their `status:` front matter records the round history and rationale), not here.
+themselves, not here: design rationale in the doc's body (step 5 below), and the series'
+outcome — round count, converged or not — as prose in its `status:` front matter (step 8). The
+front matter is the one place a design doc refers to its own review series; the body never does.
 
 ## Where files are saved
 
-- Every review round is written to `docs/designs/reviews/`, one file per round, never edited
-  after the fact.
+- Every review round is written to `docs/designs/reviews/`, one file per round. A Codex round
+  file is never edited after the fact; the only later edit any review file receives is the
+  `Resolution` note a non-Codex review gets once addressed (see the end of this document).
 - Filename: `YYYYMMDD-NNN-<slug>.md`, e.g. `20260927-002-bit-exact-history-ring-round11.md`.
   - `YYYYMMDD` — date the round was run.
   - `NNN` — a counter that increments per *target doc* review started that day, not per round
@@ -60,17 +63,23 @@ themselves (their `status:` front matter records the round history and rationale
    must therefore carry enough settled rationale inline (status/why-not-X notes) that a
    from-scratch reviewer reconstructs the current constraints correctly without review history —
    that's what keeps Codex from relitigating settled decisions, not a prompt reminder about prior
-   rounds.
-   - **Exception: declined findings travel with the prompt, as a curated list, never as a pointer
-     to the reviews directory.** The prompt includes every finding declined so far across all
-     rounds, each compressed to a terse one-line restatement of the finding plus the reason it was
-     declined — compiled by Claude from the round files' own Post-review verification sections,
-     not by directing Codex to go read those files itself. This is handed over as plain context,
-     not framed as an invitation to argue or relitigate. If a fresh reviewer independently lands
-     on the same ground again and disputes the stated reasoning by citing source directly, that
-     citation gets checked against the actual source with the same rigor as any new finding — a
-     repeat's content needs re-verification every time it recurs, not just a check that it was
-     raised and declined before.
+   rounds. Step 5 is where that rationale gets written into the doc, and step 7 is where a
+   round that had to relitigate settled ground gets noticed, so the gap is closed before the
+   next round rather than found again by it.
+   - **Exception: declined findings the doc cannot answer for itself travel with the prompt, as
+     a curated list, never as a pointer to the reviews directory.** A decline is one of two
+     things. Either the doc was right and should have said why — then the fix is the doc's own
+     rationale (step 5), the doc now answers a fresh reviewer directly, and the finding does not
+     go on the list. Or the reviewer was wrong about the source or misread the doc — the doc has
+     nothing to add, so the finding goes on the list: a terse one-line restatement plus the reason
+     it was declined, compiled by Claude from the round files' own Post-review verification
+     sections, not by directing Codex to go read those files itself. This is handed over as plain
+     context, not framed as an invitation to argue or relitigate. If a fresh reviewer
+     independently lands on the same ground again — listed or in-doc — and disputes the stated
+     reasoning by citing source directly, that citation gets checked against the actual source
+     with the same rigor as any new finding (step 5's reversal-check): a repeat's content needs
+     re-verification every time it recurs, not just a check that it was raised and declined
+     before.
    - **Every round is the same full, broad pass — first round, last round, and every round
      between**: correctness, soundness of the recommendation, internal consistency, gaps/risks,
      clarity, and completeness. There is no narrowed or reduced-scope round, at any point in a
@@ -186,33 +195,55 @@ themselves (their `status:` front matter records the round history and rationale
    `## Proposed edits`, `## Unresolved / disagreements`, and a one-line `## Verdict`
    (`CHANGES_PROPOSED` or `CONVERGED`).
 5. Claude verifies each proposed finding against the actual repo/doc state (Codex's model
-   knowledge can be stale relative to the doc's date) and applies the ones that are genuine
-   defects, in place in the target doc, as the smallest fix that corrects the error. The fix
-   states the corrected fact and nothing else — **no justification prose, ever, not even a
-   clause**. A reason the fix is correct ("since X only applies when...", "because Y is the only
-   Z that...", "which matters because...") is not part of the fix and does not belong in the doc
-   at any length, not even trimmed to one clause: it is new, unreviewed surface that the next
-   fresh-context round (step 2) will scrutinize as though it were original design content, and a
-   loop that keeps growing the doc every round instead of shrinking to settled fact never reaches
-   `CONVERGED`. If a reason genuinely needs recording, it goes in the round file's own
-   Post-review verification section (step 6), never in the target doc. Claude does **not** apply
-   a finding just because Codex proposed it, and records any finding it declines and why.
-   - The target doc is a design doc, not a changelog of its own review: an in-doc fix reads as
-     if it had always been right, with no trace that a review round, a finding, or an earlier
-     draft's wording ever existed. Never write "this closes a gap round N left," "correcting
-     round N's fix," "an earlier version of this section claimed X," or similar — that narration
-     belongs in the round file's own Post-review verification section (step 6), not the doc.
-     Delete a wrong sentence and write the right one; don't keep both with a note explaining the
-     difference.
+   knowledge can be stale relative to the doc's date), applies the ones that are genuine
+   defects in place in the target doc, and declines the rest, recording why in the round file
+   (step 6). Claude does **not** apply a finding just because Codex proposed it. Two rules
+   govern what an applied edit may contain, and a third governs a finding that revisits settled
+   ground:
+   - **A fix is the smallest edit that corrects the error, and it carries no commentary on why
+     the edit is correct** — no "since X only applies when...", "because Y is the only Z
+     that...", "which matters because...", and no narration of the review itself ("this closes a
+     gap round N left," "correcting round N's fix," "an earlier version of this section claimed
+     X"). Such text carries no design claim, so the next fresh round spends effort scrutinising
+     it for nothing; the reason an edit is correct belongs in the round file's Post-review
+     verification section (step 6). An in-doc fix reads as if it had always been right, with no
+     trace a review round or an earlier draft's wording ever existed: delete the wrong sentence
+     and write the right one, don't keep both with a note explaining the difference.
+   - **The doc's own design rationale is required content, and adding it is a fix like any
+     other** — "why not X," why this approach over an alternative, what an invariant depends
+     on. It is written in the doc's own voice, as if it had always been there, never as a note
+     about what a reviewer said. It is added whenever the doc is found not to say it: because
+     Codex flagged the omission, or because a finding was declined on grounds the doc should
+     have stated itself (step 2's first kind of decline). The next fresh round reviews that
+     rationale as design content — which is correct, since a wrong rationale is a real defect
+     and should be found. Withholding rationale to keep the doc from growing is what forces
+     every fresh round to re-open a question the doc could have answered on its own; the rule
+     above bans text that carries no design claim, not text that carries the design's reasons.
+   - **Reversal-check: a finding that contradicts rationale the doc already states is not new
+     work until it engages that rationale.** The round's argument must say why the stated
+     reason no longer holds, with fresh evidence from source — not just restate the
+     alternative. If it does and
+     the evidence checks out, apply it: the doc's rationale changes to the new fact, with no
+     trace of the old one. If it doesn't, decline it and, if the existing rationale evidently
+     wasn't clear enough to head the re-raise off, sharpen it rather than leaving it exactly
+     as-is for the next fresh reviewer to trip over again. Silently re-flipping the design to
+     match whichever round most recently argued for it is not convergence, it's oscillation —
+     and it is how a series can keep producing a new finding almost every round on a doc that
+     is genuinely no closer to settled than it was ten rounds ago.
 6. Claude appends a `## Post-review verification (Claude)` section to the round's file recording:
    the invocation (mode, timing, exit code, confirmation the working tree was/wasn't touched by
    Codex), which findings were verified against source (with the evidence checked) and applied
    or declined, and why for any decline.
 7. Claude appends a `## Status` section: how this round's finding rate compares to recent
-   rounds (still finding new categories of issue vs. narrowing to edge cases), whether any
-   finding was a consequence of the immediately preceding round's own fix, and what happens
-   next (another fresh round, at the same full scope, or stopping). End the section with a
-   one-line convergence tally, so the trend is legible without re-reading every round's prose:
+   rounds (still finding new categories of issue vs. only edge cases), whether any
+   finding was a consequence of the immediately preceding round's own fix, whether any finding
+   reopened ground the doc's own rationale already covered (per step 5's reversal-check — and if
+   so, whether this round's argument actually engaged that rationale or just re-raised the same
+   alternative), and what happens next (another fresh round, at the same full scope, or
+   stopping). A round with mostly reopened findings is a signal to go sharpen the doc's rationale
+   before the next round, not a signal to narrow what the next round is asked to check. End the
+   section with a one-line convergence tally, so the trend is legible without re-reading every
+   round's prose:
 
    `Round N: F findings (HN-MN-LN), A applied, D declined`
 
@@ -224,18 +255,32 @@ themselves (their `status:` front matter records the round history and rationale
 
    `Series total: 100 findings (42H-45M-13L) across 26 rounds`
 
+   Then the convergence pattern itself, the most important line for a human reader: every round's
+   count in order, oldest first, in the same notation, ending with this round. Build it by copying
+   the previous round's `Findings:` line and appending ` -> ` and this round's `F (HN-MN-LN)`
+   (round 1 starts the line), e.g.:
+
+   `Findings: 12 (3H-6M-3L) -> 9 (2H-5M-2L) -> 4 (0H-3M-1L) -> 0 (0H-0M-0L)`
+
+   Never abbreviate or elide earlier rounds; the full sequence is the point. The same line is
+   reproduced verbatim in any summary of the series given to a human (a hand-off message, a commit
+   message covering several rounds, the target doc's `status:` front matter under step 8).
+
    A `CONVERGED` round's own tally is trivially `0 findings (0H-0M-0L)`. This tally is a
-   convergence *signal*, not a stopping rule by itself — a falling count across recent rounds
-   supports stopping; a `CONVERGED` verdict (step 8) is what actually stops the series.
-8. Repeat with another round, always at the same full scope as every prior round, while findings
-   keep surfacing real, source-confirmed issues. A `CONVERGED` verdict means this round, run
-   full-scope and from scratch, found nothing wrong with what the doc currently claims — it is
-   not architectural endorsement of the doc's underlying approach, and it is not a signal that
-   future rounds (if the user asks for more, or a later revision reopens the doc) should be run
-   any narrower than this one was. Stop once a round's verdict is `CONVERGED` (empty findings) or
-   the user says to stop. When a series converges, record that in the *target doc's own* `status:`
-   front matter as prose (see `docs/designs/20260927-001-client-prediction-rollback.md` for a
-   worked example) — not in a review file. The last round's `## Status` section is the only
+   convergence *signal*, not a stopping rule: a falling count is the trend to expect on the way
+   there, and a `CONVERGED` verdict (step 8) is the only thing that actually stops the series.
+8. Repeat with another round, always at the same full scope as every prior round, until a round
+   returns `CONVERGED` or the user says to stop. A round whose findings were all declined is not
+   a converged round — its verdict was `CHANGES_PROPOSED`, and only a fresh reviewer returning
+   `CONVERGED` closes the series, never Claude declining everything; the doc gets whatever
+   rationale the declines showed it was missing (step 5), and another full round runs. A
+   `CONVERGED` verdict means this round, run full-scope and from scratch, found nothing wrong
+   with what the doc currently claims — it is not architectural endorsement of the doc's
+   underlying approach, and it is not a signal that future rounds (if the user asks for more, or
+   a later revision reopens the doc) should be run any narrower than this one was. When a series
+   converges, record that in the *target doc's own* `status:` front matter as prose (see
+   `docs/designs/20260927-001-client-prediction-rollback.md` for a worked example) — not in a
+   review file. The last round's `## Status` section is the only
    record of how the series ended; there is no separate summary section.
 
 ## File structure of a review round
