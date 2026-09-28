@@ -253,11 +253,12 @@ island destroyed by a merge or split, to a shape's `materials` array, to a mesh 
 reallocate one: the entry takes ownership of the old array instead of storing its bytes inline,
 so undo hands back a live array rather than dereferencing a freed pointer. A shape's `hull`
 pointer references a refcounted entry in the world's hull database (`b3AddHullToDatabase`/
-`b3RemoveHullFromDatabase`), freed when its count reaches zero: a journaled write whose forward
-direction would drop the last reference takes a reference on the hull data instead of letting it
-free, holds it until the entry is evicted, and releases that extra reference on eviction. A plain
-record write is enough only when the write does not change which hull entry the shape
-references. Journal cost for the expensive transitions is O(1) plus the record writes the engine
+`b3RemoveHullFromDatabase`), freed when its count reaches zero: a journaled write that installs a
+new hull takes an extra reference on both the old and the new hull data, for as long as the entry
+is retained, and releases both extra references only on eviction — undo would otherwise drop the
+new hull's only reference, and redo the old hull's, either of which can leave a later scrub
+installing a dangling pointer. A plain record write is enough only when the write does not change
+which hull entry the shape references. Journal cost for the expensive transitions is O(1) plus the record writes the engine
 already makes; nothing is copied twice. Arrays owned by evicted journal segments are freed on
 eviction.
 
