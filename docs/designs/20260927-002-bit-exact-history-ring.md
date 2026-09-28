@@ -178,11 +178,15 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 | `sensors[]` create/destroy | `shape.c:234-242`, `527-563`, `sensor.c:414-450` |
 | `sensors[shapeId].overlaps2` content | `b3SensorTask`, whenever the sensor's own per-step `eventBits` bit is set (`sensor.c`) |
 
-Swap-compaction on removal (awake rows, colour arrays, set `contactIndices`, island arrays,
-`islandSims`, `sensors[]`) rewrites *another* element's `localIndex`/`islandIndex`; for bodies,
-`encodedBodySimA/B` on every contact of the moved body; and for sensors, the moved sensor's
-owning shape's `sensorIndex`. Those are ordinary journaled record writes; nothing special is
-needed because the journal stores whole records.
+Swap-compaction on removal needs nothing beyond the image for awake rows and colour arrays,
+since the whole array is re-imaged every tick regardless of what moved. For a non-awake solver
+set's dense arrays (`bodySims`, `bodyStates`, `jointSims`, `contactIndices`, `islandSims`),
+island link arrays, and `sensors[]`, a swap-remove is a dense-cold-array entry (§7.1): the moved
+element's own record write (already covered) restores its content, but not the array's length or
+which slot it occupies, which the append/swap-remove entry restores instead. The moved element's
+*other* referencing records are ordinary journaled record writes, since only their value changes,
+not their own array's shape: for bodies, `encodedBodySimA/B` on every contact of the moved body;
+for sensors, the moved sensor's owning shape's `sensorIndex`.
 
 ### 5.3 Scratch (nothing)
 
@@ -242,7 +246,7 @@ A journal segment is an append-only byte stream. Entry kinds:
 | bitset set/clear | colour, body id | clear / set |
 | set create (sleep) | set index, ownership handle | undo: detach arrays into the entry; redo: reattach |
 | set destroy (wake) | set index, ownership handle | undo: reattach arrays; redo: detach |
-| island arrays | island id, ownership handle, or (old length, popped element bytes) | truncate and restore the popped element / reattach |
+| dense cold arrays (island link arrays, non-awake solver-set arrays, `sensors[]`) | owning id, ownership handle, or (old length, popped element bytes) | truncate and restore the popped element / reattach |
 | manifold block | contact id, count, old manifold bytes, new manifold bytes, and (for a mesh contact) old/new triangle-cache bytes | reallocate and copy either way |
 
 **Ownership transfer instead of copying.** When a sleeping set is destroyed by a wake, its
@@ -532,8 +536,8 @@ tie-break, a scalar grouping, a hash, and tests.
    velocities only) to `b3World_ComputeStateHash`: bodies, sims, states, shapes (filter,
    material, geometry), contact records, manifolds and impulses, joint sims, island membership
    and sleep partition, pool state, pair set membership, graph-colour `bodySet` bitsets, sensor
-   overlaps, shape bounds (`fatAABBs`), each shape's tree-proxy `categoryBits`, and moved-proxy
-   membership, world scalars and flags, in id order, hashing float bit patterns. This is the
+   overlaps, shape bounds (`shape->aabb` and `fatAABBs`), each shape's tree-proxy `categoryBits`,
+   and moved-proxy membership, world scalars and flags, in id order, hashing float bit patterns. This is the
    oracle for everything below and is worth exposing publicly for lockstep desync detection.
 2. **Restore exactness.** For each benchmark scene, step to steady state, then for 1,000 random
    (T, P) pairs inside the window, with random API churn between (creates, destroys, setters on
