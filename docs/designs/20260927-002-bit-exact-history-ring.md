@@ -70,7 +70,9 @@ The answer has three parts:
    the budget (§8).
 6. **No approximations and no new solver participant kinds.** Resimulation is `b3World_Step`.
 7. **Verified by test, not by audit.** The set of journaled writes is checked by hashing cold
-   state in validation builds, so a missed write site fails a test rather than a review.
+   state in validation builds, so a missed write site fails a test rather than a review — except a
+   proxy-reset hook, whose only effect is a field deliberately excluded from that hash (§12), and
+   which therefore needs its own separate coverage check.
 
 Non-goals: capture or resim proportional to the *predicted* subset (design 001's requirements
 1–2). §11 covers what that would take on top of this design.
@@ -166,13 +168,13 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 
 | Structure | Mutating functions |
 |---|---|
-| `bodies[id]` (non-awake owner, or any transition) | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c:271-289`, `406-432`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, and the `b3Body_Set*` API family (`body.c:1601-2512`) |
+| `bodies[id]` (non-awake owner, or any transition) | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c:271-289`, `406-432`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, and the `b3Body_Set*`/`Enable*`/`AllowFastRotation` API family (`body.c:1601-2512`) |
 | non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback |
-| `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey`/`userShape` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
+| `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey`/`userShape` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*`/`Enable*` (`shape.c:1141-1684`), `b3Body_EnableHitEvents` (sets every owned shape's flags, `body.c:2524-2538`), unconditionally — the hot path never rewrites these fields, awake owner or not |
 | `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass), and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
 | tree proxy `categoryBits`, keyed by shape id | every call to `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass) and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`) — every site that creates a fresh proxy, all of which set its category bits from `shape->filter.categoryBits` at that moment; diverges from `shape->filter.categoryBits` whenever a live proxy persists through an `invokeContacts=false` `b3Shape_SetFilter` call, so it is journaled as its own field rather than derived from the shape record at restore |
 | tree proxy reset (destroy and recreate in the same tree), keyed by shape id | `b3ResetProxy` when called with `destroyProxy=true` (`b3Shape_SetFilter` with `invokeContacts=true`, and other shape setters that recreate the proxy); `shape->proxyKey` itself is never journaled or restored directly (it is excluded from the generic shape-record row above), since a reset changes it to a new numeric id from the tree's live free list without necessarily changing bounds, category, or body type — §7.4 uses this entry, not a `proxyKey` value, to know when a shape's proxy needs rebuilding |
-| `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`) |
+| `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`), `b3UpdateBodyMassData`/`b3Body_SetMassData` clearing every neighbour contact's `relativeTransformValid` flag (`body.c:895-1055`, `1856-1945`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c:20-337`, `388-649`) |
 | solver sets (sleeping/static/disabled) | `b3TrySleepIsland` (creates a set, `solver_set.c:195-215`), `b3WakeSolverSet` (destroys one), `b3MergeSolverSets`, `b3CreateBody` (a body created asleep gets a set) |
@@ -453,10 +455,13 @@ the retained window, so they are inert bytes awaiting physical overwrite, not a 
   whenever skipping it would leave the current minimum window's oldest tick without an image at or
   before it — keeping every tick in the minimum window reachable (requirement 4), not merely
   physically retained. Every tick in the window still carries a journal segment (§6), and the
-  minimum window's oldest tick always carries an image, so if the minimum window's total required
-  storage —
-  every tick's journal segment plus that one required image — exceeds `maxBytes`, the ring
-  exceeds `maxBytes` for that window rather than dropping correctness-required state. `b3World_GetHistoryInfo` reports the effective interval and
+  minimum window's oldest tick always has a surviving image at or before it; that anchor image can
+  predate the window itself, since a single old anchor keeps satisfying "at or before" for every
+  later tick until its own slot is evicted, so every intervening tick's journal segment, from the
+  anchor through the window's newest tick, must also survive to bridge the gap back to it. So if
+  this total required storage — the anchor image plus every journal segment from the anchor's tick
+  through the window's newest tick — exceeds `maxBytes`, the ring exceeds `maxBytes` for that
+  window rather than dropping correctness-required state. `b3World_GetHistoryInfo` reports the effective interval and
   window, and its `bytesUsed` reports true usage even when it is over budget. Both `maxBytes` and
   `bytesUsed` count the arena's allocated capacity, not just the bytes its live slots currently
   occupy — amortized realloc growth (this bullet, and the journal-room growth two bullets below)
@@ -477,9 +482,12 @@ discards their old journal segments; the branch is implicit.
 `b3World_EnableHistory` itself captures an image at the world's current `stepIndex` (0 for a
 world that has never been stepped) and sets `historyTick` to it, before any subsequent
 `b3World_Step` runs — the same capture as §6, run once at enable time instead of at a step
-boundary — so the enable-time state is itself an imaged, restorable tick. API calls made between
-`b3World_EnableHistory` and the first subsequent step enter that tick's still-open journal segment
-(§9's existing open-segment handling).
+boundary — so the enable-time state is itself an imaged, restorable tick, and its own journal
+segment closes with that capture, same as any other tick's (§6 step 4). API calls made between
+`b3World_EnableHistory` and the first subsequent step enter the next tick's journal segment
+instead, opened as soon as the enable-time capture closes — the same rule §4 gives for any
+inter-step API call, applied at the enable boundary; the first subsequent `b3World_Step` closes
+that segment as usual (§9's existing open-segment handling).
 
 `historyTick` is its own counter, seeded from `stepIndex` at enable time but incremented once per
 subsequent `b3World_Step` call regardless of that call's `timeStep`: `stepIndex` (`solver.c`)
@@ -587,7 +595,10 @@ in the same order recreates them with the same ids.
   but does not remove or undo insertions already made into the cache. A string added only on a
   timeline later discarded by `Rewind` remains cached; if replay on the new timeline later adds a
   different string whose hash collides with it, `b3AddName` returns the abandoned entry's id and
-  `b3Body_GetName`/`b3Shape_GetName` resolve to the abandoned string, not the newly added one.
+  `b3Body_GetName`/`b3Shape_GetName` resolve to the abandoned string, not the newly added one. The
+  cache never frees an entry once added, so it grows with every distinct name ever inserted whether
+  or not history is enabled; this design neither introduces nor bounds that growth, and the cache's
+  bytes are not counted against `maxBytes` (§8), which caps only the ring arena.
 
 ## 11. Cost, and what "faster" can mean here
 
@@ -687,12 +698,17 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
    journaled, in full — sleeping sets, non-awake records, islands and their link arrays, shape
    and joint fields journaled regardless of owner awake state, non-awake shape bounds, pools,
    pair set, graph-colour `bodySet` bitsets (by logical bit value, not raw block count), tree
-   proxy `categoryBits`, tree proxy reset entries, sensor existence, and sensor overlaps —
+   proxy `categoryBits`, sensor existence, and sensor overlaps —
    not a separately maintained subset that can drift out of sync with §5.2. At the
    next capture, recompute and compare after replaying the
    segment's entries against a shadow copy. A write that bypassed the journal fails here, in
    whichever test first exercises it. This is what makes §5.2's list a test rather than a
-   promise.
+   promise, with one exception: a tree proxy reset entry (§5.2, §7.4) can leave bounds, category,
+   and body type all unchanged, changing only `shape->proxyKey`, which is deliberately excluded
+   from this hash and from restored record state alike (§7.4) — so a reset whose journal hook was
+   missed cannot be caught by this guard whenever it leaves every hashed field unchanged, and
+   needs its own coverage check instead (comparing live reset call sites against emitted
+   entries).
 5. **Cross-worker replay.** Run 3 at a different worker count than capture.
 6. **Cost.** Per-scene: capture µs and % of step; image and journal bytes per tick; restore ms
    for 1, 5 and 9 ticks back; replay ms. Acceptance: capture < 15% of step at 8 workers for
