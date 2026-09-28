@@ -165,9 +165,10 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 |---|---|
 | `bodies[id]` (non-awake owner, or any transition) | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c:271-289`, `406-432`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, and the `b3Body_Set*` API family (`body.c:1601-2512`) |
 | non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback |
-| `shapes[id]` fields other than `aabb`/`fatAABBs` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
+| `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
 | `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
 | tree proxy `categoryBits`, keyed by shape id | proxy creation, and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`); diverges from `shape->filter.categoryBits` whenever `invokeContacts=false` leaves the proxy unsynced, so it is journaled as its own field rather than derived from the shape record at restore |
+| tree proxy reset (destroy and recreate in the same tree), keyed by shape id | `b3ResetProxy` when called with `destroyProxy=true` (`b3Shape_SetFilter` with `invokeContacts=true`, and other shape setters that recreate the proxy); `shape->proxyKey` itself is never journaled or restored directly (it is excluded from the generic shape-record row above), since a reset changes it to a new numeric id from the tree's live free list without necessarily changing bounds, category, or body type — §7.4 uses this entry, not a `proxyKey` value, to know when a shape's proxy needs rebuilding |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c:20-337`, `388-649`) |
@@ -259,10 +260,16 @@ so undo hands back a live array rather than dereferencing a freed pointer. A sha
 pointer references a refcounted entry in the world's hull database (`b3AddHullToDatabase`/
 `b3RemoveHullFromDatabase`), freed when its count reaches zero: a journaled write that installs a
 new hull takes an extra reference on both the old and the new hull data, for as long as the entry
-is retained, and releases both extra references only on eviction — undo would otherwise drop the
-new hull's only reference, and redo the old hull's, either of which can leave a later scrub
-installing a dangling pointer. A plain record write is enough only when the write does not change
-which hull entry the shape references. Journal cost for the expensive transitions is O(1) plus the record writes the engine
+is retained — undo would otherwise drop the new hull's only reference, and redo the old hull's,
+either of which can leave a later scrub installing a dangling pointer. A plain record write is
+enough only when the write does not change which hull entry the shape references. Undo and redo
+copy the shape's `hull` pointer field like any other record write, never themselves calling
+`b3AddHullToDatabase`/`b3RemoveHullFromDatabase`, so the shape's own database reference stays
+wherever the original `b3Shape_SetHull` call left it; the entry's pair of extra references is what
+keeps both hulls valid across any number of scrubs. On eviction, the entry releases its extra
+reference on whichever of the two hulls is not the shape's current live `hull` value, and leaves
+its extra reference on whichever hull is, standing in for the shape's own reference, which no undo
+or redo ever reacquired. Journal cost for the expensive transitions is O(1) plus the record writes the engine
 already makes; nothing is copied twice. Arrays owned by evicted journal segments are freed on
 eviction.
 
@@ -343,8 +350,12 @@ a performance property, not a simulation property, and restore may rebuild it an
   to that journaled value, never derived from the restored `shape->filter`, since the two can
   have diverged; for a shape whose journaled body type at T differs from its live proxy's tree
   (`B3_PROXY_TYPE(shape->proxyKey)`), a proxy cannot move between trees, so destroy the live
-  proxy and recreate it in the tree matching T, with T's journaled category bits, instead;
-  proxies created or destroyed after T are handled by the journaled shape create/destroy;
+  proxy and recreate it in the tree matching T, with T's journaled category bits, instead; for a
+  shape with a journaled proxy-reset entry (§5.2) in the walked range, destroy the live proxy and
+  recreate it in the same tree with T's journaled category bits, even when its fat AABB, category,
+  and body type all already match the live proxy's, since a reset changes `shape->proxyKey` without
+  necessarily changing any of those three; proxies created or destroyed after T are handled by the
+  journaled shape create/destroy;
 - clear all moved bits, then for each shape id in image T's moved list, mark its current proxy
   moved (propagating to ancestors the same way the hot path does), resolving the id through the
   shape's own, already-restored `proxyKey` rather than a numeric proxy id, which a proxy
@@ -354,8 +365,8 @@ a performance property, not a simulation property, and restore may rebuild it an
 Cost O(moved · log n). Ring cost for trees: zero.
 
 Two residual order dependences remain and are documented in §10: the order of `preSolve`
-callbacks within a step, and the traversal order seen by a caller's own cast, overlap, or mover
-callback.
+callbacks CCD triggers during a sweep, and the traversal order seen by a caller's own cast,
+overlap, or mover callback.
 
 If the CCD change is not accepted, the fallback is to image the kinematic, dynamic, and static
 trees raw (≈90 B per proxy per tick): same order as the engine's own rebuild copy, but O(proxies)
@@ -380,9 +391,13 @@ window shrinks by one tick.
   budget, not just the arena's own bytes, or a single large wake/sleep transition or hull
   replacement could exceed a small budget unbounded. When a capture would not fit even after evicting down to a minimum window (say 2
   ticks), the capture interval doubles, as the recording player's keyframe ring does
-  (`recording_replay.c:2648-2675`). Widening the interval only reduces how many retained ticks
-  carry an image; every tick in the window still carries a journal segment (§6), and the minimum
-  window always carries at least one image, so if the minimum window's total required storage —
+  (`recording_replay.c:2648-2675`); unlike that unbounded recording, already-retained images are
+  never purged for falling off the new, wider grid — this ring only ever evicts the oldest slot,
+  on ordinary FIFO wraparound. Widening the interval only reduces how many retained ticks carry an
+  image on the usual K-th-tick cadence going forward; a capture takes an image outside that cadence
+  whenever skipping it would leave the current minimum window without one. Every tick in the window
+  still carries a journal segment (§6), and the minimum window always carries at least one image,
+  so if the minimum window's total required storage —
   every tick's journal segment plus that one required image — exceeds `maxBytes`, the ring
   exceeds `maxBytes` for that window rather than dropping correctness-required state. `b3World_GetHistoryInfo` reports the effective interval and
   window, and its `bytesUsed` reports true usage even when it is over budget.
@@ -444,9 +459,11 @@ in the same order recreates them with the same ids.
   whichever callback was active at T immediately after `Rewind(T)`, then replay any later
   callback-configuration change at its correct point during resim. Independently, `preSolve`, custom filter, friction/restitution mixers, and a cast or
   overlap query's own result callback run live and must be pure functions of their inputs for
-  the replay to be exact. `preSolve` order within a step, and the traversal order seen by a cast,
-  overlap, or mover callback, follow tree traversal (§7.4) and may differ after a restore; a
-  callback with order-dependent side effects breaks the contract.
+  the replay to be exact. The ordinary per-contact `preSolve` call (`contact.c`) follows the
+  graph-colour array order, which the image restores exactly regardless of tree layout. Only the
+  `preSolve` calls CCD triggers for its own candidates (`solver.c`), and the traversal order seen
+  by a cast, overlap, or mover callback, follow tree traversal (§7.4) and may differ after a
+  restore; a callback with order-dependent side effects breaks the contract for those two cases.
 - **Events are regenerated** during replay exactly as originally, because event generation is
   deterministic. The engine does not flag replay; the caller knows it is replaying. Immediately
   after `Rewind(T)`, before any replay, no events are available for tick T itself — §9 clears
@@ -549,9 +566,11 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
    T`. Backward and forward.
 3. **Replay exactness.** After `Rewind(T)`, re-step to P replaying the recorded API calls:
    `hash == hash recorded at P` at every intermediate tick. This is the bit-exact claim.
-4. **Cold-hash guard (validation builds).** At capture, hash every cold structure that the
-   journal claims is unchanged since the last capture unless journaled: sleeping sets, non-awake
-   records, pools, pair set, graph-colour `bodySet` bitsets, tree proxy `categoryBits`. At the
+4. **Cold-hash guard (validation builds).** At capture, hash every cold structure §5.2 lists as
+   journaled, in full — sleeping sets, non-awake records, shape and joint fields journaled
+   regardless of owner awake state, non-awake shape bounds, pools, pair set, graph-colour
+   `bodySet` bitsets, tree proxy `categoryBits`, tree proxy reset entries, and sensor overlaps —
+   not a separately maintained subset that can drift out of sync with §5.2. At the
    next capture, recompute and compare after replaying the
    segment's entries against a shadow copy. A write that bypassed the journal fails here, in
    whichever test first exercises it. This is what makes §5.2's list a test rather than a
