@@ -172,7 +172,7 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 | non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback, `b3UpdateBodyMassData` writing the owning body's `bodySim` regardless of awake state (the shape-creation family and `b3DestroyShape` when `updateBodyMass` is set, `b3Shape_SetDensity`, `b3Body_ApplyMassFromShapes`, `b3Body_SetType`, `b3Body_SetMotionLocks` on a fixed-rotation change) |
 | `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey`/`userShape` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*`/`Enable*` (`shape.c:1141-1684`), `b3Body_EnableHitEvents` (sets every owned shape's flags, `body.c:2524-2538`), unconditionally — the hot path never rewrites these fields, awake owner or not |
 | `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass), and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
-| tree proxy `categoryBits`, keyed by shape id | every call to `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass) and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`) — every site that creates a fresh proxy, all of which set its category bits from `shape->filter.categoryBits` at that moment; diverges from `shape->filter.categoryBits` whenever a live proxy persists through an `invokeContacts=false` `b3Shape_SetFilter` call, so it is journaled as its own field rather than derived from the shape record at restore |
+| tree proxy `categoryBits`, keyed by shape id | every call to `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass) and every `b3ResetProxy` call with `destroyProxy=true` (`b3Shape_SetFilter` with `invokeContacts=true`, and the geometry setters `b3Shape_SetSphere`/`SetCapsule`/`SetHull`/`SetMesh`, which recreate the proxy unconditionally) — every site that creates a fresh proxy, all of which set its category bits from `shape->filter.categoryBits` at that moment; diverges from `shape->filter.categoryBits` whenever a live proxy persists through an `invokeContacts=false` `b3Shape_SetFilter` call, so it is journaled as its own field rather than derived from the shape record at restore |
 | tree proxy reset (destroy and recreate in the same tree), keyed by shape id | `b3ResetProxy` when called with `destroyProxy=true` (`b3Shape_SetFilter` with `invokeContacts=true`, and other shape setters that recreate the proxy); `shape->proxyKey` itself is never journaled or restored directly (it is excluded from the generic shape-record row above), since a reset changes it to a new numeric id from the tree's live free list without necessarily changing bounds, category, or body type — §7.4 uses this entry, not a `proxyKey` value, to know when a shape's proxy needs rebuilding |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`), `b3UpdateBodyMassData`/`b3Body_SetMassData` clearing every neighbour contact's `relativeTransformValid` flag (`body.c:895-1055`, `1856-1945`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files) |
@@ -216,7 +216,9 @@ reconstructible from fat AABBs plus the moved list, at the cost of one CCD chang
 
 At the end of every `b3World_Step`, after sensors and the end-event flip:
 
-1. Reserve a slot in the ring (§8) sized from the awake counts.
+1. Append the slot's header and image region to the ring (§8), sized from the awake counts — the
+   tick's journal segment has already been accumulating there since capture t−1's own step 4
+   closed it, immediately ahead of where this header and image now land.
 2. **Flat copies** (memcpy): awake set arrays, the 24 colours' arrays, world scalars. These are
    contiguous today.
 3. **Gathers** (parallel-for over the awake population, same task system as the step):
@@ -433,8 +435,14 @@ per tick.
 
 ## 8. Ring
 
-One circular byte arena per world. Slots are variable-length regions written in tick order: a
-header, the image, the journal segment. A slot directory maps tick → offset. When the writer
+One circular byte arena per world. Slots are variable-length regions written in tick order, but not
+in the order their three parts are listed: tick t's journal segment is the first of the three
+written, growing in the arena's free space as journal hooks append to it (§7.3) throughout step t
+and during the API calls before it (§4), starting as soon as capture t−1 closes (§6 step 4) —
+before step t's own awake counts, or even whether step t will run, are known. Only once step t
+completes are the header and the image appended immediately after that already-written journal
+segment, the header recording both parts' offsets and sizes (now known) so a reader can locate them
+without a fixed leading layout. A slot directory maps tick → its header's offset. When the writer
 wraps into the oldest slot, that slot is evicted (its owned arrays freed) and the retained
 window shrinks by one tick. Eviction is always oldest-slot-first and does not skip ahead to the
 next image, so evicting an imaged slot can leave younger, image-less slots physically still in
@@ -471,9 +479,12 @@ the retained window, so they are inert bytes awaiting physical overwrite, not a 
   after warm-up.
 - An image's size is known up front from the awake counts and each awake contact's own
   `manifoldCount` and, for a mesh contact, its triangle-cache length, so writing it never
-  allocates inside the step. A journal segment's size is not known up front — it grows as the step's structural
-  writes occur — so the arena reserves journal room with the same amortized realloc growth as
-  the previous bullet, not a single upfront allocation.
+  allocates inside the step and is appended in one pass once step t completes. A journal segment's
+  size is not known up front — it grows as the step's structural writes occur, starting before step
+  t itself does (the paragraph above) — so the arena reserves journal room with the same amortized
+  realloc growth as the previous bullet, not a single upfront allocation; growth extends the arena
+  forward from the still-open segment's current end, the same tail every subsequent journal hook
+  call in the same segment appends to.
 
 `world->historyTick` names the last completed tick. Capture increments it, then writes slot
 `historyTick`. Rewind sets it to T. Ordinary stepping after a rewind overwrites slots T+1… and
