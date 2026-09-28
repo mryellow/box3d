@@ -247,10 +247,10 @@ A journal segment is an append-only byte stream. Entry kinds:
 | record write | structure tag, id, old bytes, new bytes | copy old / copy new |
 | pool alloc/free | pool tag, id, source (free-list pop or bump index) | undo mirrors whichever source the alloc/free actually used, not always a push/pop; a bump-index source also grows or shrinks the pool's paired sparse array in lockstep (`bodies`, `shapes` and `fatAABBs`, `contacts`, `joints`, `islands`, `solverSets`), keeping pool capacity and array count equal for `b3ValidateSolverSets` |
 | pair set add/remove | key | remove / add (self-inverse) |
-| bitset set/clear | colour, body id | clear / set |
-| set create (sleep) | set index, ownership handle | undo: detach arrays into the entry; redo: reattach |
-| set destroy (wake) | set index, ownership handle | undo: reattach arrays; redo: detach |
-| dense cold arrays (island link arrays, non-awake solver-set arrays, `sensors[]`) | owning id, ownership handle, or (old length, popped element bytes) | truncate and restore the popped element / reattach |
+| bitset set/clear | colour, body id | clear / set; omitted when the operation would not change the bit's live value (e.g. clearing a static body's bit, which is never set) |
+| set create | set index, ownership handle | undo: detach arrays into the entry; redo: reattach |
+| set destroy | set index, ownership handle | undo: reattach arrays; redo: detach |
+| dense cold arrays (island link arrays, non-awake solver-set arrays, `sensors[]`) | owning id, ownership handle; or for an append: (array, appended element's bytes); or for a swap-remove: (array, removal index, old length, removed element bytes) | reattach; or for an append: undo truncates the length by one, redo re-appends the stored bytes; or for a swap-remove: undo grows the length by one, moves the slot currently at the removal index to the new last slot, then writes the removed element's bytes into the removal index, redo re-applies the swap-remove at that index |
 | manifold block | contact id, count, old manifold bytes, new manifold bytes, and (for a mesh contact) old/new triangle-cache bytes | reallocate and copy either way |
 
 **Ownership transfer instead of copying.** When a sleeping set is destroyed by a wake, its
@@ -350,6 +350,13 @@ smaller, or equal and its shape id is lower, instead of overwriting unconditiona
 few extra TOI evaluations on the rare multi-candidate sweep. After this, tree layout is
 a performance property, not a simulation property, and restore may rebuild it any way it likes:
 
+- for every shape owned by a body with a journaled transfer into or out of `b3_disabledSet` in the
+  walked range (`b3Body_Disable`/`b3Body_Enable` destroy and recreate every owned shape's proxy
+  without a shape create/destroy, body-type change, or proxy-reset entry), reconcile presence from
+  the body's already-restored `setIndex`: destroy the live proxy if the body is `b3_disabledSet` at
+  T; create one, in the tree matching T's body type with T's journaled category bits, if the body
+  is not `b3_disabledSet` at T and none exists; every subsequent bullet below then operates on a
+  proxy already known to exist;
 - for every shape whose fat AABB differs between the live tree and image T (awake shapes at T,
   plus shapes with journaled records), `b3DynamicTree_MoveProxy`; for every shape whose journaled
   proxy `categoryBits` at T (§5.2) differs from the live proxy's, `b3DynamicTree_SetCategoryBits`
@@ -578,7 +585,8 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
    always resets to none on restore and is therefore not restore-stable), sims, states, shapes
    (filter, material, geometry), contact records, manifolds and impulses, joint records and joint
    sims (including `collideConnected`), island membership and sleep partition, pool state, pair set
-   membership, graph-colour `bodySet` bitsets, sensor
+   membership, graph-colour `bodySet` bitsets (by logical bit value up to the body id pool's
+   capacity, not raw block count), sensor
    overlaps, shape bounds (`shape->aabb` and `fatAABBs`), each shape's tree-proxy `categoryBits`,
    and moved-proxy membership, world scalars and flags, in id order, hashing float bit patterns. This is the
    oracle for everything below and is worth exposing publicly for lockstep desync detection.
@@ -591,7 +599,8 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
 4. **Cold-hash guard (validation builds).** At capture, hash every cold structure §5.2 lists as
    journaled, in full — sleeping sets, non-awake records, shape and joint fields journaled
    regardless of owner awake state, non-awake shape bounds, pools, pair set, graph-colour
-   `bodySet` bitsets, tree proxy `categoryBits`, tree proxy reset entries, and sensor overlaps —
+   `bodySet` bitsets (by logical bit value, not raw block count), tree proxy `categoryBits`,
+   tree proxy reset entries, and sensor overlaps —
    not a separately maintained subset that can drift out of sync with §5.2. At the
    next capture, recompute and compare after replaying the
    segment's entries against a shadow copy. A write that bypassed the journal fails here, in
