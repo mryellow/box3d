@@ -169,7 +169,7 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 | `bodies[id]` (non-awake owner, or any transition) | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c:271-289`, `406-432`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, and the `b3Body_Set*` API family (`body.c:1601-2512`) |
 | non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback |
 | `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey`/`userShape` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
-| `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
+| `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass), and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
 | tree proxy `categoryBits`, keyed by shape id | every call to `b3CreateShapeProxy` (initial shape creation, `b3Body_Enable`, `b3Body_SetType`'s recreate pass) and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`) — every site that creates a fresh proxy, all of which set its category bits from `shape->filter.categoryBits` at that moment; diverges from `shape->filter.categoryBits` whenever a live proxy persists through an `invokeContacts=false` `b3Shape_SetFilter` call, so it is journaled as its own field rather than derived from the shape record at restore |
 | tree proxy reset (destroy and recreate in the same tree), keyed by shape id | `b3ResetProxy` when called with `destroyProxy=true` (`b3Shape_SetFilter` with `invokeContacts=true`, and other shape setters that recreate the proxy); `shape->proxyKey` itself is never journaled or restored directly (it is excluded from the generic shape-record row above), since a reset changes it to a new numeric id from the tree's live free list without necessarily changing bounds, category, or body type — §7.4 uses this entry, not a `proxyKey` value, to know when a shape's proxy needs rebuilding |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`) |
@@ -458,8 +458,9 @@ the retained window, so they are inert bytes awaiting physical overwrite, not a 
   window, and its `bytesUsed` reports true usage even when it is over budget.
 - Capacity growth (a scene grows) is a realloc of the arena with slot offsets preserved; rare
   after warm-up.
-- An image's size is known up front from the awake counts, so writing it never allocates inside
-  the step. A journal segment's size is not known up front — it grows as the step's structural
+- An image's size is known up front from the awake counts and each awake contact's own
+  `manifoldCount` and, for a mesh contact, its triangle-cache length, so writing it never
+  allocates inside the step. A journal segment's size is not known up front — it grows as the step's structural
   writes occur — so the arena reserves journal room with the same amortized realloc growth as
   the previous bullet, not a single upfront allocation.
 
@@ -566,6 +567,13 @@ in the same order recreates them with the same ids.
   velocities and wake order as the original run, since shape ids are stable across a rewind and
   replay. Woken-constraint order for overflow constraints (a body with more than 20 constraints)
   follows this same shape-id order, not tree traversal.
+- **Body and shape names are debug data, not restored.** `b3Body_SetName`/`b3Shape_SetName`
+  insert into a world-wide, append-only name cache (`name_cache.c`) keyed by a 32-bit hash of the
+  string; `Rewind` restores each body's or shape's own `nameId` field like any other record field,
+  but does not remove or undo insertions already made into the cache. A string added only on a
+  timeline later discarded by `Rewind` remains cached; if replay on the new timeline later adds a
+  different string whose hash collides with it, `b3AddName` returns the abandoned entry's id and
+  `b3Body_GetName`/`b3Shape_GetName` resolve to the abandoned string, not the newly added one.
 
 ## 11. Cost, and what "faster" can mean here
 
@@ -682,7 +690,8 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
   restore them itself immediately after a Phase 0 restore; Phase 1's own per-body/shape/joint
   image and journal entries carry these fields naturally, so this limitation is Phase 0-only.
 - **Phase 1, hot image + cold journal.** Journal hooks, ring arena, in-place image restore,
-  cold-hash guard. Trees imaged raw as the temporary fallback.
+  cold-hash guard, the wind-force pointer re-fetch after wake. Trees imaged raw as the temporary
+  fallback.
 - **Phase 2, derived trees.** The CCD order change and tree reconstruction at restore. Removes
   the last O(proxies) term.
 - **Phase 3, optional.** Contiguous hot contact storage (a per-colour contact-sim array as in
