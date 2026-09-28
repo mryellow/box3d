@@ -262,14 +262,17 @@ pointer references a refcounted entry in the world's hull database (`b3AddHullTo
 new hull takes an extra reference on both the old and the new hull data, for as long as the entry
 is retained — undo would otherwise drop the new hull's only reference, and redo the old hull's,
 either of which can leave a later scrub installing a dangling pointer. A plain record write is
-enough only when the write does not change which hull entry the shape references. Undo and redo
-copy the shape's `hull` pointer field like any other record write, never themselves calling
-`b3AddHullToDatabase`/`b3RemoveHullFromDatabase`, so the shape's own database reference stays
-wherever the original `b3Shape_SetHull` call left it; the entry's pair of extra references is what
-keeps both hulls valid across any number of scrubs. On eviction, the entry releases its extra
-reference on whichever of the two hulls is not the shape's current live `hull` value, and leaves
-its extra reference on whichever hull is, standing in for the shape's own reference, which no undo
-or redo ever reacquired. Journal cost for the expensive transitions is O(1) plus the record writes the engine
+enough only when the write does not change which hull entry the shape references. Undo and redo of
+a hull-changing entry, unlike a plain record write, call `b3AddHullToDatabase`/
+`b3RemoveHullFromDatabase` themselves on the shape's `hull` pointer field, exactly as the original
+`b3Shape_SetHull` call did — acquiring a real reference on the hull being installed and releasing
+one on the hull being replaced — so the shape's own database reference always mirrors whichever
+hull is its current live value, scrub after scrub, the same invariant the live engine maintains
+outside any history. The entry's separate pair of extra references exists only to keep both
+hulls' data from being freed by one of those real releases hitting zero while the entry is still
+retained; released unconditionally, both at once, on eviction, since past that point neither undo
+nor redo can reach this entry again and whichever hull the shape doesn't currently use no longer
+needs protecting. Journal cost for the expensive transitions is O(1) plus the record writes the engine
 already makes; nothing is copied twice. Arrays owned by evicted journal segments are freed on
 eviction.
 
@@ -424,12 +427,13 @@ discards their old journal segments; the branch is implicit.
    reverse order using old values. If T > P: for t = P+1 up to T, apply entries forward using new
    values. Pools, pair set, bitsets, sleeping sets, islands, non-awake records and sims are now
    exactly as at the end of step T, except awake-at-T structures that the image overrides next.
-3. **Image copy.** Resize (not reallocate) the awake set arrays and colour arrays to the image
-   counts and memcpy. Scatter body/shape/joint records by id. For each imaged island: resize
-   (not reallocate) its three link arrays to the image counts and copy their content, then copy
-   the rest of the `b3Island` record, excluding those arrays' own live data pointers. For each
+3. **Image copy.** Resize the awake set arrays and colour arrays to the image counts (growing the
+   underlying allocation only if the image is larger than the array's current capacity, never
+   shrinking it) and memcpy. Scatter body/shape/joint records by id. For each imaged island:
+   resize its three link arrays the same way to the image counts and copy their content, then
+   copy the rest of the `b3Island` record, excluding those arrays' own live data pointers. For each
    imaged contact: if the live slot has a manifold block of the right count, copy into it,
-   otherwise free and allocate one; for a mesh contact, likewise resize (not reallocate) the live
+   otherwise free and allocate one; for a mesh contact, likewise resize the live
    `triangleCache` to the image count and copy its content; then copy the rest of the `b3Contact`
    record, excluding the `manifolds` and `meshContact.triangleCache` pointer fields, which the
    preceding steps already set correctly. World scalars, fat AABBs.
@@ -464,6 +468,9 @@ in the same order recreates them with the same ids.
   `preSolve` calls CCD triggers for its own candidates (`solver.c`), and the traversal order seen
   by a cast, overlap, or mover callback, follow tree traversal (§7.4) and may differ after a
   restore; a callback with order-dependent side effects breaks the contract for those two cases.
+  A query result's own `nodeVisits`/`leafVisits` counts are diagnostic, not simulation-affecting,
+  and may also differ after a restore-rebuilt tree; a caller must not feed them back into
+  simulation input.
 - **Events are regenerated** during replay exactly as originally, because event generation is
   deterministic. The engine does not flag replay; the caller knows it is replaying. Immediately
   after `Rewind(T)`, before any replay, no events are available for tick T itself — §9 clears
@@ -477,10 +484,11 @@ in the same order recreates them with the same ids.
   (which the engine refcounts in its own database, §7.1). The engine only stores the pointer
   passed at shape creation or by a later geometry setter (`b3Shape_SetMesh` and its siblings); a
   journaled record of such a write only copies the pointer, not the geometry. A caller enabling
-  history must keep every such buffer alive for as long as any retained tick could still
-  reference the shape with that pointer installed — through the shape's destruction or the
-  pointer's replacement, and until the ring evicts the tick, not merely through the buffer's own
-  intended lifetime.
+  history must keep every such buffer alive **and unchanged** for as long as any retained tick
+  could still reference the shape with that pointer installed — through the shape's destruction or
+  the pointer's replacement, and until the ring evicts the tick, not merely through the buffer's
+  own intended lifetime; an in-place edit of the buffer's content, even without moving or freeing
+  it, changes what an earlier retained tick collides against, just as freeing it would.
 - **`b3World_Explode`** collects every candidate shape from its query, sorts by shape id, then
   wakes bodies and applies impulses in that order (§7.4); a replayed explode reproduces the same
   velocities and wake order as the original run, since shape ids are stable across a rewind and
