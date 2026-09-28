@@ -63,8 +63,9 @@ The answer has three parts:
    forward, without re-stepping; every retained tick, imaged or not, is reachable by restoring
    the newest imaged tick at or before it and replaying forward (§6).
 5. **Bounded memory** with graceful degradation: a byte budget widens the capture interval
-   instead of failing, except that a tick whose own required journal or image storage exceeds
-   the budget is kept anyway (§8).
+   instead of failing, except that the minimum window is kept anyway even when its total required
+   storage — every one of its ticks' journal segments plus the one image it must carry — exceeds
+   the budget (§8).
 6. **No approximations and no new solver participant kinds.** Resimulation is `b3World_Step`.
 7. **Verified by test, not by audit.** The set of journaled writes is checked by hashing cold
    state in validation builds, so a missed write site fails a test rather than a review.
@@ -561,9 +562,10 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
 ## 12. Verification
 
 1. **Full state hash.** Extend `b3HashWorldState` (`recording.c:1188`, transforms and
-   velocities only) to `b3World_ComputeStateHash`: bodies, sims, states, shapes (filter,
-   material, geometry), contact records, manifolds and impulses, joint records and joint sims
-   (including `collideConnected`), island membership and sleep partition, pool state, pair set
+   velocities only) to `b3World_ComputeStateHash`: bodies (excluding `bodyMoveIndex`, which §9
+   always resets to none on restore and is therefore not restore-stable), sims, states, shapes
+   (filter, material, geometry), contact records, manifolds and impulses, joint records and joint
+   sims (including `collideConnected`), island membership and sleep partition, pool state, pair set
    membership, graph-colour `bodySet` bitsets, sensor
    overlaps, shape bounds (`shape->aabb` and `fatAABBs`), each shape's tree-proxy `categoryBits`,
    and moved-proxy membership, world scalars and flags, in id order, hashing float bit patterns. This is the
@@ -595,7 +597,12 @@ tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, 
   images produced by `b3SerializeWorld` and restored by `b3DeserializeIntoShell`. This is
   O(world) and allocates, but it exists, it is tested, and it lets tests 2, 3 and 5 be written
   and the full-state hash be validated before any engine change. It also answers whether the
-  game's correction path works end to end.
+  game's correction path works end to end. This prototype's serializer clears body, shape, and
+  joint `userData` on restore (`world_snapshot.c`), so a caller relying on those pointers inside a
+  `preSolve`/filter/mixer callback, or reading them back off a regenerated move or joint event
+  (`solver.c` copies `body->userData`/`joint->userData` into the corresponding event), must
+  restore them itself immediately after a Phase 0 restore; Phase 1's own per-body/shape/joint
+  image and journal entries carry these fields naturally, so this limitation is Phase 0-only.
 - **Phase 1, hot image + cold journal.** Journal hooks, ring arena, in-place image restore,
   cold-hash guard. Trees imaged raw as the temporary fallback.
 - **Phase 2, derived trees.** The CCD order change and tree reconstruction at restore. Removes
