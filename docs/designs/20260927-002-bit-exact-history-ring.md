@@ -60,8 +60,10 @@ The answer has three parts:
    restored. A retained-but-unimaged tick (§6) is reached by replaying forward from the nearest
    imaged tick (§9), not by a direct `Rewind` call.
 4. **Scrubbable.** Any imaged tick can be restored from any current position, backward or
-   forward, without re-stepping; every retained tick, imaged or not, is reachable by restoring
-   the newest imaged tick at or before it and replaying forward (§6).
+   forward, without re-stepping; every tick at or after the oldest surviving image is reachable
+   by restoring the newest imaged tick at or before it and replaying forward (§6). A tick whose
+   journal segment is still physically in the arena but predates the oldest surviving image is
+   not reachable and is not part of the retained window (§8).
 5. **Bounded memory** with graceful degradation: a byte budget widens the capture interval
    instead of failing, except that the minimum window is kept anyway even when its total required
    storage — every one of its ticks' journal segments plus the one image it must carry — exceeds
@@ -166,7 +168,7 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 |---|---|
 | `bodies[id]` (non-awake owner, or any transition) | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c:271-289`, `406-432`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, and the `b3Body_Set*` API family (`body.c:1601-2512`) |
 | non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback |
-| `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
+| `shapes[id]` fields other than `aabb`/`fatAABBs`/`proxyKey`/`userShape` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
 | `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
 | tree proxy `categoryBits`, keyed by shape id | proxy creation, and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`); diverges from `shape->filter.categoryBits` whenever `invokeContacts=false` leaves the proxy unsynced, so it is journaled as its own field rather than derived from the shape record at restore |
 | tree proxy reset (destroy and recreate in the same tree), keyed by shape id | `b3ResetProxy` when called with `destroyProxy=true` (`b3Shape_SetFilter` with `invokeContacts=true`, and other shape setters that recreate the proxy); `shape->proxyKey` itself is never journaled or restored directly (it is excluded from the generic shape-record row above), since a reset changes it to a new numeric id from the tree's live free list without necessarily changing bounds, category, or body type — §7.4 uses this entry, not a `proxyKey` value, to know when a shape's proxy needs rebuilding |
@@ -387,7 +389,11 @@ per tick.
 One circular byte arena per world. Slots are variable-length regions written in tick order: a
 header, the image, the journal segment. A slot directory maps tick → offset. When the writer
 wraps into the oldest slot, that slot is evicted (its owned arrays freed) and the retained
-window shrinks by one tick.
+window shrinks by one tick. Eviction is always oldest-slot-first and does not skip ahead to the
+next image, so evicting an imaged slot can leave younger, image-less slots physically still in
+the arena with no surviving image at or before them; §2 requirement 4 excludes those slots from
+the retained window, so they are inert bytes awaiting physical overwrite, not a correctness gap —
+`oldestImageTick` (§14) is the authoritative start of what's actually reachable.
 
 - `maxBytes` caps the arena **and** the arrays ownership-transfer journal entries hold, plus any
   hull-database bytes kept alive only by a journal-held reference (§7.1) — a detached sleeping
@@ -441,7 +447,13 @@ discards their old journal segments; the branch is implicit.
 4. **Trees** per §7.4.
 5. **Scratch and events.** Clear event arrays, both end-event buffers, move events, and
    task-context bitsets, and reset every restored body's `bodyMoveIndex` to none. Events for
-   step T are not re-delivered; end events that were queued between steps at P are dropped. Set
+   step T are not re-delivered; end events that were queued between steps at P are dropped. For
+   every shape id, if its pre-restore live `userShape` debug-draw handle is non-`NULL` and the
+   shape's restored generation no longer matches the live one at that id (the slot held a
+   different, or no, shape at T), destroy that live handle (`world->destroyDebugShape`) and leave
+   the restored shape's `userShape` `NULL` for lazy recreation on the next draw; when the
+   generation matches, leave the live handle exactly as it is untouched, the same handle-reuse
+   this design borrows from the existing serializer's keyframe restore (`world_snapshot.c`). Set
    `historyTick = T`.
 6. In validation builds, run `b3ValidateSolverSets`, `b3ValidateContacts`,
    `b3ValidateConnectivity`, `b3DynamicTree_Validate`, then the cold-hash check (§12).
