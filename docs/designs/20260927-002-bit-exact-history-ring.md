@@ -164,9 +164,9 @@ that records (structure, id, old bytes, new bytes) or a semantic entry.
 | Structure | Mutating functions |
 |---|---|
 | `bodies[id]` (non-awake owner, or any transition) | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c:271-289`, `406-432`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, and the `b3Body_Set*` API family (`body.c:1601-2512`) |
-| non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), `b3Shape_ApplyWind`, explosion callback |
+| non-awake `bodySims`/`bodyStates` | `b3Body_SetTransform` and the other setters when the body is not awake (`body.c:1125-2406`), explosion callback |
 | `shapes[id]` fields other than `aabb`/`fatAABBs` (filter, material, `materials` array, flags, geometry) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3Shape_Set*` (`shape.c:1141-1684`), unconditionally — the hot path never rewrites these fields, awake owner or not |
-| `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`), since the awake hot path's first rewrite of them afterward is not itself journaled |
+| `shapes[id].aabb`, `fatAABBs` (non-awake owner) | `b3ResetProxy`, and the bounds recompute inside `b3Body_Set*`/`b3Shape_Set*` when the owning body is not awake; a body's wake also checkpoints its shapes' bounds (`b3WakeSolverSet`) for undo, and a body's sleep does the same (`b3TrySleepIsland`) for redo, since neither the pre-wake nor the post-awake value is otherwise journaled |
 | tree proxy `categoryBits`, keyed by shape id | proxy creation, and `b3ResetProxy` when called with `invokeContacts=true` (`b3Shape_SetFilter`); diverges from `shape->filter.categoryBits` whenever `invokeContacts=false` leaves the proxy unsynced, so it is journaled as its own field rather than derived from the shape record at restore |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files) |
@@ -279,9 +279,10 @@ setters write its inline `material` field instead, already covered by the shape'
 unlink, merge, split, sleep, wake, transfer) is journaled unconditionally. Every other write to
 a record whose owner is not in the awake set (API setters on sleeping bodies, static bodies'
 contact-list heads) is journaled. Writes to awake members from the step's hot path (finalize,
-collide, solve) are not journaled; the image covers them, except a shape's `aabb`/`fatAABBs`,
-whose first such write after a wake has no earlier image to fall back on and is covered instead
-by the checkpoint `b3WakeSolverSet` journals for it (§5.2). A field the hot path never rewrites
+collide, solve) are not journaled; the image covers them, except a shape's `aabb`/`fatAABBs`: the
+first such write after a wake has no earlier image to fall back on, and the last such write
+before a sleep has no later image to hand off to, so both boundaries are covered by checkpoints
+(`b3WakeSolverSet`, `b3TrySleepIsland`; §5.2) instead. A field the hot path never rewrites
 for any owner — a shape's filter, material, `materials` array, geometry or flags; a joint's
 tuning parameters — is journaled on every write regardless of the owner's awake state, since
 skipping the journal is only safe for fields the image actually contains. This rule is
@@ -530,14 +531,15 @@ No roots, no scope, no boundary partners, no zero-mass overrides in every joint 
 destroy-and-recreate of contacts, no `Begin/EndResimulation` bracket, no spurious end/begin
 touch events. Restore has one failure mode (tick not retained). The engine changes are: journal
 hooks at enumerated sites, one CCD order change, an explosion order change, a closest-ray
-tie-break, a scalar grouping, a hash, and tests.
+tie-break, a wind-force pointer re-fetch after wake, a scalar grouping, a hash, and tests.
 
 ## 12. Verification
 
 1. **Full state hash.** Extend `b3HashWorldState` (`recording.c:1188`, transforms and
    velocities only) to `b3World_ComputeStateHash`: bodies, sims, states, shapes (filter,
-   material, geometry), contact records, manifolds and impulses, joint sims, island membership
-   and sleep partition, pool state, pair set membership, graph-colour `bodySet` bitsets, sensor
+   material, geometry), contact records, manifolds and impulses, joint records and joint sims
+   (including `collideConnected`), island membership and sleep partition, pool state, pair set
+   membership, graph-colour `bodySet` bitsets, sensor
    overlaps, shape bounds (`shape->aabb` and `fatAABBs`), each shape's tree-proxy `categoryBits`,
    and moved-proxy membership, world scalars and flags, in id order, hashing float bit patterns. This is the
    oracle for everything below and is worth exposing publicly for lockstep desync detection.
