@@ -33,11 +33,18 @@ The answer has three parts:
    struct image (`src/world_snapshot.c`), restores it in place for backward seeks
    (`src/recording_replay.c:2707`), re-steps, and checks per-step state hashes. The
    `ScrubBackward` test (`test/test_recording.c:251`) asserts that a keyframe restore plus
-   re-step reproduces the forward pass's hashes. Bit-exact rewind of a whole world is therefore
-   a demonstrated property of the engine, not a research question. The FAQ statement is stale.
-2. **What is missing is an in-place, allocation-free, O(awake) form of it**, with a ring that can
-   be scrubbed to any retained tick, and a public API. The serializer is O(world) per capture,
-   allocates on restore, and copies static and sleeping state that never changes.
+   re-step reproduces the forward pass's hashes. Bit-exact rewind of a whole world along the
+   dimensions that hash covers — body transforms and velocities — is therefore a demonstrated
+   property of the engine, not a research question; the FAQ statement is stale for those
+   dimensions. The hash does not yet cover everything requirement 1 claims (shape materials,
+   contact/manifold state, sensor overlaps, tree proxy identity, pool and pair-set membership),
+   which is why §12's hash is extended, not reused as-is.
+2. **What is missing is an in-place, O(awake) form of it**, with a ring that can be scrubbed to
+   any retained tick, and a public API. The serializer is O(world) per capture, allocates on
+   restore proportional to the *whole world*, and copies static and sleeping state that never
+   changes. Capture in the new design never allocates (§8); restore may still realloc a bounded,
+   awake-proportional amount — a manifold block whose count changed, or a resized awake array
+   (§9) — which is a different thing from the serializer's O(world) restore allocation.
 3. **The cost that cannot be designed away is resimulation.** Re-stepping N ticks of the whole
    world costs N steps. Sleep is the mechanism that keeps that small in real games; for stress
    scenes with 10k awake bodies it does not fit a frame, and §11 says what can be done about
@@ -47,17 +54,28 @@ The answer has three parts:
 
 1. **Bit-exact.** After `Rewind(T)`, every simulation-affecting byte equals its value at the end
    of step T. Re-stepping with the same inputs reproduces the original ticks exactly, including
-   ids, generations, events, island membership, and sleep timing.
-2. **Per-tick cost proportional to awake state and structural churn.** Never proportional to
-   the number of sleeping or static bodies. `large_world` (1M bodies, 10 awake) must cost a few
-   KB per tick, not 650 MB (`docs/designs/reviews/...-perf.md:152`).
+   ids, generations, events, island membership, and sleep timing. This is a claim about
+   re-stepping, not about querying the world immediately after `Rewind(T)` alone: event arrays
+   are not simulation-affecting (nothing reads them back into physics) and are not restored to
+   their end-of-T contents by `Rewind` itself, only reproduced by re-stepping through T again
+   (§9's step 5, §10).
+2. **Per-tick cost proportional to awake state, structural churn, and sensor count.** Never
+   proportional to the number of sleeping or static bodies. `large_world` (1M bodies, 10 awake)
+   must cost a few KB per tick, not 650 MB (`docs/designs/reviews/...-perf.md:152`). Sensor
+   overlap state is the one exception to "proportional to awake": the engine re-evaluates every
+   sensor's overlaps every step regardless of the owning shape's awake state (`sensor.c`), so
+   capturing it is O(sensor count), not O(awake). `large_world`-shaped scenes with few sensors
+   are unaffected; a scene with many sensors on sleeping or static bodies pays for all of them
+   every tick.
 3. **Restore never rejected** for any tick inside the retained window, and never leaves the
    world inconsistent. There is no "outside churn" failure mode because the whole world is
    restored.
 4. **Scrubbable.** Any retained tick can be restored from any current position, backward or
    forward, without re-stepping.
 5. **Bounded memory** with graceful degradation: a byte budget widens the capture interval
-   instead of failing.
+   instead of failing. The bound is a target under normal churn, not a hard ceiling: a single
+   tick whose own image and journal segment exceed the budget is still admitted (§8) rather than
+   rejected, since rejecting it would violate requirement 3.
 6. **No approximations and no new solver participant kinds.** Resimulation is `b3World_Step`.
 7. **Verified by construction, not by audit.** Every cold structure in §5.2 is written through
    exactly one function, and the journal call lives inside that function. A caller cannot reach
@@ -91,15 +109,15 @@ constants. It is not world state; it must simply not change.
 
 ## 4. Overview
 
-Every cross-step byte of a world falls into one of three classes, and each class gets a
+Every cross-step byte of a world falls into one of four classes, and each class gets a
 different treatment. The classification is the design.
 
 | Class | What | Per-tick treatment |
 |---|---|---|
 | **Hot** | Index-addressed awake state rewritten every step for every awake member: awake solver set, graph colour arrays, awake contact records and manifolds, awake body/shape/joint/island records, moved-proxy list, sensor overlaps, world scalars | **Image**: flat copy into the ring slot, O(awake) |
-| **Cold** | World-sized, id-addressed structures mutated only by structural events: sleeping/static/disabled sets, records of non-awake bodies/shapes/contacts/joints/islands, id pools, pair set, graph colour bitsets | **Journal**: every mutation logs old and new value, O(events) |
+| **Cold** | World-sized, id-addressed structures mutated only by structural events: sleeping/static/disabled sets, records of non-awake bodies/shapes/contacts/joints/islands, id pools (including each tree's own proxy-id pool, §7.4), pair set, graph colour bitsets | **Journal**: every mutation logs old and new value, O(events) |
 | **Scratch** | Per-step bitsets, event arrays, arenas, prepared constraint buffers, profile | Nothing; fully rewritten before use |
-| **Derived** | Broad-phase trees | Rebuilt from fat AABBs at restore (needs one small CCD change, §7.4) |
+| **Derived** | Broad-phase tree layout (which node holds which proxy) | Rebuilt from fat AABBs at restore (needs one small CCD change, §7.4); proxy identity itself is cold, not derived |
 
 A ring slot for tick t holds the hot image at end of step t plus the journal segment for the
 mutations made during step t and the API calls between step t−1 and step t.
@@ -159,19 +177,25 @@ Each cold structure below is written one of two ways. Record fields — `bodies[
 per structure (`b3Body_Write`, `b3Shape_Write`, `b3Contact_Write`, `b3Joint_Write`), replacing
 the direct field assignment used at every setter site today; the journal call lives inside that
 one function, not at each caller. Structural transitions — island and solver-set create,
-destroy, merge and split; id pool alloc/free; pair-set add/remove; colour bitset set/clear —
-already have no path other than the few dedicated functions that perform them
-(`b3CreateIsland`/`b3DestroyIsland`/`b3MergeIslands`/`b3SplitIsland`,
-`b3TrySleepIsland`/`b3WakeSolverSet`/`b3MergeSolverSets`, `b3AllocId`/`b3FreeId`,
-`b3AddKey`/`b3RemoveKey`, the bitset set/clear calls), so they need no new accessor, only a
-journal call inside the function they already funnel through. For the record-field structures,
-the table lists every current direct-write caller; the one-time migration is redirecting each
-one to the accessor and removing the field's direct-write access from every other translation
-unit, so a future caller that tries to write it without going through the accessor does not
-compile. Where a structure's storage cannot be moved out of reach of direct assignment without
-further module-boundary work — joint setters, for instance, are spread across every joint
-type's own file, not one — that is a finding against the surrounding code to fix there, not a
-reason to enumerate call sites and check afterward that none were missed.
+destroy, merge and split — already have no path other than the few dedicated functions that
+perform them: `b3CreateIsland`/`b3DestroyIsland`/`b3MergeIslands`/`b3SplitIsland`,
+`b3TrySleepIsland`/`b3WakeSolverSet`/`b3MergeSolverSets`. Id-pool alloc/free, pair-set
+add/remove, and colour-bitset set/clear are not a third mutation path needing its own choke
+point: they are steps already taken *inside* those structural functions and the record-field
+create/destroy functions above (`b3CreateContact` is the only place `contacts[id]` is created,
+the contact id pool is allocated, and the pair set gains the key, all in one function). Their
+journal calls go at those existing call sites, not inside `b3AllocId`, `b3AddKey`, or the bitset
+set/clear calls themselves — those are generic container primitives with no notion of a world
+or a journal, shared by state this design does not track (`b3BitSet` alone is also used for
+per-step scratch bitsets in `sensor.c`, `solver.c` and `contact_solver.c`, which must not be
+journaled). For the record-field structures, the table lists every current direct-write caller;
+the one-time migration is redirecting each one to the accessor and removing the field's
+direct-write access from every other translation unit, so a future caller that tries to write it
+without going through the accessor does not compile. Where a structure's storage cannot be moved
+out of reach of direct assignment without further module-boundary work — joint setters, for
+instance, are spread across every joint type's own file, not one — that is a finding against the
+surrounding code to fix there, not a reason to enumerate call sites and check afterward that
+none were missed.
 
 | Structure | Mutating functions |
 |---|---|
@@ -181,7 +205,8 @@ reason to enumerate call sites and check afterward that none were missed.
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c:86-140`, `291-390`, `520`), `b3RefreshBodyContactIndices` (`body.c:72-94`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c:20-337`, `388-649`) |
-| solver sets (sleeping/static/disabled) | `b3TrySleepIsland` (creates a set, `solver_set.c:195-215`), `b3WakeSolverSet` (destroys one), `b3MergeSolverSets`, `b3CreateBody` (a body created asleep gets a set) |
+| solver sets: create/destroy | `b3TrySleepIsland` (creates a set, `solver_set.c:195-215`), `b3WakeSolverSet` (destroys one), `b3MergeSolverSets`, `b3CreateBody` (a body created asleep gets a set) |
+| solver sets: `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | `b3TransferBody`, `b3TransferJoint` (`solver_set.c`), and every wake/sleep/merge transition already listed above under `contacts[id]` — each pushes or removeswaps a record into or out of a set's array |
 | id pools ×6 | `b3AllocId`, `b3FreeId` (`id_pool.c:19-45`) |
 | `broadPhase.pairSet` | `b3AddKey`, `b3RemoveKey` (`table.c:137`, `163`); only membership is ever queried, so slot layout is not state |
 | colour `bodySet` bitsets | `constraint_graph.c:107-140`, `181-182`, `237-268`, `312-313`; `solver_set.c:353-354`, `416-417` |
@@ -189,8 +214,17 @@ reason to enumerate call sites and check afterward that none were missed.
 
 Swap-compaction on removal (awake rows, colour arrays, set `contactIndices`, island arrays,
 `islandSims`) rewrites *another* element's `localIndex`/`islandIndex` and, for bodies,
-`encodedBodySimA/B` on every contact of the moved body. Those are ordinary journaled record
-writes; nothing special is needed because the journal stores whole records.
+`encodedBodySimA/B` on every contact of the moved body; that rewrite is an ordinary journaled
+record write, nothing special, because the journal stores whole records. The compaction itself —
+the array shrinking by one, and the removed element's own bytes being gone once the mover is
+copied over them — is the array push/removeswap entry (§7.1), not a record write: no record's id
+changes, so no record-write entry would otherwise capture it.
+
+A shape's `materials` array and a contact's manifold blocks and mesh triangle cache are
+heap-owned pointees, not inline record bytes; `shapes[id]`'s and `contacts[id]`'s own record
+writes capture the pointer, not what it points to. §7.1's material block and manifold block
+entries cover the pointees; the same ownership-transfer rule as sleeping sets and islands
+applies to a destroyed contact's manifold and mesh cache.
 
 ### 5.3 Scratch (nothing)
 
@@ -201,14 +235,16 @@ reset before use (`physics_world.c:886`, `1055-1065`; `solver.c:1813-1815`, `187
 state across a step boundary (end events produced by API calls between steps are reported
 with the next step), not physics state; §9 says how restore treats them.
 
-### 5.4 Derived (trees)
+### 5.4 Derived (tree layout)
 
 The static, kinematic and dynamic trees (`b3DynamicTree`, 32 B nodes + 4 B parents + 24 B
 proxies) contain every proxy in the world, including sleeping bodies, so imaging them breaks
 requirement 2. The rebuild (`dynamic_tree.c:1867-1992`) already copies every retained subtree
 into a fresh DFS-ordered array whenever anything moved, so the engine's own per-step cost is
-O(proxies); the ring must not add a copy of that size per tick. §7.4 makes the tree
-reconstructible from fat AABBs plus the moved list, at the cost of one CCD change.
+O(proxies); the ring must not add a copy of that size per tick. §7.4 makes tree layout
+reconstructible from fat AABBs plus the moved list, at the cost of one CCD change. Which proxy id
+each shape holds is not derived the same way; §7.4 journals it alongside the id pools it is
+structurally identical to.
 
 ## 6. Capture
 
@@ -236,6 +272,15 @@ imaged ones; `b3World_GetRestorableTick(T)` returns the newest imaged tick ≤ T
 replays from there. K trades per-tick capture cost and ring memory (÷K) against up to K−1 extra
 replayed ticks. K=1 is the default.
 
+**Between-step mutations and repeated rewinds.** API calls made after `historyTick`'s step
+closed but before the next `b3World_Step` runs are journaled into the *next* tick's segment when
+it closes — this is what §4 means by "the API calls between step t−1 and step t". `Rewind` may
+itself be called in that same window, with no step in between (two corrections applied back to
+back). It treats whatever live entries exist since `historyTick` as an unclosed pending segment:
+it walks them first, the same way it walks any closed segment, before applying the requested
+tick's own undo. A step boundary is required for capture (§8's slot reservation), not for
+`Rewind` to see and undo mutations made since the last one.
+
 ## 7. Journal
 
 ### 7.1 Entries
@@ -245,19 +290,21 @@ A journal segment is an append-only byte stream. Entry kinds:
 | Kind | Payload | Undo / redo |
 |---|---|---|
 | record write | structure tag, id, old bytes, new bytes | copy old / copy new |
-| pool alloc/free | pool tag, id | LIFO: alloc undo = push back, free undo = pop |
+| pool alloc/free | pool tag, id, and for an alloc: whether `b3AllocId` popped the free list or bumped `nextIndex` (`id_pool.c`), plus the prior `nextIndex` if it bumped | pop-alloc undo = push back; bump-alloc undo = restore prior `nextIndex`; free undo = pop |
 | pair set add/remove | key | remove / add (self-inverse) |
 | bitset set/clear | colour, body id | clear / set |
 | set create (sleep) | set index, ownership handle | undo: detach arrays into the entry; redo: reattach |
 | set destroy (wake) | set index, ownership handle | undo: reattach arrays; redo: detach |
-| island arrays | island id, ownership handle or old length | truncate / reattach |
+| array push/removeswap | array tag (a solver set's `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims`, or an island's link arrays), old length, and for a removeswap the full old bytes of the removed element (that slot's content is gone once the last element is copied over it, not captured by any record write) | push undo = truncate to old length; removeswap undo = grow to old length, restore the removed element's bytes at its old index, and copy the current mover's bytes back to the slot it came from |
+| material block | shape id, old `materials` array bytes (only when `shape->materials != NULL`; inline single-material shapes are covered by the shape's own record write) | reallocate and copy, mirroring the manifold block |
 | manifold block | contact id, count, old manifold bytes | reallocate and copy |
 
 **Ownership transfer instead of copying.** When a sleeping set is destroyed by a wake, its
 arrays are not freed; the entry takes ownership. Undo hands them back. The same applies to an
 island destroyed by a merge or split. Journal cost for the expensive transitions is O(1) plus
 the record writes the engine already makes; nothing is copied twice. Arrays owned by evicted
-journal segments are freed on eviction.
+journal segments are freed on eviction. A destroyed contact's mesh triangle cache follows the
+same rule as its manifold block: the destroy entry owns it until eviction, not a second copy.
 
 **Rule for record writes.** Every write made by a structural function (create, destroy, link,
 unlink, merge, split, sleep, wake, transfer) is journaled unconditionally. Every other write to
@@ -265,7 +312,11 @@ a record whose owner is not in the awake set (API setters on sleeping bodies, st
 contact-list heads) is journaled. Writes to awake members from the step's hot path (finalize,
 collide, solve) are not journaled; the image covers them. This rule is sufficient in both
 directions because a body's record is either in image T (awake at T) or was last written by a
-journaled event between T and P; §12 tests it.
+journaled event between T and P; §12 tests it. It covers the record itself, not an array a
+record's owning set holds it in — `b3TransferBody`/`b3TransferJoint` (`solver_set.c`) and the
+sleep/wake/merge transitions already in §5.2's table also push or removeswap the moved record
+into a solver set's arrays, which is the array push/removeswap entry above, not a second record
+write.
 
 ### 7.2 Size
 
@@ -280,42 +331,77 @@ writes, which the engine pays anyway.
 
 Each record-field structure's write accessor (§5.2) makes its own journal call, such as
 `b3JournalBody( world, body )` inside `b3Body_Write`, before assigning the new value. The
-island, solver-set, pool, table and bitset structural functions already have two to four entry
-points each — `b3CreateIsland`/`b3DestroyIsland`/`b3MergeIslands`/`b3SplitIsland`,
-`b3TrySleepIsland`/`b3WakeSolverSet`/`b3MergeSolverSets`, `b3AllocId`/`b3FreeId`,
-`b3AddKey`/`b3RemoveKey`, the colour bitset set/clear calls — so their journal calls go inside
-those existing functions with no new accessor needed. The one-time work is migrating §5.2's
-listed record-field callers to their accessor instead of a direct field write; after that, a
+island and solver-set structural functions already have two to four entry points each —
+`b3CreateIsland`/`b3DestroyIsland`/`b3MergeIslands`/`b3SplitIsland`,
+`b3TrySleepIsland`/`b3WakeSolverSet`/`b3MergeSolverSets` — so their journal calls go inside those
+existing functions with no new accessor needed. The id-pool, pair-set and colour-bitset journal
+calls go inside these same structural functions and the record-field create/destroy functions,
+right where each already calls `b3AllocId`/`b3FreeId`, `b3AddKey`/`b3RemoveKey`, or a bitset
+set/clear — never inside those generic primitives, which take no world or journal argument and
+are shared by unrelated, unjournaled state. The one-time work is migrating §5.2's listed
+record-field callers to their accessor instead of a direct field write, and adding a journal
+call at each already-enumerated structural and pool/pair-set/bitset call site; after that, a
 journal call can only be missed by writing a new mutator without one, which is caught where it
 is written, not discovered later at an unrelated caller.
 
 ### 7.4 Trees are derived, given one CCD change
 
-The exact tree layout matters to physics in exactly one place: continuous collision passes the
-running best fraction into the next candidate's time-of-impact query (`solver.c:420`, `453`),
-so the min depends on traversal order and the numerics of each TOI depend on the clamp. Pair
-discovery is already sorted by shape-pair key (`broad_phase.c:733-748`, "makes contact order
-independent of tree structure"), sensor hits are sorted, ray/shape casts take a min.
+Two different things depend on the trees: layout (which internal nodes hold which proxies, node
+rotations) and proxy identity (which integer id a given shape's proxy has in its tree, stored in
+`shape->proxyKey`). Layout is a performance property once §7.4's CCD change lands, below; proxy
+identity is simulation-affecting today regardless of that change, because `shape->proxyKey` is
+part of the journaled/imaged `shapes[id]` record, and a live tree that assigned a shape a
+different proxy id than it had at T would disagree with that record.
 
-Change: CCD evaluates every AABB candidate against the *initial* fraction and takes the min of
-the results (or collects candidates and evaluates in shape-id order). Cost is a few extra TOI
-evaluations on the rare multi-candidate sweep. After this, tree layout is a performance
-property, not a simulation property, and restore may rebuild it any way it likes:
+**Layout.** Continuous collision passes the running best fraction into the next candidate's
+time-of-impact query (`solver.c:420`, `453`), so the min depends on traversal order and the
+numerics of each TOI depend on the clamp. Pair discovery is already sorted by shape-pair key
+(`broad_phase.c:733-748`, "makes contact order independent of tree structure"), ray/shape casts
+take a min. Change: CCD evaluates every AABB candidate for the *solid* min against the initial
+fraction and takes the min of the results (or collects candidates and evaluates in shape-id
+order). Cost is a few extra TOI evaluations on the rare multi-candidate sweep. After this, layout
+is a performance property, and restore may rebuild it any way it likes:
 
 - for every proxy whose fat AABB differs between the live tree and image T (awake shapes at T,
-  plus shapes with journaled records), `b3DynamicTree_MoveProxy`; proxies created or destroyed
-  after T are handled by the journaled shape create/destroy;
+  plus shapes with journaled records), `b3DynamicTree_MoveProxy`;
 - clear all moved bits, then set the moved bits from image T's moved list;
 - the next step's rebuild puts the tree back into DFS order as usual.
 
-Cost O(moved · log n). Ring cost for trees: zero.
+Cost O(moved · log n). Ring cost for tree layout: zero.
 
-Two residual order dependences remain and are documented in §10: the order of `preSolve`
-callbacks within a step, and the wake order in `b3World_Explode` (which only affects overflow
-constraint order, §11). If the CCD change is not accepted, the fallback is to image the
-kinematic and dynamic trees raw (≈90 B per proxy per tick): same order as the engine's own
-rebuild copy, but O(proxies) ring memory, which fails requirement 2 for `large_world`-shaped
-worlds and is fine for everything in `benchmark/`.
+**Proxy identity.** Each tree allocates proxy ids from its own LIFO free list
+(`tree->proxyFreeList`, `dynamic_tree.c`), independent of the six id pools §5.2 already
+journals. `b3DynamicTree_CreateProxy`/`DestroyProxy` are journaled the same way as those pools —
+a seventh, eighth and ninth id-pool-shaped entry, one per tree — at the same call sites that
+already journal the shape record's create/destroy (`b3CreateShapeInternal`,
+`b3DestroyShapeInternal`). Replaying a shape's destroy then re-create through the journal
+therefore reproduces the same proxy id it had at T, and `shape->proxyKey` never needs a
+post-restore correction. This is why proxy identity is not in §5.4's derived class: it is
+cold and journaled, like the pools it structurally matches.
+
+**Sensor hits during CCD are a separate, still-open order dependence.** A CCD sweep collects up
+to `B2_MAX_CONTINUOUS_SENSOR_HITS` (8) sensor candidates, each gated on `output.fraction <=
+continuousContext->fraction` against the *running* solid fraction as candidates are visited
+(`solver.c`) — not the initial fraction the layout fix above uses for the solid min. Which
+candidates pass that gate, and which 8 fill the cap first, both depend on tree traversal order,
+so the layout change does not make the reported sensor hit set order-independent. The fix
+mirrors the pattern already used for the end-of-step sensor pass (§3: "sensor hits are sorted and
+deduplicated"): collect all qualifying candidates, then take the final min-fraction cutoff and
+the first 8 by shape id, in a second pass after every candidate has been seen, rather than
+gating and capping during traversal.
+
+**`b3World_Explode` is a further, separate order dependence, beyond the overflow-colour effect
+§10 already documents.** Its callback accumulates an impulse into each hit body's velocity state
+(`physics_world.c`) once per qualifying shape; a body with more than one shape in the explosion
+radius accumulates in tree traversal order, and floating-point addition is not associative, so a
+different layout produces a different bit pattern even before any solving happens. Fixing this
+means accumulating per-body impulses in shape-id order before applying them, not applying each
+shape's impulse as it is visited.
+
+If the CCD layout change is not accepted, the fallback is to image the kinematic and dynamic
+trees raw (≈90 B per proxy per tick): same order as the engine's own rebuild copy, but
+O(proxies) ring memory, which fails requirement 2 for `large_world`-shaped worlds and is fine for
+everything in `benchmark/`. Proxy identity still needs journaling either way.
 
 ## 8. Ring
 
@@ -327,7 +413,12 @@ window shrinks by one tick.
 - `maxBytes` caps the arena. When a capture would not fit even after evicting down to a minimum
   window (say 2 ticks), the capture interval doubles, as the recording player's keyframe ring
   does (`recording_replay.c:2648-2675`). `b3World_GetHistoryInfo` reports the effective
-  interval and window.
+  interval and window. Doubling the interval trades how *often* an image is taken; it does not
+  shrink any single tick's own image or journal segment, so it cannot help when one tick's own
+  slot — awake state that size, or a burst of structural churn — exceeds `maxBytes` outright.
+  That tick's slot is admitted anyway, growing the arena past `maxBytes` for as long as it is
+  retained; `b3World_GetHistoryInfo`'s `bytesUsed` reports the overrun rather than hiding it.
+  `maxBytes` is therefore a target the ring holds to under normal churn, not a hard ceiling.
 - Capacity growth (a scene grows) is a realloc of the arena with slot offsets preserved; rare
   after warm-up.
 - Slot sizes are known up front from the awake counts, so a capture never allocates inside the
@@ -370,7 +461,11 @@ in the same order recreates them with the same ids.
   velocities. This is the Overwatch-model contract and it is simpler than design 001's, which
   restored some mutations and not others.
 - **Callbacks are not state.** `preSolve`, custom filter, friction/restitution mixers run live;
-  the caller's callbacks must be pure functions of their inputs for the replay to be exact.
+  the caller's callbacks must be pure functions of their inputs for the replay to be exact. The
+  *function pointers themselves* (`world->customFilterFcn` and similar) are also not restored by
+  `Rewind` — the world uses whatever is currently registered, not whatever was registered at T.
+  A caller that swaps a callback mid-timeline is changing the rules the replay runs under, the
+  same as changing engine code between capture and replay; it is not a case bit-exactness covers.
   `preSolve` order within a step follows tree traversal (§7.4) and may differ after a restore;
   a callback with order-dependent side effects breaks the contract.
 - **Events are regenerated** during replay exactly as originally, because event generation is
@@ -382,7 +477,9 @@ in the same order recreates them with the same ids.
 - **`b3World_Explode`** wakes sets in tree traversal order and thereby fixes the overflow-colour
   order of the woken constraints; a replayed explode is exact only if the tree traversal is the
   same, which after §7.4's rebuild it need not be. Overflow constraints (a body with more than
-  20 constraints) are rare; documented, not fixed, in v1.
+  20 constraints) are rare; documented, not fixed, in v1. Separately, and not rare, its impulse
+  accumulation is also traversal-order-dependent (§7.4); that part is fixed for v1 by
+  accumulating in shape-id order.
 
 ## 11. Cost, and what "faster" can mean here
 
@@ -442,15 +539,18 @@ No roots, no scope, no boundary partners, no zero-mass overrides in every joint 
 `validSinceTick` on every body, no pending-split slot, no side table of staged impulses, no
 destroy-and-recreate of contacts, no `Begin/EndResimulation` bracket, no spurious end/begin
 touch events. Restore has one failure mode (tick not retained). The engine changes are:
-per-structure write accessors, one CCD order change, a scalar grouping, a hash, and tests.
+per-structure write accessors, a handful of journal entry kinds beyond plain record writes
+(§7.1), the CCD/sensor/explode order changes (§7.4), a scalar grouping, a hash, and tests.
 
 ## 12. Verification
 
 1. **Full state hash.** Extend `b3HashWorldState` (`recording.c:1188`, transforms and
-   velocities only) to `b3World_ComputeStateHash`: bodies, sims, states, contact records,
-   manifolds and impulses, joint sims, island membership and sleep partition, pool state, pair
-   set membership, in id order, hashing float bit patterns. This is the oracle for everything
-   below and is worth exposing publicly for lockstep desync detection.
+   velocities only) to `b3World_ComputeStateHash`: bodies, sims, states, shape records and their
+   material arrays, contact records, manifolds and impulses, mesh triangle caches, joint sims,
+   island membership and sleep partition, pool state (all id pools, including each tree's proxy
+   pool, §7.4), pair set membership, colour bitsets, sensor overlap state, and world scalars, in
+   id order, hashing float bit patterns. This is the oracle for everything below and is worth
+   exposing publicly for lockstep desync detection.
 2. **Restore exactness.** For each benchmark scene, step to steady state, then for 1,000 random
    (T, P) pairs inside the window, with random API churn between (creates, destroys, setters on
    sleeping bodies, explosions): `hash(Rewind(T)) == hash recorded at T`. Backward and forward.
@@ -468,12 +568,19 @@ per-structure write accessors, one CCD order change, a scalar grouping, a hash, 
   images produced by `b3SerializeWorld` and restored by `b3DeserializeIntoShell`. This is
   O(world) and allocates, but it exists, it is tested, and it lets tests 2, 3 and 4 be written
   and the full-state hash be validated before any engine change. It also answers whether the
-  game's correction path works end to end.
+  game's correction path works end to end. Two things this needs beyond the ring plumbing
+  itself: interned geometry (hull/mesh/height-field/compound shapes) goes through a recording
+  registry (`world_snapshot.c`) that the ring's images must share and keep alive for the
+  retained window, not just the two images a scrub already juggles; and the reader zeroes host
+  `userData` on bodies/joints/shapes rather than restoring it (`world_snapshot.c`), so a host
+  whose callbacks depend on `userData` needs to rebind it after every phase-0 restore. Neither
+  applies once phase 1's in-place restore replaces the serializer.
 - **Phase 1, hot image + cold journal.** Per-structure write accessors (§5.2) with the existing
   callers migrated to them, ring arena, in-place image restore. Trees imaged raw as the
-  temporary fallback.
-- **Phase 2, derived trees.** The CCD order change and tree reconstruction at restore. Removes
-  the last O(proxies) term.
+  temporary fallback — a raw tree image already includes its proxy free list, so proxy-identity
+  journaling (§7.4) has nothing to do yet; it only matters once phase 2 removes the raw image.
+- **Phase 2, derived trees.** The CCD order change, proxy-identity journaling, and tree layout
+  reconstruction at restore (§7.4). Removes the last O(proxies) term.
 - **Phase 3, optional.** Contiguous hot contact storage (a per-colour contact-sim array as in
   Box2D v3) to turn the contact gather into a memcpy, if phase 1's measurements say the gather
   dominates. Incremental replay per §11.2 (4), if and when a game needs corrections in worlds
@@ -558,9 +665,10 @@ follows the old timeline bit for bit; that is the property everything else rests
 
 ## 16. Open questions
 
-1. Is the CCD order change (§7.4) acceptable to the solver's owner? It is the one change that
-   alters simulation results slightly (a tighter min in rare multi-candidate sweeps), and it is
-   what keeps trees out of the ring.
+1. Are the §7.4 order changes acceptable to the solver's owner? Three alter simulation results
+   slightly: the CCD solid-fraction min (a tighter min in rare multi-candidate sweeps, and what
+   keeps tree layout out of the ring), the CCD sensor-hit collection becoming two-pass, and
+   `b3World_Explode`'s impulse accumulation becoming shape-id-ordered.
 2. Should `b3World_ComputeStateHash` be public? It is the natural desync detector for lockstep
    and the test oracle here; making it public commits to its coverage.
 3. Should journaling be always-on or enabled with history? Always-on costs a branch per
