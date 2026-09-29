@@ -24,7 +24,7 @@ apply a correction, and re-step to now. `docs/faq.md` says box3d has no such mec
 
 One way to build it is to restore and resimulate only the predicted islands, with every other
 body frozen during resimulation (`docs/designs/20260927-001-client-prediction-rollback.md`). That
-keeps capture and resimulation proportional to the predicted subset, and pays for it twice: the
+keeps capture and the collide and solve work of resimulation proportional to the predicted subset (broad-phase pair discovery scans the whole dynamic tree and the sensor pass scans every sensor, so those two stages stay proportional to the world), and pays for it twice: the
 result is *consistent* but not bit-exact, and the scoped-resimulation machinery is large.
 
 This document asks a different question: what is the smallest, fastest, most robust design if
@@ -421,7 +421,7 @@ reset before use (`physics_world.c`; `solver.c`;
 state across a step boundary (end events produced by API calls between steps are reported
 with the next step), not physics state; §9 says how restore treats them.
 
-`world->names` (the name cache behind every `nameId`) is not read by the step. It is
+`world->names` (the name cache behind every `nameId`) does not feed the step's results; the step reads it only for log text (CCD stall diagnostics). It is
 append-only, deduplicated by content hash, and untouched by `Rewind`, so it grows only with distinct
 names the caller supplies, a replay that supplies the same names adds none, and its bytes are
 outside the ring's budget. A `nameId` is restored with its record, and a
@@ -1140,7 +1140,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
 typedef struct b3HistoryDef
 {
 	int tickCount;        // at least 1 (asserted); retained window, in ticks: the oldest retained image is at most this many ticks before the current tick (a wider capture interval can retain up to one interval more, §8)
-	int captureInterval;  // at least 1 (asserted); image every K-th tick; 1 = every tick
+	int captureInterval;  // at least 1 and at most tickCount (asserted); image every K-th tick; 1 = every tick
 	size_t maxBytes;      // target for retained bytes (arena and staging capacity are reported separately, and can exceed it); 0 = unbounded. Exceeding it widens the interval; a slot that cannot fit is still admitted (§8).
 } b3HistoryDef;
 
@@ -1223,7 +1223,7 @@ follows the old timeline bit for bit; that is the property everything else rests
 - **Scoped, consistent rollback.** Restore and resimulate only the predicted islands, with the
   rest of the world frozen (`docs/designs/20260927-001-client-prediction-rollback.md`). Kept as
   the option for worlds that cannot sleep and must correct inside a frame. Its complexity is the
-  price of O(predicted) resim; this design does not pay it and does not get it.
+  price of O(predicted) collide and solve in resim, with broad-phase pair discovery and the sensor pass still O(world); this design does not pay it and does not get it.
 - **Reuse the serializer as-is for the ring.** Correct and already tested (phase 0), but
   O(world) per tick with allocation: 650 MB/tick on `large_world`. It is the prototype, not the
   product.
@@ -1258,7 +1258,9 @@ follows the old timeline bit for bit; that is the property everything else rests
 5. The recording system's keyframe ring and this ring overlap. Should the player be rebuilt on
    this ring once phase 1 lands? Its backward seeks would become O(awake) rewinds; its forward
    seeks already re-step from the operation list, which a one-way ring does not change.
-6. Within one tick's segment, only the first recorded old value of a record matters to undo.
-   Skipping later record-write entries for the same record in the same tick would shrink segments
+6. Within one tick's segment, only the first recorded old value of a record's id lifetime matters
+   to undo (an id freed and reallocated in the tick starts a new lifetime, and the intervening
+   pool entries read the record's live bytes). Skipping later record-write entries for the same
+   record within one lifetime in the same tick would shrink segments
    under repeated setter calls, but needs a per-record mark of "already journaled this tick". Is
    that worth measuring after phase 1, or is the repeated-write case too rare to matter?
