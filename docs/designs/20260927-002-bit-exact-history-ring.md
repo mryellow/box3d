@@ -1,8 +1,8 @@
 ---
 
 title: Bit-exact world history for box3d (hot image + cold journal ring)
-status: Draft, not converged after 4 review rounds (Findings: 12 (6H-6M-0L) -> 11 (8H-3M-0L) -> 8
-  (4H-4M-0L) -> 9 (5H-4M-0L)). Alternative to docs/designs/20260927-001-client-prediction-rollback.md.
+status: Draft, not converged after 5 review rounds (Findings: 12 (6H-6M-0L) -> 11 (8H-3M-0L) -> 8
+  (4H-4M-0L) -> 9 (5H-4M-0L) -> 6 (3H-2M-1L)). Alternative to docs/designs/20260927-001-client-prediction-rollback.md.
   That design relaxed bit-exactness to keep capture and resimulation proportional to the predicted
   subset, and paid for it with scoped-resimulation machinery that took nine review rounds to
   converge. This design keeps bit-exactness, accepts engine changes, and gets its simplicity from
@@ -211,8 +211,11 @@ sets, bitsets and arrays are journaled by the container that holds them, not by 
 world's fields of these kinds have journaled types: `b3JournaledSlotPool` (an id pool together
 with the sparse record array it grows in lockstep, so a bump-alloc pushes the array and its undo
 truncates it in one operation), `b3JournaledPairSet`, `b3JournaledBitSet` and
-`b3JournaledArray`. Their only mutators take the world's journal and append the entry before
-mutating. They are distinct types from the generic `b3IdPool`, `b3HashSet`, `b3BitSet` and
+`b3JournaledArray`. Their only mutators take the world's journal, and take completed values:
+`b3JournaledArray` offers push(value), removeswap, clear and set(index, value), and no
+pointer-returning `b3Array_Emplace` and no writable `count`, so every element is journaled once
+complete. The step's own stages reach an awake set's elements through a separate hot accessor that
+asserts the world is inside a step. They are distinct types from the generic `b3IdPool`, `b3HashSet`, `b3BitSet` and
 `b3Array` primitives, which stay unjournaled and keep serving state this design does not track
 (`b3BitSet` is also used for per-step scratch bitsets in `sensor.c`, `solver.c` and
 `contact_solver.c`, which must not be journaled). A caller that reaches a world-owned container
@@ -350,8 +353,8 @@ A journal segment is an append-only byte stream. Entry kinds:
 | bitset set/clear | colour, body id | clear / set |
 | set create (sleep) | set index, ownership handle | undo: detach arrays into the entry; redo: reattach |
 | set destroy (wake) | set index, ownership handle | undo: reattach arrays; redo: detach |
-| array push/removeswap | array tag (a solver set's `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims`, an island's link arrays, or `world->sensors`), owner id (set index or island id), old length and index; a push carries the pushed element's bytes, a removeswap carries the full old bytes of the removed element (that slot's content is gone once the last element is copied over it, not captured by any record write) | push undo = truncate to old length, redo = push the recorded bytes; removeswap undo = grow to old length, copy the element now at the index (the mover) back to the last slot, then write the removed element's bytes at the index (no mover copy when the index was the last slot), redo = removeswap at the index |
-| material block | shape id, old and new `materials` array bytes (only when `shape->materials != NULL`; inline single-material shapes are covered by the shape's own record write) | reallocate and copy old / reallocate and copy new, mirroring the manifold block |
+| array push/removeswap | array tag (a solver set's `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims`, an island's link arrays, or `world->sensors`), owner id (set index or island id), old length and index; a push carries the pushed element's bytes, a removeswap carries the full old bytes of the removed element (that slot's content is gone once the last element is copied over it, not captured by any record write) | push undo = truncate to old length, redo = push the recorded bytes; removeswap undo = grow to old length, copy the element now at the index (the mover) back to the last slot, then write the removed element's bytes at the index (no mover copy when the index was the last slot), redo = removeswap at the index; clear and set are entries of the same kind: clear carries the old length and all old bytes, set carries the index and old and new bytes |
+| material block | shape id, old and new `materials` array bytes (only when `shape->materials != NULL`; inline single-material shapes are covered by the shape's own record write; journaled whatever the owner's wake state, because an image carries no pointees) | reallocate and copy old / reallocate and copy new, mirroring the manifold block |
 | manifold block | contact id, count, old and new manifold bytes | reallocate and copy old / reallocate and copy new |
 | hull refcount | shape id, hull pointer, increment or decrement | increment: undo = decrement, redo = increment; decrement: undo = increment, redo = decrement. A transition that takes the count to zero moves the hull out of the database into the entry, one that leaves zero moves it back, and an entry frees a hull it holds when evicted |
 
@@ -504,11 +507,15 @@ window shrinks by one tick.
   and reservation happens then. The per-tick journal staging buffer (§6) can itself grow during
   the step on an unusually large burst of structural churn; it is reused tick to tick and grows
   rarely once warmed up to the scene's typical churn, the same amortized sense as the arena's own
-  capacity growth below, but it is not claimed to be allocation-free the way the ring slot is.
+  capacity growth below, but it is not claimed to be allocation-free the way the ring slot is. Its capacity is outside
+  `maxBytes`, `bytesUsed` counts retained history and not arena capacity, and both capacities are
+  reported separately (`b3HistoryInfo`).
 
 `world->historyTick` names the last completed tick. Capture increments it, then writes slot
-`historyTick`. Rewind sets it to T. Ordinary stepping after a rewind overwrites slots T+1… and
-discards their old journal segments; the branch is implicit.
+`historyTick`. Rewind sets it to T and leaves slots after T intact, so a forward scrub can return
+to them. The first journal entry or capture written after a rewind truncates the ring after T,
+freeing those slots and the blocks their entries own, so no retained tick belongs to a branch other
+than the current one.
 
 ## 9. Restore
 
@@ -522,7 +529,10 @@ discards their old journal segments; the branch is implicit.
    exactly as at the end of step T, except awake-at-T structures that the image overrides next.
 3. **Image copy.** Resize (not reallocate) the awake set arrays and colour arrays to the image
    counts and memcpy. Scatter body/shape/joint/island records by id. For each imaged contact:
-   resize its manifold block to the image's count, copy the manifolds, copy the record. World scalars, sensor overlaps, fat AABBs.
+   resize its manifold block to the image's count, copy the manifolds, and copy the record's
+   fields other than its pointer fields (`manifolds`, `triangleCache`), which keep the live blocks.
+   A shape's `materials` pointer is likewise never copied from an image; its block is restored by
+   the journal. World scalars, sensor overlaps, fat AABBs.
 4. **Trees** per §7.4.
 5. **Scratch and events.** Clear event arrays, both end-event buffers, and task-context
    bitsets. Events for step T are not re-delivered; end events that were queued between steps
@@ -548,7 +558,10 @@ in the same order recreates them with the same ids.
   A caller that swaps a callback mid-timeline is changing the rules the replay runs under, the
   same as changing engine code between capture and replay; it is not a case bit-exactness covers.
   `preSolve` order within a step follows tree traversal (§7.4) and may differ after a restore;
-  a callback with order-dependent side effects breaks the contract.
+  a callback with order-dependent side effects breaks the contract. Host state a callback reads
+  (what `userData` points to, the callback's own context) belongs to the caller, and
+  `b3World_ComputeStateHash` covers engine state only, so a lockstep caller combines it with its own
+  host-state hash.
 - **Events are regenerated** for every step replayed after T exactly as originally, because event
   generation is deterministic; step T's own events are not available after `Rewind(T)`. The engine does not flag replay; the caller knows it is replaying.
 - **Worker count** need not match between capture and replay (tested property), but the
@@ -689,7 +702,8 @@ typedef struct b3HistoryInfo
 	uint64_t currentTick;     // last completed tick (historyTick)
 	uint64_t oldestImageTick; // oldest restorable tick
 	int effectiveInterval;    // widened under memory pressure
-	size_t bytesUsed;
+	size_t bytesUsed;         // retained history, including blocks owned by journal entries
+	size_t capacityBytes;     // arena capacity plus staging buffer capacity
 } b3HistoryInfo;
 
 B3_API b3HistoryInfo b3World_GetHistoryInfo( b3WorldId worldId );
@@ -704,7 +718,7 @@ typedef enum b3HistoryResult
 } b3HistoryResult;
 
 // Restore the whole world to the end of `tick`, from any current position. O(awake + journal).
-// Ordinary stepping afterwards overwrites history past `tick`.
+// The first journaled call or step afterwards discards history past `tick`.
 B3_API b3HistoryResult b3World_Rewind( b3WorldId worldId, uint64_t tick );
 
 // Deterministic hash of all simulation-affecting state. Same across the platforms the engine's determinism guarantee covers, and any worker count.
