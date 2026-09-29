@@ -10,6 +10,88 @@ themselves, not here: design rationale in the doc's body (step 5 below), and the
 outcome — round count, converged or not — as prose in its `status:` front matter (step 8). The
 front matter is the one place a design doc refers to its own review series; the body never does.
 
+## Acceptance criteria — hard gates
+
+These are **prohibitions on architecture**, not review findings — contrast every other section of
+this document, which governs the mechanics of a round Codex might return a finding against. They
+describe shapes a design must not have, independent of whether any review round ever runs against
+it or what that round would find. A design that has one of these shapes is rejected and rewritten in
+that area, not defended, not priced, and not carried into a round as one more table row for step 5
+to verify and apply. Apply them **before** a design's first round, and again before recording a
+round's `CONVERGED` verdict as the series' close (step 8) — a clean round only means this round
+found nothing wrong with what the doc currently claims (AC-5); it says nothing about whether the
+shape itself is one of these, and a series that drifted since these were last checked doesn't get to
+skip the recheck just because this round's Codex output came back clean.
+
+**SCOPE.** These criteria govern what a design *adds* — the structures, hooks, and enumerations it
+introduces — not a license to re-litigate an existing, already-relied-upon engine behavior a design
+merely calls. If an existing primitive genuinely looks wrong, that's its own separate design
+question, raised on its own, never a finding folded into review of whatever happens to call it.
+
+**Origin.** `docs/designs/20260927-001-client-prediction-rollback.md` ran 9 rounds before
+converging; `docs/designs/20260927-002-bit-exact-history-ring.md` has run 37 with no `CONVERGED`
+verdict yet, its finding rate having just risen from one per round back to five after the doc grew
+from 553 to 885 lines. Neither is a process failure — the same review loop documented below
+converged the first design in 9 rounds. Both docs chose an *architecture* — a frozen subset of live
+entities in the first case, an enumerated list of journal call sites in the second — whose
+correctness cannot be established once and stays established; it can only be checked, incompletely,
+one round at a time, forever, because a review round's only available fix inside an unbounded review
+loop is to patch the specific gap just found (one more list entry, one more reconciliation case, one
+more validator) rather than reject the shape that keeps producing gaps. These criteria name that
+shape directly, so it is rejected before a first round, not discovered and re-wrapped in protection
+thirty-seven rounds in.
+
+**AC-1 — No shadow structure over a population the design doesn't own.** A subset, scope set, shadow
+graph, or side table that duplicates entities already tracked by an existing live structure (a
+solver set, the constraint graph, an island, an ID pool) is forbidden, full stop — not priced against
+the cost of not having one. That population is created, destroyed, merged, split, put to sleep, and
+reclassified by code the design doesn't control, and a design that freezes a copy of part of it
+inherits every one of those transitions as a fact it must independently reproduce, discover, or
+patch for. If a design needs "the entities relevant right now," it reads that from the live
+structure at the point of use — never from a copy taken earlier.
+
+**AC-2 — No completeness that depends on an enumerated list of callers.** A rule of the form "the
+following functions must call X" is a claim that can never be checked true, only checked incomplete
+one caller at a time by whoever next traces one — the compiler enforces nothing, so a missed caller
+just silently doesn't happen. If a mutation must always be accompanied by some other action (a
+journal write, an invalidation, a link update), the design routes the mutation through one function
+that is the only legal way to perform it, so a bypass fails to compile or fails an assertion. A list
+of named call sites is never a substitute for that choke point; if the operation genuinely cannot be
+centralized, that is itself a finding against the surrounding code, to be fixed there, not a license
+to enumerate.
+
+**AC-3 — No reconciliation between two structures that can each change independently.** Once a
+design has (in violation of AC-1) or is tempted to introduce a second structure alongside a first —
+a scope over the world, a shadow graph over the live graph, a side table of staged values over live
+records — logic to keep the two consistent as either one changes is not a missing piece to add, it
+is the sign the second structure should not exist. The fix is never "handle this additional
+transition too"; it is deleting the second structure and deriving whatever it existed to answer
+directly from the first, on demand.
+
+**AC-4 — By construction, not by check.** No validator, generation check, staleness guard,
+"confirm still valid" gate, or reconciliation pass bolted onto a mechanism to catch a case its own
+shape allows to go wrong. A check whose result changes what the code does — a branch, a retry, a
+skip, a "not this one" — is a symptom that the structure permits the bad case at all; fix the
+structure so the case cannot arise, don't add a gate in front of it. An assertion of an invariant the
+construction already guarantees is fine (it documents the invariant and aborts if reality disagrees)
+— it must never be control flow.
+
+**AC-5 — A clean review round is not architectural endorsement.** Zero findings after N rounds means
+this round, run at full scope, found nothing wrong with what the doc currently claims. It says
+nothing about AC-1 through AC-4 — a design can satisfy every review round Codex has run against it
+and still be built from a shadow structure or a call-site list that simply hasn't had its next gap
+found yet. Apply AC-1 through AC-4 yourself, before sending a round and again before recording
+`CONVERGED`; a falling finding count is what convergence looks like, but it is equally what a
+growing enumeration looks like in between the rounds that happen to catch its gaps, so a falling
+count alone is never evidence the shape is right.
+
+**How to fail a design against these.** Name the criterion and name the structure: what population
+it shadows (AC-1), what list stands in for a choke point (AC-2), what second structure it's
+reconciling against a first (AC-3), or what case its check exists to catch (AC-4). Do not propose a
+smaller list, a lighter-weight shadow, or a narrower reconciliation — deleting the structure that
+should not exist is the correct outcome, and a design that needs one of these is priced by rewriting
+it out, not by optimizing it in place.
+
 ## Where files are saved
 
 - Every review round is written to `docs/designs/reviews/`, one file per round. A Codex round
@@ -262,9 +344,10 @@ front matter is the one place a design doc refers to its own review series; the 
 
    `Findings: 12 (3H-6M-3L) -> 9 (2H-5M-2L) -> 4 (0H-3M-1L) -> 0 (0H-0M-0L)`
 
-   Never abbreviate or elide earlier rounds; the full sequence is the point. The same line is
-   reproduced verbatim in any summary of the series given to a human (a hand-off message, a commit
-   message covering several rounds, the target doc's `status:` front matter under step 8).
+   Never abbreviate or elide earlier rounds; the full sequence is the point. This line is the
+   primary content of any progress summary given directly to a human (a hand-off message, a chat
+   reply, the doc's `status:` front matter under step 8), reproduced verbatim and leading the
+   summary; per-round finding detail is secondary.
 
    A `CONVERGED` round's own tally is trivially `0 findings (0H-0M-0L)`. This tally is a
    convergence *signal*, not a stopping rule: a falling count is the trend to expect on the way
