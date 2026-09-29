@@ -40,9 +40,9 @@ The answer has four parts:
    (`src/recording_replay.c`), re-steps, and checks per-step state hashes. The
    `ScrubBackward` test (`test/test_recording.c`) asserts that a keyframe restore plus
    re-step reproduces the forward pass's hashes. Bit-exact rewind of a whole world along the
-   dimensions that hash covers — body transforms and velocities — is therefore a demonstrated
-   property of the engine, not a research question; the FAQ statement is stale for those
-   dimensions. The hash does not yet cover everything requirement 1 claims (shape materials,
+   dimensions that hash covers — body transforms and velocities — is therefore shown on that
+   test's four-box scene, which makes it an engineering question, not a research one; §12 tests it
+   across the benchmark scenes, and the FAQ statement is stale for those dimensions on that scene. The hash does not yet cover everything requirement 1 claims (shape materials,
    contact/manifold state, sensor overlaps, tree proxy identity, pool and pair-set membership),
    which is why §12's hash is extended, not reused as-is.
 2. **What is missing is an in-place, O(awake) form of it**, with a ring that can be rewound to
@@ -69,8 +69,10 @@ The answer has four parts:
 1. **Bit-exact**, with two named exceptions that v1 does not fix: §10's `preSolve`
    and custom filter callback order after a layout-changing restore, for a caller whose callback has
    order-dependent side effects, and §5.3's name string for two names whose hashes collide. After
-   `Rewind(T)`, every simulation-affecting byte equals its value at the end of step T (tree layout is not
-   simulation-affecting once §7.4's order changes land). Re-stepping
+   `Rewind(T)`, every simulation-affecting byte of engine state equals its value at the end of step T (tree layout is not
+   simulation-affecting once §7.4's order changes land). Host configuration, meaning callback
+   registrations, their contexts and `world->userData`, is not engine state: `Rewind` leaves it as
+   the caller last set it, and the caller sets back what its callbacks read (§10). Re-stepping
    with the same inputs reproduces the original ticks exactly, including ids, generations, events,
    island membership, and sleep timing. This is a claim about re-stepping, not about querying the
    world immediately after `Rewind(T)` alone: event arrays are not simulation-affecting (nothing
@@ -159,7 +161,7 @@ mutations made during step t and the API calls between step t−1 and step t.
 
 `Rewind(T)` from the current tick P: undo journal segments P…T+1 in reverse, copy image T over
 the hot structures, fix the trees, and discard the slots after T. Cost is
-O(awake at T + sensor count and overlaps + journal bytes between T and P + (restored shape records + moved proxies) · log n).
+O(awake at T + sensor count and overlaps + journal bytes between T and P + (proxy entries between T and P + restored shape records + moved proxies) · log n).
 Nothing is rejected.
 
 Resimulation is ordinary `b3World_Step`. Each replayed step captures a new slot for its tick, so a
@@ -280,9 +282,16 @@ plain pointer (`manifolds`, `materials`) is declared pointer-to-const. An array-
 of the same layout as `b3Array`, since a const `b3Array` still holds a writable `data` pointer.
 Each block has a write function in its defining file, the only place that converts it back:
 `b3Shape_WriteMaterial` for `materials`, with `b3GetShapeMaterials`, which returns a writable
-pointer from a const shape today, replaced by a const-returning accessor; the manifold block and
+pointer from a const shape today, replaced by a const-returning accessor. A single-material
+shape keeps its material inline in the record, so `b3Shape_WriteMaterial` writes it as a whole
+record through `b3Shape_Write`'s setter entry, which journals unless the owner is awake, and
+makes a material block entry only for a shape that has a block; the manifold block and
 triangle cache entries of §7.1; and the array push and removeswap of an island's arrays. A
-record's own write copies the pointer, not what it points to. For an awake contact the hot
+record's own write copies the pointer, not what it points to. A destroyed record's blocks are not
+freed by the destroy path: `b3DestroyShapeInternal`, `b3DestroyBody`'s shape loop and
+`b3DestroyContact` leave the shape's `materials` block and the contact's manifold block and
+triangle cache on the record, and the slot pool's free, which makes the pool free entry (§7.1),
+moves them from the record into it before it frees the id. For an awake contact the hot
 accessor also returns writable access to its manifold block and mesh triangle cache, since the
 collide and impulse-store passes write them and the narrow phase allocates and frees the block in
 place, and it returns no other owned block.
@@ -323,19 +332,26 @@ holds them, not by the caller. The world's fields of these kinds have journaled 
 and `fatAABBs` for the shape pool, one array for each other pool — so a bump-alloc pushes every
 array and its undo truncates every array in one operation), `b3JournaledPairSet`,
 `b3JournaledBitSet` and `b3JournaledArray`. Their only mutators take the world's journal, and take
-completed values: `b3JournaledArray` offers push(value), removeswap, clear and set(index, value),
-and no pointer-returning `b3Array_Emplace` and no writable `count`, so every element is complete
+completed values: `b3JournaledArray` offers push(value), removeswap, clear and set(index, value), except that the
+instance holding `world->sensors` offers only push and removeswap, and no pointer-returning `b3Array_Emplace` and no writable `count`, so every element is complete
 when it enters the array, except in an awake set's arrays and the graph colours' arrays, which are
 the same container type but are imaged and make no entry. They are distinct types from the generic
 `b3IdPool`, `b3HashSet`, `b3BitSet` and `b3Array` primitives, which stay unjournaled and keep
 serving state this design does not track (`b3BitSet` is also used for per-step scratch bitsets in
 `sensor.c`, `solver.c` and `contact_solver.c`, which must not be journaled), so a caller that
 reaches a world-owned container through a generic primitive passes the wrong type and does not
-compile. Each journaled container type, and each record array's type inside a slot pool, is an
-incomplete struct type whose definition, storage fields included, sits in a header included only
-by that container's own file, and the world holds each by a pointer to that type, allocated at
-world creation (a by-value field needs the complete type, which would expose the storage to every
-file that includes the world struct). That file holds every function that produces a writable
+compile. Each world-level journaled container type, and each record array's type inside a slot
+pool, is an incomplete struct type whose definition, storage fields included, sits in a header
+included only by that container's own file, and the world holds each by a pointer to that type,
+allocated at world creation (a by-value field needs the complete type, which would expose the
+storage to every file that includes the world struct). The world's fields that hold them are
+const-qualified pointers (`const b3WorldScalars* const` for the scalars), set only by the world's
+creation function, so reassigning one is also a compile error. An array held inside a record that is created
+and destroyed at run time — a solver set's `bodySims`, `bodyStates`, `jointSims`, `contactIndices`
+and `islandSims`, an island's three link arrays — is a field of that record of the const-data array
+type of the owned-blocks rule above, and `b3JournaledArray`'s mutators address it by the (array
+tag, owner id) pair its journal entry records, so it has no wrapper to allocate, and its creation
+and destruction are the set's and island's own entries (§7.1). That file holds every function that produces a writable
 element pointer: the container's mutators and the undo of their journal entries, the hot
 accessor's element function, restore's writer, and, for a record array, the write function that
 the structure's write accessor enters. So an element, count or pointer assignment anywhere else
@@ -345,18 +361,20 @@ const-qualified and incomplete types then remove direct-write access from every 
 unit. Where a structure's storage cannot be moved out of reach of direct assignment without
 further module-boundary work — joint setters, for instance, are spread across every joint type's
 own file — that is a finding against the surrounding code to fix there, not a reason to enumerate
-call sites and check afterward that none were missed.
+call sites and check afterward that none were missed. The table lists the callers found today, as the
+migration's starting worklist; the compiler, not the table, says when the migration is complete.
 
 | Structure | Current direct-write callers, to migrate |
 |---|---|
-| `bodies[id]` and non-awake `bodySims`/`bodyStates` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
+| `bodies[id]` and non-awake `bodySims`/`bodyStates` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
 | `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
-| `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices` (`body.c`) |
-| `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files) |
+| `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices` (`body.c`), island link, unlink, merge and split (`island.c`: the contact's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
+| `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c`) |
 | solver sets: create/destroy | `b3CreateSolverSet` (new), `b3DestroySolverSet`; each makes its own journal entry |
 | solver sets: `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | every push and removeswap goes through `b3JournaledArray` |
 | id pools ×6 | `b3JournaledSlotPool` alloc and free |
+| world trees' proxy ids | `b3BroadPhase_CreateProxy` and `DestroyProxy` (§7.4); outside `broad_phase.c` the trees are pointer-to-const |
 | `broadPhase.pairSet` | `b3JournaledPairSet` add and remove; only membership is ever queried, so slot layout is not state |
 | colour `bodySet` bitsets | `b3JournaledBitSet` set and clear |
 | `world->sensors` push/removeswap | `b3JournaledArray` — dense array, swap-compacted on removal like the solver-set arrays; the moved sensor's owning shape's `sensorIndex` field update is an ordinary `b3Shape_Write` record write, the array's own length change is the array push/removeswap entry |
@@ -495,7 +513,7 @@ undoing its mutation needs, and nothing about the value the mutation wrote. Entr
 | pool alloc | pool tag, id, whether `b3AllocId` popped the free list or bumped `nextIndex` (`id_pool.c`), plus the prior `nextIndex` if it bumped | free the owned blocks the record holds at that moment (a shape's `materials`, a contact's manifold block) and clear each freed pointer and its count; then pop-alloc undo = push the id back; bump-alloc undo = restore the prior `nextIndex` **and truncate the slot pool's record arrays** (`world->bodies`/`shapes` with `fatAABBs`/`contacts`/`joints`/`islands`/`solverSets`) **to that length**, since the slot pool pushes the arrays in the same operation that bumps |
 | pool free | pool tag, id, and ownership handles with their byte sizes (§8) for the blocks the freed record owned: a shape's `materials` block, a contact's manifold block, and a mesh contact's triangle cache array header (each empty when there was none), with the shape's `materialCount` (1 for an inline material) and the contact's `manifoldCount` whether or not a block existed | pop the id and hand the blocks back to the record, setting the counts; eviction frees the blocks the entry holds |
 | pair set add/remove | key, which of the two | remove / add (a contact's create adds a key that is absent and its destroy removes one that is present, and the entry asserts it) |
-| bitset set/clear | colour, body id, the bit's old value | write the old value (a clear of a bit that was already clear, as `b3RemoveContactFromGraph` and the joint removal make for a static body, leaves the bit clear) |
+| bitset set/clear | colour, body id, the bit's old value | write the old value (a clear of a bit that was already clear, as `b3RemoveContactFromGraph` and the joint removal make for a static body, leaves the bit clear; a set that grows the bitset (`b3SetBitGrow`) makes no growth entry, since a bit at or beyond the block count reads clear and the block count is capacity, not state) |
 | island create | island id | destroy the island's `bodies`, `contacts` and `joints` arrays with `b3Array_Destroy`, leaving each empty (`b3DestroyWorld` destroys the arrays of every island slot, free ones included) |
 | island destroy | island id, ownership handles and byte sizes for the island's `bodies`, `contacts` and `joints` arrays; a destroy is made only by `b3DestroyIsland`, and the split path hands its detached base arrays to that entry instead of freeing them itself | reattach the arrays to the restored record; eviction frees the arrays the entry holds |
 | set create (sleep) | set index | destroy the set's `bodySims`, `bodyStates`, `jointSims`, `contactIndices` and `islandSims` arrays, leaving each empty and setting the set's `setIndex` to `B3_NULL_INDEX`, as `b3DestroySolverSet` leaves a free set |
@@ -503,7 +521,7 @@ undoing its mutation needs, and nothing about the value the mutation wrote. Entr
 | array push | array tag (a solver set's `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims`, an island's link arrays, or `world->sensors`), owner id (set index or island id), old length | truncate to the old length; for `world->sensors`, first free the `hits`, `overlaps1` and `overlaps2` arrays the pushed element holds |
 | array removeswap | array tag, owner id, old length, index, and the full old bytes of the removed element (that slot's content is gone once the last element is copied over it, not captured by any record write); for `world->sensors` also the ownership handles and byte sizes of the removed sensor's `hits`, `overlaps1` and `overlaps2` arrays | grow to the old length, copy the element now at the index (the mover) back to the last slot, then write the removed element's bytes at the index (no mover copy when the index was the last slot); for `world->sensors`, hand the arrays back to the element |
 | array clear / set | clear: array tag, owner id, old length and all old bytes; set: array tag, owner id, index and old bytes | restore the length and bytes / write the old bytes |
-| material block | shape id, and for an element write (`b3Shape_SetSurfaceMaterial`, `b3Shape_SetMeshMaterial`, and every other material write, all made through one `b3Shape_WriteMaterial` accessor) the index and old element bytes, for a resize or replacement the old `materials` array bytes; either way for a write that leaves a block on both sides (inline single-material shapes have no block and are covered by the shape's own record write; journaled whatever the owner's wake state, because an image carries no pointees). A block created or destroyed with its shape is not copied: a destroyed one rides in that shape's pool free entry as an ownership handle, and a created one is freed by the pool alloc's undo | reallocate and copy old |
+| material block | shape id, the old `materialCount`, and for an element write (`b3Shape_SetSurfaceMaterial`, `b3Shape_SetMeshMaterial`, and every other material write, all made through one `b3Shape_WriteMaterial` accessor) the index and old element bytes, for a resize or replacement the old `materials` array bytes; either way for a write that leaves a block on both sides (inline single-material shapes have no block and are covered by the shape's own record write, which `b3Shape_WriteMaterial` makes through `b3Shape_Write`; journaled whatever the owner's wake state, because an image carries no pointees). A block created or destroyed with its shape is not copied: a destroyed one rides in that shape's pool free entry as an ownership handle, and a created one is freed by the pool alloc's undo | reallocate and copy old, and set `materialCount` |
 | manifold block, mesh triangle cache | contact id, which of the two, count, old bytes, for a write that leaves a block on both sides (the wake transition's pre-wake bytes, below, are entries of this kind, made for a contact that has no block too, with count 0 and no bytes; its undo frees whatever block the contact holds live); a block or cache destroyed with its contact rides in that contact's pool free entry as an ownership handle; and, for a mesh contact, one cache entry made by `b3CreateContact` after its record write, whose undo frees the live cache and clears the array header, so a reused slot never holds a live cache in its union storage when an older record's bytes are copied over it | reallocate and copy old |
 | proxy create | tree, proxy id (§7.4) | destroy the proxy id |
 | proxy destroy | tree, proxy id, fat AABB, category bits, shape id (§7.4) | re-insert the recorded proxy at the recorded id |
@@ -581,8 +599,9 @@ accessors and containers like any others.
 Per tick, journal bytes ≈ Σ over structural events of the old value of each record they touch: a
 contact begin/end touches one contact record, one island record and a bitset bit; a create/destroy
 touches a contact record, two body records and up to two neighbour contact records, plus a
-pool and pair-set entry. Junkyard-scale churn (thousands of events per tick) is estimated at under
-1 MB/tick, an order of magnitude under its image. Wake/sleep transitions cost O(set) record
+pool and pair-set entry. An island merge or split additionally writes every moved body, contact
+and joint record. Junkyard-scale churn (thousands of events per tick) is estimated at under
+1 MB/tick, an order of magnitude under its image; §12 test 5 measures it. Wake/sleep transitions cost O(set) record
 writes, which the engine pays anyway; a push into a new sleeping set records a length, not the
 element.
 
@@ -640,16 +659,22 @@ enlarge of its proxy to that value (a bullet's in the serial pass after the swee
 boundary each live leaf's AABB equals its `fatAABBs` entry and moving a proxy to its restored fat
 AABB reproduces the leaf.
 
-Cost O((restored shape records + moved proxies) · log n). Ring cost for tree layout: zero.
+Cost O((restored shape records + moved proxies) · log n). Ring cost for tree layout: zero. A tree
+the pass moved a proxy in is left unordered (`dfsOrdered`, `dynamic_tree.c`), so the next step
+rebuilds it even if nothing moves, at O(that tree's nodes), which is the engine's own per-step
+cost while its proxies move (§5.4). That rebuild is part of the first replayed step, not of
+`Rewind`.
 
 **Proxy identity.** Each tree allocates proxy ids from its own LIFO free list
 (`tree->proxyFreeList`, `dynamic_tree.c`), independent of the six id pools §5.2 already
 journals. The choke point is `b3BroadPhase_CreateProxy`/`DestroyProxy` (`broad_phase.c`), which
-wrap the per-tree allocation and are already the only callers of
-`b3DynamicTree_CreateProxy`/`DestroyProxy` for the world's three broad-phase trees (a compound
-shape's own child tree, built in `compound.c`, is borrowed geometry, §10, not world state) — a
-seventh id-pool-shaped entry, shared by all three trees since the entry records which tree. The
-journal call lives inside those two functions, so every caller is covered, not only
+wrap the per-tree allocation — a seventh id-pool-shaped entry, shared by all three trees
+since the entry records which tree. Outside `broad_phase.c` the world's three trees are reachable
+only as a pointer-to-const, which `b3DynamicTree_CreateProxy`/`DestroyProxy` do not accept, and
+every function that writes one (proxy create and destroy, move, enlarge, refit, rebuild, moved
+bits) is a function in that file, so `solver.c`'s enlarge and refit calls move there. A compound
+shape's own child tree, built in `compound.c`, is borrowed geometry (§10), not world state, and
+stays a plain tree. The journal call lives inside the two functions, so every caller is covered, not only
 `b3CreateShapeInternal`/`b3DestroyShapeInternal`, but also `b3ResetProxy` (`shape.c`), which
 destroys and recreates a shape's proxy — possibly *in a different tree* — on a filter or
 body-type change; §5.2's table already lists it as a `shapes[id]` write-accessor caller for the
@@ -679,7 +704,7 @@ mirrors the pattern already used for the end-of-step sensor pass (§3: "sensor h
 deduplicated"): the first traversal finds the solid min and evaluates no sensor candidate; a second
 traversal, after the final solid fraction is known, evaluates each sensor candidate and keeps the eight
 smallest (sensor shape id, visitor shape id) pairs among those whose fraction is strictly less than the final solid
-fraction, as the engine does today, in a fixed eight-slot buffer, so storage stays bounded and the kept set,
+fraction, as the engine's filter at the end of the sweep does today, in a fixed eight-slot buffer, so storage stays bounded and the kept set,
 the eight smallest of a set, does not depend on visit order, rather than
 gating and capping during traversal. Every candidate's time-of-impact query, sensor or solid, is
 evaluated against the initial fraction, not the running one, so a sensor candidate's own fraction
@@ -731,7 +756,12 @@ happened and without any slot carrying a mark of which timeline it belongs to.
   `tickCount` is a separate limit that can leave fewer, and it never widens the interval), the
   capture interval doubles, as the recording player's keyframe ring
   does (`recording_replay.c`), and never past `tickCount`, beyond which a wider interval retains
-  no fewer image bytes. `b3World_GetHistoryInfo` reports the effective
+  no fewer image bytes. A tick is imaged when at least the effective interval has passed since
+  the last imaged tick (tick 0 is imaged), so retained imaged ticks need not be multiples of the
+  interval. Widening takes effect at the tick that triggers it: that tick's image is skipped when
+  the doubled interval says it is not due, and its slot is then the journal segment alone. Slots
+  already retained are untouched, the effective interval is not narrowed again, and a rewind
+  leaves it as it is. `b3World_GetHistoryInfo` reports the effective
   interval and window. Doubling the interval trades how *often* an image is taken; it does not
   shrink any single tick's own image or journal segment, so it cannot help when one tick's own
   slot — awake state that size, or a burst of structural churn — exceeds `maxBytes` outright.
@@ -746,8 +776,12 @@ happened and without any slot carrying a mark of which timeline it belongs to.
   sensor's arrays, a hull); each owning entry records that size. The charge is computed once, at
   capture, and a slot is evicted whole, so the oldest retained slot's own journal segment, which
   no rewind reads, stays retained and charged until then and a charge never changes while its slot
-  is retained; blocks owned by entries still in the staging buffer (destroys made since the last step)
-  are charged when that segment closes, and are not in `bytesUsed` before then. Evicting the slot frees the blocks and releases the charge; removing the slot in a
+  is retained (releasing it early would change a charge mid-life and walk its entries when the slot
+  before it is evicted); blocks owned by entries still in the staging buffer (destroys made since the
+  last step) are charged when that segment closes. Until then `b3HistoryInfo`'s `pendingBytes`
+  reports the staging buffer's used bytes plus the bytes of the blocks its entries own, outside
+  `bytesUsed` and outside the budget, held until the next step closes the segment or a rewind undoes
+  them. Evicting the slot frees the blocks and releases the charge; removing the slot in a
   rewind releases the charge, the blocks having gone back to the world.
 - Capacity growth (a scene grows) is a realloc of the arena with slot offsets preserved; rare
   after warm-up.
@@ -777,7 +811,8 @@ allocators, the hull database).
 
 ## 9. Restore
 
-`b3World_Rewind( worldId, T )`, at a step boundary, world not locked. P is `historyTick` on entry.
+`b3World_Rewind( worldId, T )`, at a step boundary, world not locked. The world is locked for the call, as a step and shape
+destruction lock it, so the host's `destroyDebugShape` callback cannot re-enter it. P is `historyTick` on entry.
 
 1. **Check** T is imaged, inside the window, and not later than P; else
    `b3_historyTickUnavailable`. No other failure exists.
@@ -861,9 +896,9 @@ before P.
   and what it points to is the caller's, valid for as long as a retained tick can restore the
   owner.
 - **Borrowed geometry.** Mesh, height-field and compound data are borrowed by the shape, not
-  owned by the engine, and must stay valid *and unmodified* until no retained tick can restore a
-  shape that references them; the caller frees them only after the window has moved past the last
-  such tick. Geometry referenced only by shapes created after T can be freed once `Rewind(T)`
+  owned by the engine, and must stay valid *and unmodified* for as long as any live shape, or any
+  shape a retained tick or journal segment can restore, references them; the caller frees them only
+  after the window has moved past the last such tick and no live shape references them. Geometry referenced only by shapes created after T can be freed once `Rewind(T)`
   returns, since no retained tick holds those shapes.
 - **Bodies created after T vanish on rewind** and reappear with the same ids if recreated in
   the same order. Callers that want to keep a mispredicted spawn must recreate it.
@@ -966,9 +1001,9 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    impulses, mesh triangle caches, joint sims, island membership and sleep partition, pool state
    (all id pools, including each tree's proxy pool, §7.4, which is hashed as its allocation order:
    free-list ids head to tail with any trailing run of consecutive ascending ids that ends at the last capacity slot
-   dropped, then the first id the allocator would hand out after them, so capacity grown by a
-   discarded timeline is not hashed), the sensor array and each sensor's `overlaps2`, pair set
-   membership, colour bitsets, fat AABBs, each live proxy's tree, id, category bits, shape id and
+   dropped, then the first id of that run, or the capacity when there is no such run, so capacity
+   grown by a discarded timeline is not hashed), the sensor array and each sensor's `overlaps2`, pair set
+   membership, colour bitset membership (not block counts), fat AABBs, each live proxy's tree, id, category bits, shape id and
    leaf AABB read from the tree (equal to its fat AABB, §7.4), each tree's moved-proxy set, and
    world scalars, hashing float bit patterns; sparse id-addressed records in id order, with the
    generation of every slot of each sparse record array that carries one (bodies, shapes,
@@ -977,7 +1012,9 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    semantic values, never over raw struct bytes: pointers
    are replaced by the pointee's content (manifold and material array contents, and for borrowed
    geometry a content hash: a hull's, mesh's or height field's own stored `hash` field, which is
-   computed over its whole blob with explicit padding; a compound's is computed over its version,
+   computed over its whole blob with explicit padding (a 64-bit digest standing for the geometry, as the
+   state hash is itself a 64-bit digest, where hashing the contents would cost O(geometry bytes) per call;
+   the hull database's byte comparison exists because a lookup must be exact, which an oracle need not be); a compound's is computed over its version,
    materials, and its capsule, hull, mesh and sphere instance arrays with their transforms, in stored
    order, together with the content hash of each hull and mesh embedded in its blob and each mesh
    instance's material index array, excluding its `tree`, whose pointers and layout are derived),
@@ -995,7 +1032,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    on every body, shape and joint (changed by setters during the churn) compared against the value
    recorded at T, creation and destruction of the world's only compound shape, hull shape
    creation, destruction and deduplicated creation, sensor shape creation and destruction, surface
-   and mesh material writes on awake, sleeping and static shapes, a touching contact's manifold
+   and mesh material writes on awake, sleeping and static shapes, single-material and multi-material, a touching contact's manifold
    count changing across the sleep and wake of its bodies, a contact creation that rewrites an
    awake neighbouring contact's edge followed by a step that changes that neighbour's manifold
    count, a multi-material shape destroyed and a shape with a different material count created in
@@ -1023,7 +1060,9 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    validation-build checks. Acceptance: capture < 15% of step at 8 workers for
    the all-awake scenes and < 1 µs·awake for `large_world` and for a scene of a million sleeping
    dynamic and kinematic bodies with few awake; restore proportional to awake plus
-   sensors and journal; replay equals N × step within noise.
+   sensors and journal; replay equals N × step within noise, with the first replayed step after a
+   rewind that moved a proxy reported separately on the sleeping dynamic and kinematic scene, since
+   it also pays that tree's rebuild (§7.4).
 6. **Ring transitions.** Interval widening under `maxBytes`, eviction, a single slot over budget,
    a minimum window over budget, and removal on rewind: a rewind to each retained imaged tick; a
    rewind followed by steps and a second rewind into the re-stepped ticks; two rewinds with no
@@ -1032,7 +1071,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    change (sensor destruction, hull release). After each, the restorable ticks are exactly the
    retained imaged ticks at or before `historyTick`, `bytesUsed` is the sum of the retained slots'
    charges, a request for a tick after `historyTick` returns `b3_historyTickUnavailable`, every
-   heap block is either live in the world or owned by an entry of a retained slot, and the block
+   heap block is either live in the world or owned by an entry of a retained slot or of the staging buffer, and the block
    allocators' live allocation counts (not their retained capacity) return to baseline after
    `DisableHistory` and after `b3DestroyWorld` with history enabled.
 7. **Tree-order independence.** Restore-and-replay cases built to differ in tree layout after a
@@ -1074,12 +1113,18 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
   solid min, CCD sensor hits, explode), because the static tree is never imaged and its layout
   after an undone proxy operation is not the original. Kinematic and dynamic trees
   imaged raw as the temporary fallback, which already includes their proxy free lists and moved
-  bits: the journal walk undoes proxy operations against the live trees, then the image replaces
+  bits. The image of a tree is the fields the serializer's tree writer (`world_snapshot.c`) writes:
+  the scalars, the nodes and parents up to `nodeEnd`, and the proxies up to `proxyCapacity`.
+  Restore frees the live tree's arrays, its spare node array and its rebuild buffers, allocates
+  the image's sizes and copies; the spare array and the rebuild buffers hold no state and the next
+  rebuild allocates them again. The journal walk undoes proxy operations against the live trees, then the image replaces
   each of those two trees wholesale, so no tree pass runs on them; proxy-identity
   journaling (§7.4) is in from this phase for all three trees, and the restore-time tree pass (§7.4)
   runs on the static tree.
 - **Phase 2, derived trees.** Tree layout reconstruction at restore (§7.4) for the kinematic and
-  dynamic trees, replacing their raw images. Removes the last O(proxies) term. Phase 1 does not meet
+  dynamic trees, replacing their raw images. Removes the last O(proxies) term from capture and
+  `Rewind`; the first replayed step's rebuild of a tree the restore pass moved a proxy in remains
+  (§7.4). Phase 1 does not meet
   requirement 2 for a world with many sleeping kinematic or dynamic proxies; requirement 2 is met
   from phase 2, and §12 test 5's cost target on the sleeping dynamic and kinematic scene and test 7
   with layout-changing dynamic and kinematic cases gate it (`large_world`'s million proxies are
@@ -1100,8 +1145,8 @@ typedef struct b3HistoryDef
 } b3HistoryDef;
 
 B3_API b3HistoryDef b3DefaultHistoryDef( void );
-B3_API void b3World_EnableHistory( b3WorldId worldId, const b3HistoryDef* def );
-B3_API void b3World_DisableHistory( b3WorldId worldId );
+B3_API void b3World_EnableHistory( b3WorldId worldId, const b3HistoryDef* def ); // asserts history is not already enabled; to change the definition, disable first
+B3_API void b3World_DisableHistory( b3WorldId worldId ); // no-op when history is not enabled
 
 typedef struct b3HistoryInfo
 {
@@ -1111,11 +1156,13 @@ typedef struct b3HistoryInfo
 	size_t bytesUsed;         // retained history, including blocks owned by the journal entries of closed slots
 	size_t arenaCapacityBytes;   // ring arena capacity
 	size_t stagingCapacityBytes; // journal staging buffer capacity
+	size_t pendingBytes;         // open segment: staged journal bytes plus blocks its entries own; not in bytesUsed
 } b3HistoryInfo;
 
-B3_API b3HistoryInfo b3World_GetHistoryInfo( b3WorldId worldId );
+B3_API b3HistoryInfo b3World_GetHistoryInfo( b3WorldId worldId ); // all zero when history is not enabled
 
-// Newest imaged tick <= tick, or UINT64_MAX if none is retained.
+// Newest imaged tick <= tick, or UINT64_MAX if none is retained. A tick later than currentTick
+// gives the newest imaged tick, and a world with history disabled gives UINT64_MAX.
 B3_API uint64_t b3World_GetRestorableTick( b3WorldId worldId, uint64_t tick );
 
 typedef enum b3HistoryResult
@@ -1125,7 +1172,8 @@ typedef enum b3HistoryResult
 } b3HistoryResult;
 
 // Restore the whole world to the end of `tick`, which is at or before the current tick.
-// O(awake + sensors + journal). Discards every tick after `tick`: the way forward is b3World_Step.
+// O(awake + sensors + journal, with a tree insert or removal per proxy entry). Discards every tick after `tick`: the way forward is b3World_Step.
+// Returns b3_historyTickUnavailable on a world with history disabled.
 B3_API b3HistoryResult b3World_Rewind( b3WorldId worldId, uint64_t tick );
 
 // Deterministic hash of all simulation-affecting state. Same across the platforms the engine's determinism guarantee covers, and any worker count.
@@ -1135,6 +1183,7 @@ B3_API uint64_t b3World_ComputeStateHash( b3WorldId worldId );
 Typical correction:
 
 ```c
+// serverTick is at or before the current tick
 uint64_t T = b3World_GetRestorableTick( w, serverTick );
 if ( b3World_Rewind( w, T ) == b3_historyOk )
 {
