@@ -1,12 +1,14 @@
 ---
 
 title: Rewind-only bit-exact world history for box3d (hot image + undo journal ring)
-status: Draft, not reviewed (no review round has been run against this document). Derived from
-  docs/designs/20260927-002-bit-exact-history-ring.md, whose review series converged at round 43.
-  That convergence does not carry over. This document removes forward scrub, which changes the
-  journal payloads, the ownership of heap blocks, the ring's discard rule and the sleep-side
-  journal entries, and none of those changes has been reviewed. The document is self-contained
-  and does not rely on the earlier one being read.
+status: Draft, review series converged at round 21 (a fresh full-scope round returned no findings;
+  this is not an endorsement of the approach, and any revision reopens the doc at the same scope).
+  Findings: 4 (1H-2M-1L) -> 5 (1H-3M-1L) -> 4 (3H-1M-0L) -> 1 (0H-1M-0L) -> 3 (1H-2M-0L) -> 2 (0H-1M-1L) -> 2 (1H-1M-0L) -> 1 (0H-1M-0L) -> 2 (0H-1M-1L) -> 6 (0H-3M-3L) -> 5 (0H-4M-1L) -> 5 (0H-4M-1L) -> 3 (0H-2M-1L) -> 5 (0H-3M-2L) -> 4 (0H-2M-2L) -> 3 (1H-0M-2L) -> 3 (0H-1M-2L) -> 3 (0H-2M-1L) -> 2 (0H-1M-1L) -> 4 (0H-2M-2L) -> 0 (0H-0M-0L).
+  Derived from docs/designs/20260927-002-bit-exact-history-ring.md, whose review series converged
+  at round 43. That convergence does not carry over. This document removes forward scrub, which
+  changes the journal payloads, the ownership of heap blocks, the ring's discard rule and the
+  sleep-side journal entries. The document is self-contained and does not rely on the earlier one
+  being read.
   Code references are against source as of 5643cd8, the last commit touching `src/` and `include/`.
   They were gathered by three read-only audits of the step pipeline, the determinism properties,
   and the solver's order dependence, and the wake and sleep paths in `solver_set.c` were re-read
@@ -259,10 +261,8 @@ the parallel stages that make hot writes, so no stage holds one across a transit
 owns the record, not which field is written: a write to an awake owner's record is never
 journaled, whatever the field, because the image of the target tick covers it, and a body or
 contact that enters the awake set has its pre-wake bytes journaled by the transition (§7.1).
-A structural function writes a record through its write accessor, even inside a step; a structural
-write it makes through the hot accessor to a record whose owner is already awake is covered anyway,
-by image T or by the pre-wake entries of the function that moved the record into the awake set
-(§7.1). A stage takes a
+A structural function writes a record through its write accessor, even inside a step, and never
+through the hot accessor. A stage takes a
 const base pointer from an array once per loop for reads, so the pointer costs one load per stage,
 not one per element; no accessor returns a writable base pointer of a sparse record array, whose
 entries include cold records.
@@ -345,8 +345,10 @@ pool, is an incomplete struct type whose definition, storage fields included, si
 included only by that container's own file, and the world holds each by a pointer to that type,
 allocated at world creation (a by-value field needs the complete type, which would expose the
 storage to every file that includes the world struct). The world's fields that hold them are
-const-qualified pointers (`const b3WorldScalars* const` for the scalars), set only by the world's
-creation function, so reassigning one is also a compile error. An array held inside a record that is created
+plain pointers to those types (`const b3WorldScalars*` for the scalars), assigned only by the
+world's creation function; the pointer itself is not const-qualified, because `b3World` is an
+element of a global array that the creation function zeroes and then fills (`physics_world.c`), and
+a const member cannot be assigned there. An array held inside a record that is created
 and destroyed at run time — a solver set's `bodySims`, `bodyStates`, `jointSims`, `contactIndices`
 and `islandSims`, an island's three link arrays — is a field of that record of the const-data array
 type of the owned-blocks rule above, and `b3JournaledArray`'s mutators address it by the (array
@@ -413,7 +415,7 @@ ownership of it until it is undone or evicted, the same as a destroyed contact's
 ### 5.3 Scratch (nothing)
 
 Task-context bitsets, per-step event arrays, arenas, stack, step context, prepared constraint
-buffers, `movedSiblings`, `pairKeys`, sensor `hits`/`overlaps1`, profile and counters (`stepIndex`,
+buffers, `movedSiblings`, `pairKeys`, sensor `hits`/`overlaps1` (`hits` is appended by the step's solve and continuous sweeps and consumed and cleared by the sensor pass at the end of the same step, so it is empty at every step boundary), profile and counters (`stepIndex`,
 which only the step increments and only the serializer reads, and `maxCapacity`, a high-water
 statistic behind a public getter, are neither restored nor hashed). Each is
 reset before use (`physics_world.c`; `solver.c`;
@@ -586,7 +588,7 @@ holds it. Those bytes never need to be recorded, in any of the cases a rewind ca
 - T < t and the owner was awake at T: image T holds the record, its manifolds and its cache.
 - T < t and the owner was not awake at T: it entered the awake set in (T, t], and that
   transition's pre-wake entries restore it.
-- T ≥ t and the owner has not woken since: the live bytes are the bytes at T; nothing wrote them.
+- T ≥ t and the owner has not woken since: every write to it since T was a journaled write to a non-awake record, which the walk undoes, so the bytes are the bytes at T.
 - T ≥ t and the owner has woken since: the later wake's pre-wake entries recorded exactly the
   bytes the sleep left behind.
 
@@ -672,7 +674,7 @@ wrap the per-tree allocation — a seventh id-pool-shaped entry, shared by all t
 since the entry records which tree. Outside `broad_phase.c` the world's three trees are reachable
 only as a pointer-to-const, which `b3DynamicTree_CreateProxy`/`DestroyProxy` do not accept, and
 every function that writes one (proxy create and destroy, move, enlarge, refit, rebuild, moved
-bits) is a function in that file, so `solver.c`'s enlarge and refit calls move there. A compound
+bits) is a function in that file, so `solver.c`'s enlarge and refit calls and `b3World_RebuildStaticTree`'s rebuild (`physics_world.c`) move there. A compound
 shape's own child tree, built in `compound.c`, is borrowed geometry (§10), not world state, and
 stays a plain tree. The journal call lives inside the two functions, so every caller is covered, not only
 `b3CreateShapeInternal`/`b3DestroyShapeInternal`, but also `b3ResetProxy` (`shape.c`), which
@@ -802,7 +804,7 @@ tick 0, with an empty journal segment; `Rewind(0)` restores that world, and the 
 steps from there. `tickCount` bounds the window independently of `maxBytes`: after each capture,
 slots are evicted from the oldest end while the ticks from the oldest retained imaged tick to
 `historyTick` exceed `tickCount` and a later imaged tick remains, so an unbounded byte budget
-still retains only `tickCount` ticks plus the interval to the next image.
+still retains only the ticks from the oldest retained imaged tick, at most `tickCount` before `historyTick`, to `historyTick`.
 
 `b3World_DisableHistory` frees every slot, the blocks their entries own, the blocks owned by
 entries still in the staging buffer, the arena and the staging buffer. `b3DestroyWorld` does the
@@ -879,8 +881,10 @@ before P.
   host-state hash.
 - **Query order is not state.** Overlap, ray-cast and shape-cast callbacks receive shapes in tree
   traversal order, which is unspecified (`docs/simulation.md`) and may differ after a restore
-  (§7.4). A caller replays the API calls it recorded, not the queries that produced them; a caller
-  that issues API calls from a query callback records those calls as inputs.
+  (§7.4). `b3World_GetBounds` reads each tree's root bounds, which follow tree layout (an enlarged
+  proxy leaves its ancestors enlarged), so it too may differ after a restore, as may which of several
+  equal-fraction hits a closest ray or shape cast reports. A caller replays the API calls it recorded, not the queries that
+  produced them; a caller that issues API calls from a query callback records those calls as inputs.
 - **Events are regenerated** for every step replayed after T exactly as originally, because event
   generation is deterministic; step T's own events are not available after `Rewind(T)`. The engine
   does not flag replay; the caller knows it is replaying.
@@ -1049,7 +1053,10 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    step's events (types, contents and order) equal those the original run produced for that tick.
    This is the bit-exact claim. Run it with `preSolve` and custom filter callbacks whose results
    depend on `userData`, with a world `userData` and a callback context changed partway through the
-   replayed interval.
+   replayed interval: the test sets each back to its value at T before the first replayed step and
+   replays each change at the tick it was made, and at every tick from T+1 to P the distinct
+   `userData` words of test 2 on every body, shape and joint equal those recorded at that tick,
+   since the hash excludes them.
 4. **Cross-worker and cross-platform replay.** Run 3, hashes and events, at a different worker
    count than capture, and compare `b3World_ComputeStateHash` at fixed ticks of fixed scenes
    against golden values recorded on another platform of the determinism guarantee
@@ -1062,7 +1069,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    dynamic and kinematic bodies with few awake; restore proportional to awake plus
    sensors and journal; replay equals N × step within noise, with the first replayed step after a
    rewind that moved a proxy reported separately on the sleeping dynamic and kinematic scene, since
-   it also pays that tree's rebuild (§7.4).
+   it also pays that tree's rebuild (§7.4), the same O(nodes) rebuild the engine performs whenever that tree's proxies move; it has no fixed bound because it scales with the scene's proxy count, and the measured figure is what a caller weighs against its frame budget.
 6. **Ring transitions.** Interval widening under `maxBytes`, eviction, a single slot over budget,
    a minimum window over budget, and removal on rewind: a rewind to each retained imaged tick; a
    rewind followed by steps and a second rewind into the re-stepped ticks; two rewinds with no
@@ -1139,7 +1146,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
 ```c
 typedef struct b3HistoryDef
 {
-	int tickCount;        // at least 1 (asserted); retained window, in ticks: the oldest retained image is at most this many ticks before the current tick (a wider capture interval can retain up to one interval more, §8)
+	int tickCount;        // at least 1 (asserted); retained window, in ticks: the oldest retained image is at most this many ticks before the current tick
 	int captureInterval;  // at least 1 and at most tickCount (asserted); image every K-th tick; 1 = every tick
 	size_t maxBytes;      // target for retained bytes (arena and staging capacity are reported separately, and can exceed it); 0 = unbounded. Exceeding it widens the interval; a slot that cannot fit is still admitted (§8).
 } b3HistoryDef;
@@ -1161,8 +1168,8 @@ typedef struct b3HistoryInfo
 
 B3_API b3HistoryInfo b3World_GetHistoryInfo( b3WorldId worldId ); // all zero when history is not enabled
 
-// Newest imaged tick <= tick, or UINT64_MAX if none is retained. A tick later than currentTick
-// gives the newest imaged tick, and a world with history disabled gives UINT64_MAX.
+// Newest imaged tick <= tick, or UINT64_MAX if none is retained. The rule is the same for every
+// tick, so a tick later than currentTick gives the newest imaged tick, and a world with history disabled gives UINT64_MAX.
 B3_API uint64_t b3World_GetRestorableTick( b3WorldId worldId, uint64_t tick );
 
 typedef enum b3HistoryResult
@@ -1183,16 +1190,20 @@ B3_API uint64_t b3World_ComputeStateHash( b3WorldId worldId );
 Typical correction:
 
 ```c
-// serverTick is at or before the current tick
-uint64_t T = b3World_GetRestorableTick( w, serverTick );
-if ( b3World_Rewind( w, T ) == b3_historyOk )
+// A serverTick later than now is not a rewind: that tick has not been simulated, and the caller
+// applies its correction when it steps that tick.
+if ( serverTick <= now )
 {
-	if ( T == serverTick ) { apply the server correction; }
-	for ( t = T + 1; t <= now; ++t )
+	uint64_t T = b3World_GetRestorableTick( w, serverTick );
+	if ( b3World_Rewind( w, T ) == b3_historyOk )
 	{
-		replay API calls and inputs for t;
-		b3World_Step( w, dt, sub );
-		if ( t == serverTick ) { apply the server correction; }
+		if ( T == serverTick ) { apply the server correction; }
+		for ( t = T + 1; t <= now; ++t )
+		{
+			replay API calls and inputs for t;
+			b3World_Step( w, dt, sub );
+			if ( t == serverTick ) { apply the server correction; }
+		}
 	}
 }
 ```
