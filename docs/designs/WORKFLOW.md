@@ -28,19 +28,6 @@ introduces — not a license to re-litigate an existing, already-relied-upon eng
 merely calls. If an existing primitive genuinely looks wrong, that's its own separate design
 question, raised on its own, never a finding folded into review of whatever happens to call it.
 
-**Origin.** `docs/designs/20260927-001-client-prediction-rollback.md` ran 9 rounds before
-converging; `docs/designs/20260927-002-bit-exact-history-ring.md` has run 37 with no `CONVERGED`
-verdict yet, its finding rate having just risen from one per round back to five after the doc grew
-from 553 to 885 lines. Neither is a process failure — the same review loop documented below
-converged the first design in 9 rounds. Both docs chose an *architecture* — a frozen subset of live
-entities in the first case, an enumerated list of journal call sites in the second — whose
-correctness cannot be established once and stays established; it can only be checked, incompletely,
-one round at a time, forever, because a review round's only available fix inside an unbounded review
-loop is to patch the specific gap just found (one more list entry, one more reconciliation case, one
-more validator) rather than reject the shape that keeps producing gaps. These criteria name that
-shape directly, so it is rejected before a first round, not discovered and re-wrapped in protection
-thirty-seven rounds in.
-
 **AC-1 — No shadow structure over a population the design doesn't own.** A subset, scope set, shadow
 graph, or side table that duplicates entities already tracked by an existing live structure (a
 solver set, the constraint graph, an island, an ID pool) is forbidden, full stop — not priced against
@@ -219,14 +206,12 @@ it out, not by optimizing it in place.
    tracked round file.** `codex exec`'s own stdout interleaves its final answer with every tool
    call it made along the way (shell commands, file reads, source dumps) — for a broad review
    this routinely runs to several thousand lines, almost all of which is scratch. Piping that
-   with `>>` directly into `docs/designs/reviews/...` (as earlier rounds in this series did)
-   leaves the tracked file bloated with that transcript until a later cleanup pass strips it back
-   out — wasted repo churn and wasted tokens reading through it. Instead:
+   with `>>` directly into `docs/designs/reviews/...` leaves the tracked file bloated with that
+   transcript — wasted repo churn and wasted tokens reading through it. Instead:
 
    **This shell command is the Bash tool's `command` parameter only. The same tool call must also
    set `timeout: 600000` as a separate parameter** (not shown in the shell snippet below, since
-   it isn't shell syntax) — this is the tool-call-level timeout described above, and omitting it
-   is the single most common way this step fails.
+   it isn't shell syntax) — this is the tool-call-level timeout described above.
 
    ```bash
    RAW="$SCRATCHPAD/YYYYMMDD-NNN-<slug>-roundN.raw.log" && \
@@ -309,9 +294,7 @@ it out, not by optimizing it in place.
      trace of the old one. If it doesn't, decline it and, if the existing rationale evidently
      wasn't clear enough to head the re-raise off, sharpen it rather than leaving it exactly
      as-is for the next fresh reviewer to trip over again. Silently re-flipping the design to
-     match whichever round most recently argued for it is not convergence, it's oscillation —
-     and it is how a series can keep producing a new finding almost every round on a doc that
-     is genuinely no closer to settled than it was ten rounds ago.
+     match whichever round most recently argued for it is not convergence, it's oscillation.
 6. Claude appends a `## Post-review verification (Claude)` section to the round's file recording:
    the invocation (mode, timing, exit code, confirmation the working tree was/wasn't touched by
    Codex), which findings were verified against source (with the evidence checked) and applied
