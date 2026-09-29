@@ -59,8 +59,10 @@ The answer has three parts:
 5. **Bounded memory** with graceful degradation: a byte budget widens the capture interval
    instead of failing.
 6. **No approximations and no new solver participant kinds.** Resimulation is `b3World_Step`.
-7. **Verified by test, not by audit.** The set of journaled writes is checked by hashing cold
-   state in validation builds, so a missed write site fails a test rather than a review.
+7. **Verified by construction, not by audit.** Every cold structure in §5.2 is written through
+   exactly one function, and the journal call lives inside that function. A caller cannot reach
+   the underlying field any other way, so completeness is a property of the module boundary, not
+   a promise a review or a runtime check stands in for.
 
 Non-goals: capture or resim proportional to the *predicted* subset (design 001's requirements
 1–2). §11 covers what that would take on top of this design.
@@ -152,8 +154,24 @@ whole-world figures in the perf review (5–51 MB/tick); for `large_world` it is
 
 ### 5.2 Cold (journaled)
 
-Every write site below was enumerated by the inventory audit. Each site gains one journal call
-that records (structure, id, old bytes, new bytes) or a semantic entry.
+Each cold structure below is written one of two ways. Record fields — `bodies[id]`, `shapes[id]`/
+`fatAABBs`, `contacts[id]`, `joints[id]`/non-awake `jointSims` — go through one write accessor
+per structure (`b3Body_Write`, `b3Shape_Write`, `b3Contact_Write`, `b3Joint_Write`), replacing
+the direct field assignment used at every setter site today; the journal call lives inside that
+one function, not at each caller. Structural transitions — island and solver-set create,
+destroy, merge and split; id pool alloc/free; pair-set add/remove; colour bitset set/clear —
+already have no path other than the few dedicated functions that perform them
+(`b3CreateIsland`/`b3DestroyIsland`/`b3MergeIslands`/`b3SplitIsland`,
+`b3TrySleepIsland`/`b3WakeSolverSet`/`b3MergeSolverSets`, `b3AllocId`/`b3FreeId`,
+`b3AddKey`/`b3RemoveKey`, the bitset set/clear calls), so they need no new accessor, only a
+journal call inside the function they already funnel through. For the record-field structures,
+the table lists every current direct-write caller; the one-time migration is redirecting each
+one to the accessor and removing the field's direct-write access from every other translation
+unit, so a future caller that tries to write it without going through the accessor does not
+compile. Where a structure's storage cannot be moved out of reach of direct assignment without
+further module-boundary work — joint setters, for instance, are spread across every joint
+type's own file, not one — that is a finding against the surrounding code to fix there, not a
+reason to enumerate call sites and check afterward that none were missed.
 
 | Structure | Mutating functions |
 |---|---|
@@ -260,11 +278,16 @@ writes, which the engine pays anyway.
 
 ### 7.3 Hooks
 
-Each site in §5.2 gains a call such as `b3JournalBody( world, body )` before the write, or a
-semantic call (`b3JournalAllocId`) inside the pool/table/bitset function itself. The pool,
-table, bitset and tree modules each have two to four entry points, so those hooks are
-mechanical. The record sites are the audit surface; §12's cold-hash guard is what makes a
-missed site a failing test.
+Each record-field structure's write accessor (§5.2) makes its own journal call, such as
+`b3JournalBody( world, body )` inside `b3Body_Write`, before assigning the new value. The
+island, solver-set, pool, table and bitset structural functions already have two to four entry
+points each — `b3CreateIsland`/`b3DestroyIsland`/`b3MergeIslands`/`b3SplitIsland`,
+`b3TrySleepIsland`/`b3WakeSolverSet`/`b3MergeSolverSets`, `b3AllocId`/`b3FreeId`,
+`b3AddKey`/`b3RemoveKey`, the colour bitset set/clear calls — so their journal calls go inside
+those existing functions with no new accessor needed. The one-time work is migrating §5.2's
+listed record-field callers to their accessor instead of a direct field write; after that, a
+journal call can only be missed by writing a new mutator without one, which is caught where it
+is written, not discovered later at an unrelated caller.
 
 ### 7.4 Trees are derived, given one CCD change
 
@@ -333,7 +356,7 @@ discards their old journal segments; the branch is implicit.
    bitsets. Events for step T are not re-delivered; end events that were queued between steps
    at P are dropped. Set `historyTick = T`.
 6. In validation builds, run `b3ValidateSolverSets`, `b3ValidateContacts`,
-   `b3ValidateConnectivity`, `b3DynamicTree_Validate`, then the cold-hash check (§12).
+   `b3ValidateConnectivity`, `b3DynamicTree_Validate`.
 
 Ids and generations of everything alive at T are restored, including free-slot generations, so
 handles the caller held at T are valid again and handles created after T are invalid, with
@@ -418,8 +441,8 @@ Mitigations, in order of cost:
 No roots, no scope, no boundary partners, no zero-mass overrides in every joint prepare, no
 `validSinceTick` on every body, no pending-split slot, no side table of staged impulses, no
 destroy-and-recreate of contacts, no `Begin/EndResimulation` bracket, no spurious end/begin
-touch events. Restore has one failure mode (tick not retained). The engine changes are: journal
-hooks at enumerated sites, one CCD order change, a scalar grouping, a hash, and tests.
+touch events. Restore has one failure mode (tick not retained). The engine changes are:
+per-structure write accessors, one CCD order change, a scalar grouping, a hash, and tests.
 
 ## 12. Verification
 
@@ -433,14 +456,8 @@ hooks at enumerated sites, one CCD order change, a scalar grouping, a hash, and 
    sleeping bodies, explosions): `hash(Rewind(T)) == hash recorded at T`. Backward and forward.
 3. **Replay exactness.** After `Rewind(T)`, re-step to P replaying the recorded API calls:
    `hash == hash recorded at P` at every intermediate tick. This is the bit-exact claim.
-4. **Cold-hash guard (validation builds).** At capture, hash every cold structure that the
-   journal claims is unchanged since the last capture unless journaled: sleeping sets, non-awake
-   records, pools, pair set. At the next capture, recompute and compare after replaying the
-   segment's entries against a shadow copy. A write that bypassed the journal fails here, in
-   whichever test first exercises it. This is what makes §5.2's list a test rather than a
-   promise.
-5. **Cross-worker replay.** Run 3 at a different worker count than capture.
-6. **Cost.** Per-scene: capture µs and % of step; image and journal bytes per tick; restore ms
+4. **Cross-worker replay.** Run 3 at a different worker count than capture.
+5. **Cost.** Per-scene: capture µs and % of step; image and journal bytes per tick; restore ms
    for 1, 5 and 9 ticks back; replay ms. Acceptance: capture < 15% of step at 8 workers for
    the all-awake scenes and < 1 µs·awake for `large_world`; restore proportional to awake plus
    journal; replay equals N × step within noise.
@@ -449,11 +466,12 @@ hooks at enumerated sites, one CCD order change, a scalar grouping, a hash, and 
 
 - **Phase 0, semantics with existing code.** Put the new API in front of a ring of serialized
   images produced by `b3SerializeWorld` and restored by `b3DeserializeIntoShell`. This is
-  O(world) and allocates, but it exists, it is tested, and it lets tests 2, 3 and 5 be written
+  O(world) and allocates, but it exists, it is tested, and it lets tests 2, 3 and 4 be written
   and the full-state hash be validated before any engine change. It also answers whether the
   game's correction path works end to end.
-- **Phase 1, hot image + cold journal.** Journal hooks, ring arena, in-place image restore,
-  cold-hash guard. Trees imaged raw as the temporary fallback.
+- **Phase 1, hot image + cold journal.** Per-structure write accessors (§5.2) with the existing
+  callers migrated to them, ring arena, in-place image restore. Trees imaged raw as the
+  temporary fallback.
 - **Phase 2, derived trees.** The CCD order change and tree reconstruction at restore. Removes
   the last O(proxies) term.
 - **Phase 3, optional.** Contiguous hot contact storage (a per-colour contact-sim array as in
