@@ -150,6 +150,8 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-V7** A repeated declined finding is re-verified, not waved through.
 - [ ] **U-V8** Declining with a technical rebuttal is a normal, valued outcome.
 - [ ] **U-V9** A round whose findings were all declined is not converged.
+- [ ] **U-V10** Every finding declined this round has its rationale in the doc, beside the decision
+      (U-C4), before the next round is sent. A decline recorded only in the round record is unfinished.
 
 ### U-F — Folding fixes
 
