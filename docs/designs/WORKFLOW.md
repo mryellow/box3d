@@ -1,380 +1,333 @@
-# Workflow: Codex review of design docs
+# Review Workflow
 
-This project uses OpenAI Codex CLI as a second reviewer for the design docs under
-`docs/designs/` (e.g. `docs/designs/20260927-001-client-prediction-rollback.md`,
-`docs/designs/20260927-002-bit-exact-history-ring.md`) before they're treated as settled.
-This document describes how that review loop is run and where its output lives.
+**Status:** Draft
 
-Only the process is described here — content decisions it produced live in the design docs
-themselves, not here: design rationale in the doc's body (step 5 below), and the series'
-outcome — round count, converged or not — as prose in its `status:` front matter (step 8). The
-front matter is the one place a design doc refers to its own review series; the body never does.
+A citable checklist for the design-doc review loop that precedes implementation. Cite rules by ID
+(`U-C2`, `AC-3`) in round records instead of restating them. This is not ordinary code review
+(`/code-review`, PRs).
 
-## Acceptance criteria — hard gates
+- **Parameters** and **Running a round** are this repo's own values and mechanics. Where Part A
+  says "the project's X", it means the Parameters row for X.
+- **Part A (`U-*`)** is project-neutral and identical in every repo that uses this loop. Do not edit
+  it per project; a change to it is made in every copy.
+- **Part B (`AC-*`)** is customised per project. It turns the project's goal into prohibitions on
+  architecture. Part A refers to it by role (`Part B`), never by content.
 
-These are **prohibitions on architecture**, not review findings — contrast every other section of
-this document, which governs the mechanics of a round Codex might return a finding against. They
-describe shapes a design must not have, independent of whether any review round ever runs against
-it or what that round would find. A design that has one of these shapes is rejected and rewritten in
-that area, not defended, not priced, and not carried into a round as one more table row for step 5
-to verify and apply. Apply them **before** a design's first round, and again before recording a
-round's `CONVERGED` verdict as the series' close (step 8) — a clean round only means this round
-found nothing wrong with what the doc currently claims (AC-5); it says nothing about whether the
-shape itself is one of these, and a series that drifted since these were last checked doesn't get to
-skip the recheck just because this round's Codex output came back clean.
-
-**SCOPE.** These criteria govern what a design *adds* — the structures, hooks, and enumerations it
-introduces — not a license to re-litigate an existing, already-relied-upon engine behavior a design
-merely calls. If an existing primitive genuinely looks wrong, that's its own separate design
-question, raised on its own, never a finding folded into review of whatever happens to call it.
-
-**AC-1 — No shadow structure over a population the design doesn't own.** A subset, scope set, shadow
-graph, or side table that duplicates entities already tracked by an existing live structure (a
-solver set, the constraint graph, an island, an ID pool) is forbidden, full stop — not priced against
-the cost of not having one. That population is created, destroyed, merged, split, put to sleep, and
-reclassified by code the design doesn't control, and a design that freezes a copy of part of it
-inherits every one of those transitions as a fact it must independently reproduce, discover, or
-patch for. If a design needs "the entities relevant right now," it reads that from the live
-structure at the point of use — never from a copy taken earlier.
-
-**AC-2 — No completeness that depends on an enumerated list of callers.** A rule of the form "the
-following functions must call X" is a claim that can never be checked true, only checked incomplete
-one caller at a time by whoever next traces one — the compiler enforces nothing, so a missed caller
-just silently doesn't happen. If a mutation must always be accompanied by some other action (a
-journal write, an invalidation, a link update), the design routes the mutation through one function
-that is the only legal way to perform it, so a bypass fails to compile or fails an assertion. A list
-of named call sites is never a substitute for that choke point; if the operation genuinely cannot be
-centralized, that is itself a finding against the surrounding code, to be fixed there, not a license
-to enumerate.
-
-**AC-3 — No reconciliation between two structures that can each change independently.** Once a
-design has (in violation of AC-1) or is tempted to introduce a second structure alongside a first —
-a scope over the world, a shadow graph over the live graph, a side table of staged values over live
-records — logic to keep the two consistent as either one changes is not a missing piece to add, it
-is the sign the second structure should not exist. The fix is never "handle this additional
-transition too"; it is deleting the second structure and deriving whatever it existed to answer
-directly from the first, on demand.
-
-**AC-4 — By construction, not by check.** No validator, generation check, staleness guard,
-"confirm still valid" gate, or reconciliation pass bolted onto a mechanism to catch a case its own
-shape allows to go wrong. A check whose result changes what the code does — a branch, a retry, a
-skip, a "not this one" — is a symptom that the structure permits the bad case at all; fix the
-structure so the case cannot arise, don't add a gate in front of it. An assertion of an invariant the
-construction already guarantees is fine (it documents the invariant and aborts if reality disagrees)
-— it must never be control flow.
-
-**AC-5 — A clean review round is not architectural endorsement.** Zero findings after N rounds means
-this round, run at full scope, found nothing wrong with what the doc currently claims. It says
-nothing about AC-1 through AC-4 — a design can satisfy every review round Codex has run against it
-and still be built from a shadow structure or a call-site list that simply hasn't had its next gap
-found yet. Apply AC-1 through AC-4 yourself, before sending a round and again before recording
-`CONVERGED`; a falling finding count is what convergence looks like, but it is equally what a
-growing enumeration looks like in between the rounds that happen to catch its gaps, so a falling
-count alone is never evidence the shape is right.
-
-**How to fail a design against these.** Name the criterion and name the structure: what population
-it shadows (AC-1), what list stands in for a choke point (AC-2), what second structure it's
-reconciling against a first (AC-3), or what case its check exists to catch (AC-4). Do not propose a
-smaller list, a lighter-weight shadow, or a narrower reconciliation — deleting the structure that
-should not exist is the correct outcome, and a design that needs one of these is priced by rewriting
-it out, not by optimizing it in place.
-
-## Where files are saved
-
-- Every review round is written to `docs/designs/reviews/`, one file per round. A Codex round
-  file is never edited after the fact; the only later edit any review file receives is the
-  `Resolution` note a non-Codex review gets once addressed (see the end of this document).
-- Filename: `YYYYMMDD-NNN-<slug>.md`, e.g. `20260927-002-bit-exact-history-ring-round11.md`.
-  - `YYYYMMDD` — date the round was run.
-  - `NNN` — a counter that increments per *target doc* review started that day, not per round
-    (it does not reset when review moves to a different target on the same day — the first
-    target reviewed that day is `001`, the second is `002`, and so on; all rounds against a
-    given target reuse that target's number).
-  - `<slug>` — the target doc's slug, with `-roundN` appended from the second round on (the
-    first round's file has no `-round1` suffix).
-  - A one-off review that isn't part of the Codex round series (e.g. a Claude-authored
-    performance pass) gets its own descriptive suffix instead of a round number, e.g.
-    `20260927-001-client-prediction-rollback-perf.md`.
-- Each Codex round file's front matter records `title`, `target` (path to the doc under
-  review), `date`, `reviewer` (Codex CLI version and model) and `mode` (how the round was
-  run — see below). A non-Codex review file uses `reviewer` for who ran it and a
-  `focus` line instead of `mode`.
-  - Add a `session` (Codex session id) field only when a resume was needed (see below);
-    otherwise omit it.
-- Committed with `git commit`. This repo has no commit-type prefix convention — use a plain,
-  descriptive message. Rounds may accumulate uncommitted while a series is actively running;
-  commit them together once the series reaches a stopping point.
-- `README.md` does not reference `docs/designs/` at all; it's product-facing and out of scope
-  for this loop.
-
-## Citation format
-
-- Cite source files by path only, never by line number (`solver.c`, not `solver.c:1234`).
-- Never cite the doc's own line numbers either (no "see line 42 above/below"); use the doc's own
-  `§N` section numbers for self-references — stable across edits.
-- When writing a Codex prompt, state that citations are file-only by design and that a missing
-  line number is not a finding.
-- Verify any bulk or mechanical edit across a whole doc (e.g. stripping a pattern doc-wide)
-  immediately with a grep/script check that no partial or orphaned matches remain, before leaving
-  it uncommitted.
-
-## Running a round
-
-1. Before anything else, `git diff` the target doc. If a previous session left it uncommitted,
-   read the whole diff — not a preview — and check it isn't mangled: an interrupted or careless
-   edit (see "Citation format" above) can look fine skimmed but break on close read. Fix any
-   mangling first; don't let Codex review broken text as if it were the design.
-2. Claude writes the Codex prompt: point Codex at the target doc and the source tree it
-   describes. **Default to a fresh, from-scratch review**: give Codex only the target doc and
-   the source, explicitly instruct it not to read `docs/designs/reviews/`, and don't carry any
-   memory of previous rounds' scope or coverage into the prompt. Prior-round context anchors Codex
-   on what that round already covered instead of re-checking the whole doc. The target doc itself
-   must therefore carry enough settled rationale inline (status/why-not-X notes) that a
-   from-scratch reviewer reconstructs the current constraints correctly without review history —
-   that's what keeps Codex from relitigating settled decisions, not a prompt reminder about prior
-   rounds. Step 5 is where that rationale gets written into the doc, and step 7 is where a
-   round that had to relitigate settled ground gets noticed, so the gap is closed before the
-   next round rather than found again by it.
-   - **Exception: declined findings the doc cannot answer for itself travel with the prompt, as
-     a curated list, never as a pointer to the reviews directory.** A decline is one of two
-     things. Either the doc was right and should have said why — then the fix is the doc's own
-     rationale (step 5), the doc now answers a fresh reviewer directly, and the finding does not
-     go on the list. Or the reviewer was wrong about the source or misread the doc — the doc has
-     nothing to add, so the finding goes on the list: a terse one-line restatement plus the reason
-     it was declined, compiled by Claude from the round files' own Post-review verification
-     sections, not by directing Codex to go read those files itself. This is handed over as plain
-     context, not framed as an invitation to argue or relitigate. If a fresh reviewer
-     independently lands on the same ground again — listed or in-doc — and disputes the stated
-     reasoning by citing source directly, that citation gets checked against the actual source
-     with the same rigor as any new finding (step 5's reversal-check): a repeat's content needs
-     re-verification every time it recurs, not just a check that it was raised and declined
-     before.
-   - **Every round is the same full, broad pass — first round, last round, and every round
-     between**: correctness, soundness of the recommendation, internal consistency, gaps/risks,
-     clarity, and completeness. There is no narrowed or reduced-scope round, at any point in a
-     series. A fresh reviewer given the full brief is what catches a defect a narrower brief would
-     have excluded from consideration by definition — cutting what a reviewer is asked to look at
-     once a round or two comes back clean is exactly how a real gap stops getting checked for.
-     Record `mode` as simply the run mechanics (model, resume session if any).
-   - There is no fixed round count and no round number that by itself justifies stopping or
-     narrowing scope. Some designs converge in a handful of rounds; others take many more.
-     Treat any number of rounds run so far as a floor to expect, never a ceiling to plan toward.
-   - Before writing the prompt, Claude re-reads the target doc's own mechanism sections and
-     checks every rule or invariant stated for one specific case in its inventory against every
-     sibling case the same inventory lists, fixing any gap directly rather than waiting for
-     Codex to find it.
-3. Codex runs **read-only** (`codex exec --sandbox read-only`). Codex reports findings and
-   proposed edits; it does not touch files. Read-write access is not the default and is only
-   used for a specific request in that request's scope, not carried over between rounds.
-
-   **Always redirect stdin from `/dev/null`** on every `codex exec` invocation, even when the
-   prompt is passed as an argument: the CLI's own `--help` text says stdin is appended as a
-   `<stdin>` block whenever it's piped, and a Bash-tool-spawned process's stdin is never
-   explicitly closed — so without `< /dev/null` the call can hang indefinitely printing "Reading
-   additional input from stdin..." with the API request never starting.
-
-   **Two different timeouts must both be set on every `codex exec` call, and neither substitutes
-   for the other.** Wrap the call in a shell-level `timeout` (`timeout 540 codex exec ...`) so a
-   genuine stall or a long high-effort round still returns control — this bounds the `codex exec`
-   *process*. Separately, the Bash **tool call itself** takes its own `timeout` parameter (a field
-   on the tool invocation, in milliseconds — not part of the shell command string) that bounds how
-   long the harness lets the tool call run before it kills or auto-backgrounds it, independent of
-   what the shell is doing. **This parameter defaults to 120000ms (2 minutes) when left unset, and
-   a `high`-reasoning-effort round routinely runs longer than that** — so an invocation that only
-   sets the shell-level `timeout 540` and omits the tool parameter gets silently killed/backgrounded
-   at the 120s mark, long before the 540s shell timeout ever gets a chance to fire. Always pass the
-   tool parameter explicitly, set above the shell-level value: **`timeout: 600000`** (its
-   600000ms/10-minute hard cap) paired with `timeout 540` in the command string. Do not raise the
-   shell-level wrapper to 600 or beyond — that removes the margin between the two and reintroduces
-   the same race.
-
-   **Reviews MUST be run in the foreground — never `run_in_background`, and never left running
-   after the harness auto-backgrounds it.** A backgrounded `codex exec` call detaches the
-   start/end-time and exit-code capture from the call itself, so there is no reliable way to tell
-   a genuine stall from a long-but-healthy round, and no reliable way to know when it's safe to
-   read the output file. Run it foreground, bounded by the shell-level `timeout`, and let it hit
-   that timeout if it's going to — that's what the resume step below exists for. **If the harness
-   auto-backgrounds the call anyway** (the tool-call notification reports the command moved to a
-   background task instead of returning inline), that is itself proof the tool's own `timeout`
-   parameter was missing or set too low — it is not a benign variant of "still running," and
-   waiting for its completion notification is not a substitute for having run it foreground.
-   Kill it immediately (`TaskStop`), fix the invocation to include the correct `timeout: 600000`,
-   and reissue the call from scratch — do not wait on a call you know was misconfigured, and do
-   not treat its eventual notification as a valid round result.
-
-   **Redirect the raw output to the session's scratchpad directory, never straight into the
-   tracked round file.** `codex exec`'s own stdout interleaves its final answer with every tool
-   call it made along the way (shell commands, file reads, source dumps) — for a broad review
-   this routinely runs to several thousand lines, almost all of which is scratch. Piping that
-   with `>>` directly into `docs/designs/reviews/...` leaves the tracked file bloated with that
-   transcript — wasted repo churn and wasted tokens reading through it. Instead:
-
-   **This shell command is the Bash tool's `command` parameter only. The same tool call must also
-   set `timeout: 600000` as a separate parameter** (not shown in the shell snippet below, since
-   it isn't shell syntax) — this is the tool-call-level timeout described above.
-
-   ```bash
-   RAW="$SCRATCHPAD/YYYYMMDD-NNN-<slug>-roundN.raw.log" && \
-   PROMPT_START=$(date -Iseconds) && echo "START: $PROMPT_START" && \
-     timeout 540 codex exec --sandbox read-only "<the exact review prompt>" \
-       < /dev/null >> "$RAW" 2>&1; \
-     EXIT_CODE=$?; PROMPT_END=$(date -Iseconds); \
-     echo "END: $PROMPT_END, EXIT_CODE: $EXIT_CODE"
-   ```
-
-   (`$SCRATCHPAD` is this session's scratchpad directory, given in the environment block at the
-   start of the session — not a literal env var.) The captured start/end times and exit code feed
-   the round's front matter and "Post-review verification" section; a non-zero `EXIT_CODE` means
-   the round didn't finish and the output is not a real result to act on. Once the call succeeds,
-   read `$RAW`, find the content under the *last* `## Review report (Codex final message)`-shaped
-   answer (the same final message is often emitted twice — a `codex exec` streaming artifact, not
-   two different answers — keep one copy), and write only that clean text into the tracked round
-   file (front matter, then `## Review report (Codex final message)`, then that content) — the raw
-   log itself is never committed and can be left in the scratchpad for the session to clean up.
-
-   **If it times out (`EXIT_CODE 124`), don't restart from scratch — resume the session.** A
-   `timeout`-killed `codex exec` has usually already done most or all of its research; the
-   process is dead but the session (and its cached context) is not. Find the session id in the
-   killed run's output (Codex prints it, or `--json` records it per-event), then:
-
-   ```bash
-   codex exec --sandbox read-only -m <same model> -c model_reasoning_effort="<same effort>" \
-     resume <session-id> "<short finalize prompt: report findings from research already done, no further tool calls>" \
-     < /dev/null >> "$RAW" 2>&1
-   ```
-
-   Still run this in the foreground, still under a shell-level `timeout`, still with the Bash
-   tool's own `timeout: 600000` parameter set explicitly on this call too (a resume call gets no
-   exemption from the rule above — omitting it here fails exactly the same way), still redirected
-   from `/dev/null`, and still appended to the same scratchpad `$RAW` file, never the tracked
-   round file. Two syntax traps:
-   - `-m`/`-c`/`--sandbox` go **before** `resume`, not after —
-     `codex exec resume <id> --sandbox ...` is a CLI syntax error (`EXIT_CODE 2`). The
-     subcommand form is `codex exec [OPTIONS] resume <SESSION_ID> [PROMPT]`.
-   - Don't drop `-m <model>` on the resume call: omitting it lets the resumed turn silently fall
-     back to a different default model, so the round's model isn't what the front matter says.
-   Record the session id (in `mode` or a `session` field) and every attempt (killed and
-   resumed) in the round's "Post-review verification" section when a resume was needed.
-4. Ask Codex for its findings under `## Review report (Codex final message)`, in one fixed shape
-   used for every round regardless of round number: a `# | Severity | Section | Issue | Proposed
-   action` table (severities `High`/`Medium`/`Low`, not `Critical`/minor), a separate `## Checked,
-   no change` list for things already verified correct (never mixed into the findings table),
-   `## Proposed edits`, `## Unresolved / disagreements`, and a one-line `## Verdict`
-   (`CHANGES_PROPOSED` or `CONVERGED`).
-5. Claude verifies each proposed finding against the actual repo/doc state (Codex's model
-   knowledge can be stale relative to the doc's date), applies the ones that are genuine
-   defects in place in the target doc, and declines the rest, recording why in the round file
-   (step 6). Claude does **not** apply a finding just because Codex proposed it. Two rules
-   govern what an applied edit may contain, and a third governs a finding that revisits settled
-   ground:
-   - **A fix is the smallest edit that corrects the error, and it carries no commentary on why
-     the edit is correct** — no "since X only applies when...", "because Y is the only Z
-     that...", "which matters because...", and no narration of the review itself ("this closes a
-     gap round N left," "correcting round N's fix," "an earlier version of this section claimed
-     X"). Such text carries no design claim, so the next fresh round spends effort scrutinising
-     it for nothing; the reason an edit is correct belongs in the round file's Post-review
-     verification section (step 6). An in-doc fix reads as if it had always been right, with no
-     trace a review round or an earlier draft's wording ever existed: delete the wrong sentence
-     and write the right one, don't keep both with a note explaining the difference.
-   - **The doc's own design rationale is required content, and adding it is a fix like any
-     other** — "why not X," why this approach over an alternative, what an invariant depends
-     on. It is written in the doc's own voice, as if it had always been there, never as a note
-     about what a reviewer said. It is added whenever the doc is found not to say it: because
-     Codex flagged the omission, or because a finding was declined on grounds the doc should
-     have stated itself (step 2's first kind of decline). The next fresh round reviews that
-     rationale as design content — which is correct, since a wrong rationale is a real defect
-     and should be found. Withholding rationale to keep the doc from growing is what forces
-     every fresh round to re-open a question the doc could have answered on its own; the rule
-     above bans text that carries no design claim, not text that carries the design's reasons.
-   - **Reversal-check: a finding that contradicts rationale the doc already states is not new
-     work until it engages that rationale.** The round's argument must say why the stated
-     reason no longer holds, with fresh evidence from source — not just restate the
-     alternative. If it does and
-     the evidence checks out, apply it: the doc's rationale changes to the new fact, with no
-     trace of the old one. If it doesn't, decline it and, if the existing rationale evidently
-     wasn't clear enough to head the re-raise off, sharpen it rather than leaving it exactly
-     as-is for the next fresh reviewer to trip over again. Silently re-flipping the design to
-     match whichever round most recently argued for it is not convergence, it's oscillation.
-6. Claude appends a `## Post-review verification (Claude)` section to the round's file recording:
-   the invocation (mode, timing, exit code, confirmation the working tree was/wasn't touched by
-   Codex), which findings were verified against source (with the evidence checked) and applied
-   or declined, and why for any decline.
-7. Claude appends a `## Status` section: how this round's finding rate compares to recent
-   rounds (still finding new categories of issue vs. only edge cases), whether any
-   finding was a consequence of the immediately preceding round's own fix, whether any finding
-   reopened ground the doc's own rationale already covered (per step 5's reversal-check — and if
-   so, whether this round's argument actually engaged that rationale or just re-raised the same
-   alternative), and what happens next (another fresh round, at the same full scope, or
-   stopping). A round with mostly reopened findings is a signal to go sharpen the doc's rationale
-   before the next round, not a signal to narrow what the next round is asked to check. End the
-   section with a one-line convergence tally, so the trend is legible without re-reading every
-   round's prose:
-
-   `Round N: F findings (HN-MN-LN), A applied, D declined`
-
-   H/M/L are this round's own counts of `High`/`Medium`/`Low` findings straight from step 4's
-   table (never `Critical`/minor — this project's severities are exactly the three step 4 uses),
-   F = H+M+L. Follow it with the running series total in the same notation, computed by summing
-   every prior round's own tally plus this round's — cheap addition over numbers each round file
-   already states, never a re-read of their prose, e.g.:
-
-   `Series total: 100 findings (42H-45M-13L) across 26 rounds`
-
-   Then the convergence pattern itself, the most important line for a human reader: every round's
-   count in order, oldest first, in the same notation, ending with this round. Build it by copying
-   the previous round's `Findings:` line and appending ` -> ` and this round's `F (HN-MN-LN)`
-   (round 1 starts the line), e.g.:
-
-   `Findings: 12 (3H-6M-3L) -> 9 (2H-5M-2L) -> 4 (0H-3M-1L) -> 0 (0H-0M-0L)`
-
-   Never abbreviate or elide earlier rounds; the full sequence is the point. This line is the
-   primary content of any progress summary given directly to a human (a hand-off message, a chat
-   reply, the doc's `status:` front matter under step 8), reproduced verbatim and leading the
-   summary; per-round finding detail is secondary.
-
-   A `CONVERGED` round's own tally is trivially `0 findings (0H-0M-0L)`. This tally is a
-   convergence *signal*, not a stopping rule: a falling count is the trend to expect on the way
-   there, and a `CONVERGED` verdict (step 8) is the only thing that actually stops the series.
-8. Repeat with another round, always at the same full scope as every prior round, until a round
-   returns `CONVERGED` or the user says to stop. A round whose findings were all declined is not
-   a converged round — its verdict was `CHANGES_PROPOSED`, and only a fresh reviewer returning
-   `CONVERGED` closes the series, never Claude declining everything; the doc gets whatever
-   rationale the declines showed it was missing (step 5), and another full round runs. A
-   `CONVERGED` verdict means this round, run full-scope and from scratch, found nothing wrong
-   with what the doc currently claims — it is not architectural endorsement of the doc's
-   underlying approach, and it is not a signal that future rounds (if the user asks for more, or
-   a later revision reopens the doc) should be run any narrower than this one was. When a series
-   converges, record that in the *target doc's own* `status:` front matter as prose (see
-   `docs/designs/20260927-001-client-prediction-rollback.md` for a worked example) — not in a
-   review file. The last round's `## Status` section is the only
-   record of how the series ended; there is no separate summary section.
-
-## File structure of a review round
-
-Every round uses the same structure, regardless of round number:
-
-```
----
-title / target / date / reviewer / mode (+ session, only when a resume was needed)
 ---
 
-# Codex review — <target> [— round N]
+## Parameters (this repo)
 
-## Review report (Codex final message)
+| Parameter | Value |
+|---|---|
+| Reviewer command | `codex exec --sandbox read-only` |
+| Model / effort | `gpt-6-sol` / `high`, always passed explicitly |
+| Doc location and IDs | `docs/designs/YYYYMMDD-NNN-<slug>.md` |
+| Version snapshot | new file `docs/designs/YYYYMMDD-NNN-<slug>-vN.md` (same date/number/slug as the chain's first doc; `-v2` for the first revision); superseded status points forward |
+| Round record | one file per round in `docs/designs/reviews/`, `YYYYMMDD-NNN-<slug>[-roundN].md` (`NNN` is the target's number that day; all rounds against a target reuse it); front matter `title`, `target`, `date`, `reviewer`, `mode` (+ `session` only if resumed); sections `## Exact request sent to Codex`, `## Review report (Codex final message)` (Summary / Findings / Checked, no change / Proposed edits / Unresolved / Verdict), `## Post-review verification (Claude)`, `## Status` (tripwire + tallies). A non-Codex review uses `reviewer` + `focus` and is resolved by a `> **Resolution (round N):**` note at its top |
+| Changelog | `docs/designs/YYYYMMDD-NNN-<slug>-changelog.md`, one per chain |
+| Owner | the user |
+| Severity scale | `H`/`M`/`L`; tallies `Round N: F findings (HN-MN-LN), A applied, D declined`, series total, and the full `Findings: ... -> ...` line |
+| Citations | source by path only, never line (`solver.c`); docs by `§N` |
+| Status words | Draft -> Canonical -> Closed/Implemented, bare, in front matter `status:`; the convergence record stays in the last round file's `## Status` |
+| Memory doc | none yet; deferred gaps go in the design doc's successor or a `docs/designs/` note until one exists |
+| Context docs | the source tree the design describes (`src/`, `include/`, `test/`) |
+| Commits | plain descriptive message, no type prefix; rounds may accumulate uncommitted while a series runs |
+| Scratch | session scratchpad (`$SCRATCHPAD`), raw logs never committed |
+| Out of scope | `README.md` is product-facing and never references `docs/designs/` |
 
-## Summary
-## Findings
-## Checked, no change
-## Proposed edits
-## Unresolved / disagreements
-## Verdict
+---
 
-## Post-review verification (Claude)
+## Running a round (this repo)
 
-## Status
+```bash
+RAW="$SCRATCHPAD/YYYYMMDD-NNN-<slug>-roundN.raw.log"
+PROMPT_START=$(date -Iseconds); echo "START: $PROMPT_START"
+timeout 540 codex exec -m gpt-6-sol -c model_reasoning_effort="high" --sandbox read-only \
+  "<prompt>" < /dev/null > "$RAW" 2>&1
+EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 ```
 
-A non-Codex review (e.g. a Claude-authored performance pass) uses `reviewer` + `focus` in the
-front matter instead of `reviewer` + `mode`, and is resolved later with a `> **Resolution (round
-N):**` blockquote note added at the top of that same file once the target doc addresses it,
-rather than by appending further rounds of its own.
+- Foreground only. Never `run_in_background`, never `&` + polling. If the agent shell tool
+  auto-backgrounds the call, kill it and reissue with the tool timeout set.
+- `< /dev/null` always: the CLI reads stdin even with a prompt argument and otherwise waits for EOF.
+- Two timeouts: shell wrapper `540`, agent shell tool `timeout: 600000` (its cap). The wrapper
+  must stay below the tool's; never raise it to 600.
+- Model and effort explicit on every call, including sanity checks and `resume`; confirm the
+  captured header shows them.
+- Non-zero exit = no result (including the usage-limit exit 1). Do not act on it (U-R8).
+- Exit 124 with a long trace of real reads = work timeout: resume the session to finalize; if the
+  resume cannot finish either, bound the work (one doc or one Part per round). Exit 124 with
+  little output = stall: retry plain, then `RUST_LOG=info`, then `RUST_LOG=debug`, then run the saved
+  prompt through the desktop Codex app and fold the answer in as a normal response.
+- Resume: `codex exec -m gpt-6-sol -c model_reasoning_effort="high" --sandbox read-only resume <session-id>
+  "<finalize from research already done, no further tool calls>" < /dev/null >> "$RAW" 2>&1`.
+  Options go before `resume`; dropping `-m` silently reverts the model. Record the provenance.
+- Then write the round record from `$RAW` (U-R4): the exact request, then the reviewer's closing
+  answer (the last copy, if the stream emitted it twice).
+
+---
+
+## Part A: Universal rules
+
+### U-G — Gates (apply before round 1 and again before Canonical)
+
+- [ ] **U-G1** Every `AC-*` (Part B) checked against the doc by the author, not left to the reviewer.
+- [ ] **U-G2** A failed AC means rewrite, not patch: name the AC, the structure, and what it shadows.
+- [ ] **U-G3** Do not price a cheaper version of a structure that should not exist; delete it and
+      everything that existed only to support it.
+- [ ] **U-G4** A clean round is not architectural endorsement. Zero findings shows local
+      consistency only; re-run U-G1 before marking Canonical.
+- [ ] **U-G5** A falling finding count is not evidence the shape is right; a rising one after a
+      rewrite is normal.
+- [ ] **U-G6** Every rule stated for one case is checked against every sibling case in the same
+      inventory before sending.
+
+### U-C — Document content (design docs)
+
+- [ ] **U-C1** The doc holds decisions, required behaviours, and the reasons for them (U-C4);
+      nothing else.
+- [ ] **U-C2** No test mechanism (spies, call counts, fixtures), coverage tables or inventories.
+- [ ] **U-C3** No history, review narration, round counts, finding numbers, reviewer names, or
+      citations into round records or the changelog. Front matter says only what the doc is and
+      what it supersedes. The only mention of review is the bare status word.
+- [ ] **U-C4** Rationale for a declined finding lives in the doc, in the doc's own voice, as design
+      rationale (a short Rationale section or beside the decision). Write it whenever a declined
+      finding shows the doc did not say why. Keep it to the decision's reason and any rejected
+      alternative; no stand-alone essays. It never mentions the finding or round that prompted it.
+- [ ] **U-C5** No restated content of another doc; cross-reference it (Restatement Test: a
+      paragraph that could be pasted into the doc it cites belongs there).
+- [ ] **U-C6** No redefinition, narrowing or repurposing of an established term (Terminology Rule).
+- [ ] **U-C7** Name only what the design uses; naming a wider structure invites code that
+      traverses it.
+- [ ] **U-C8** No enumerations of cases the design does not distinguish.
+- [ ] **U-C9** Self-references use the doc's own `§N`, never line numbers. External code is cited
+      by path, with line numbers only as the project's Parameters allow.
+- [ ] **U-C10** Test mechanism, fixtures and test-to-requirement mapping belong to the
+      Implementation Prompt, which is exempt from U-C1/U-C2 and from the U-T3 length rule.
+
+### U-P — Review prompt
+
+- [ ] **U-P1** Point the reviewer at the current doc, plus only the docs and code it cites.
+- [ ] **U-P2** Never direct the reviewer to prior versions, prior round records, the changelog, or
+      "what changed". Review cold. The reviewer may read them on its own initiative; the prompt
+      never sends it there.
+- [ ] **U-P3** The prompt never restates declined findings or their reasons. The doc answers them
+      (U-C4). A re-raised finding means the doc's rationale was unclear: sharpen it, do not patch
+      the prompt.
+- [ ] **U-P4** Every round is the same full pass at the same scope. Never narrow after clean rounds.
+      The only fixed-scope exception is a target defined by a diff, stated in every prompt.
+- [ ] **U-P5** The reviewer reviews the target's own content only. A finding about another doc goes
+      under Unresolved; the author integrates it there.
+- [ ] **U-P6** Pressure-test the design. Never ask whether invariants have tests or whether a
+      coverage table is complete.
+- [ ] **U-P7** Never ask the reviewer to check index/memory bookkeeping, round counts or status
+      lines. Keep them current in the same edit pass.
+- [ ] **U-P8** Citations into round records are never claims and never findings.
+- [ ] **U-P9** After clean rounds, request an explicit skeptical pass.
+- [ ] **U-P10** Request one fixed output shape every round: Findings table (`# | Severity |
+      Section | Issue | Proposed action`, real defects only, "None." if empty), separate
+      **Checked, no change**, Proposed edits, Unresolved, one-line Verdict
+      (`CONVERGED` / `CHANGES_PROPOSED`).
+- [ ] **U-P11** Existing settled primitives are tools, not review targets. Judge what the design
+      adds and which question a primitive answers. A believed-defective primitive is its own doc,
+      raised with the owner.
+- [ ] **U-P12** State in the prompt that citations follow the project's citation format and that a
+      missing line number is not a finding.
+
+### U-V — Verifying findings
+
+- [ ] **U-V1** The raw response is saved before it is read or judged.
+- [ ] **U-V2** Every finding is checked against live code/docs. A review is input, not a mandate.
+- [ ] **U-V3** Precedent claims are grepped/read before being repeated.
+- [ ] **U-V4** Reversal check: a finding that contradicts an earlier reasoned decision is declined
+      unless it engages why the reason no longer holds, with fresh source evidence. A decline
+      restates the original reasoning plainly in the new version's rationale (U-C4).
+- [ ] **U-V5** A finding whose only fix adds machinery (state, guard, retry, list entry,
+      reconciliation) is checked against Part B first; if it fits, rewrite the surrounding
+      structure instead.
+- [ ] **U-V6** A "missing test" or "incomplete inventory" finding is declined as Implementation
+      Prompt scope unless the doc itself decides a test and that decision is wrong.
+- [ ] **U-V7** A repeated declined finding is re-verified, not waved through.
+- [ ] **U-V8** Declining with a technical rebuttal is a normal, valued outcome.
+- [ ] **U-V9** A round whose findings were all declined is not converged.
+
+### U-F — Folding fixes
+
+- [ ] **U-F1** A fix states the corrected fact and nothing else: no justification, not even one
+      clause.
+- [ ] **U-F2** No trace of the review: never "closes a gap round N left", never "corrects round N".
+- [ ] **U-F3** Delete the wrong sentence and write the right one; never keep both with a note.
+- [ ] **U-F4** Deleting is a fix. Remove a section/state/fallback that only guards a case the
+      design created, with whatever existed only to support it.
+- [ ] **U-F5** Delete a replaced test in the same edit that writes its replacement.
+- [ ] **U-F6** Fix the property, not the letter; mutation-verify the requirement as written.
+- [ ] **U-F7** After a fix, grep the repo for the removed mechanism's name and for the claim itself.
+- [ ] **U-F8** After a bulk/mechanical edit, grep/script-check for partial or orphaned matches.
+- [ ] **U-F9** The reason an *adopted* edit is correct goes in the round record or changelog, never
+      in the doc. (Reasoning for a *declined* finding is different: U-C4.)
+
+### U-R — Round records
+
+- [ ] **U-R1** Each round records, in order: the exact request, the reviewer's response verbatim,
+      and the author's resolution (per-finding adopted / declined + why / carried forward,
+      convergence line, tripwire). Files per the project's Round record row. A record is never
+      revised after its round closes.
+- [ ] **U-R2** Each new version is a new file (per the project's Version snapshot row); never edit
+      a version in place across rounds. Mid-round edits are fine. The superseded version's status
+      points forward.
+- [ ] **U-R3** The resolution is finished before the next version is drafted, as two separate
+      actions. "Record this and start the next round" in one breath is the failure mode.
+- [ ] **U-R4** Raw reviewer output goes to a scratch file. The record holds the exact request and
+      the reviewer's closing answer verbatim, trimmed of tool trace. A copy of the target doc
+      echoed inside the transcript is noise; a new version is always freshly authored.
+- [ ] **U-R5** The convergence line is carried forward in full, never elided, in the project's
+      severity scale: `N rounds: a/b/c -> a/b/c -> ... -> SETTLED 0/0/0`. Only the Findings table
+      counts. It leads any progress summary given to a human.
+- [ ] **U-R6** One running changelog file per chain (per the project's Changelog row), edited in
+      place, appended before each new version. It is where history and verbosity go. Never sent to
+      the reviewer, never cited from the design doc; citations inside it are never checked.
+- [ ] **U-R7** Re-check the next free identifier immediately before creating a file (concurrent
+      sessions collide); renumber the later file, never the earlier.
+- [ ] **U-R8** Non-zero reviewer exit means no result; do not act on it. Record the provenance of a
+      killed-then-resumed round.
+- [ ] **U-R9** Before a round, `git diff` the target; read the whole diff, fix any mangling first.
+
+### U-T — Tripwire (every resolution, between rounds)
+
+- [ ] **U-T1** Record whether the round's fixes added or removed a named mechanism.
+- [ ] **U-T2** Record whether findings clustered in a section that produced findings last round, and
+      whether any finding was a consequence of the previous round's own fix.
+- [ ] **U-T3** Record doc length in lines, previous round -> this round. Longer after a round is
+      presumed to violate U-C1 until each added line is shown to be a decision, required
+      behaviour, or rationale a declined finding showed was missing (U-C4).
+- [ ] **U-T4** Findings clustering in one section, answered by fixes that keep adding machinery:
+      re-apply Part B to that section as if it were round 1. Scope of the next round is unchanged.
+- [ ] **U-T5** A round of mostly re-raised findings means the doc's rationale is unclear (U-C4), not
+      that the next round should be narrower.
+
+### U-S — Stop and ask
+
+- [ ] **U-S1** Three consecutive rounds each finding a substantial structural problem: pause and
+      report.
+- [ ] **U-S2** Scope growing past the original ask: pause and report.
+- [ ] **U-S3** A finding forks the design (two viable directions, different user-visible
+      consequences): the owner decides.
+- [ ] **U-S4** Doc longer than the previous round, twice running, or findings in the same section
+      three rounds running: cut per U-C1 first; if it recurs after a cut, pause and report.
+- [ ] **U-S5** Owner reversal wins over the process; record it and excise the withdrawn material.
+- [ ] **U-S6** Do not defend or price a design that fails Part B; rewrite it.
+- [ ] **U-S7** Unanticipated case in a design: fail closed and hand to a human, not branch to
+      discover which situation applies.
+- [ ] **U-S8** Convergence needs a fresh round at full scope returning zero findings. There is no
+      round cap and no round number that justifies narrowing.
+
+### U-E — Evidence (author and reviewer)
+
+- [ ] **U-E1** State the exact proposition first, then name the evidence that could falsify *it*.
+- [ ] **U-E2** Produced, but who reads it? Ask separately of the code and of the test.
+- [ ] **U-E3** Absence claims name the type/module that would contain the thing, and read it. An
+      absent parameter is evidence about an interface, not a mechanism.
+- [ ] **U-E4** Never assert absence from a capped search (`head`, `-m`); rerun uncapped or count.
+- [ ] **U-E5** Proxy is not target: enumerating readers of a field is not enumerating the
+      decisions that depend on its fact.
+- [ ] **U-E6** Unreachability claims name the component that rejects the state and confirm its own
+      doc says so.
+- [ ] **U-E7** Causal claims carry scope: "X contributes" is not "X is the only cause".
+- [ ] **U-E8** Count after classifying, not after arguing membership toward a threshold.
+- [ ] **U-E9** Agreement is not evidence; only the source is. Re-derive an inherited premise
+      empirically before a cycle builds on it.
+- [ ] **U-E10** A fix that adds explanatory text is grepped for what it falsifies.
+
+### U-I — Implementation and status
+
+- [ ] **U-I1** Reconcile a spec that predates code changes against current code before
+      implementation starts.
+- [ ] **U-I2** The first implementation increment lands with tests that fail without the change;
+      never zero new tests.
+- [ ] **U-I3** Then self-review; independent implementation review to zero findings (same rules as
+      U-P/U-V); a closure doc (suite counts, pre-existing failures named, lint/type status,
+      disclosed deviations).
+- [ ] **U-I4** Disclose deviations and out-of-scope observations plainly; track deferred gaps as
+      numbered items in the project's memory doc and check them before touching the same files.
+- [ ] **U-I5** Status is a bare word (per the project's Status words row). Canonical is the literal
+      next edit after the confirming clean round, never written before it.
+- [ ] **U-I6** Superseded versions point forward in their status line only; never deleted.
+- [ ] **U-I7** A doc edited only as a side effect of another's review does not earn Canonical.
+
+---
+
+## Part B: Acceptance criteria (customised per project)
+
+**Purpose.** Part A governs how review runs. Part B governs what the architecture is allowed to be.
+It restates the project's own goal as prohibitions, so the architectural mistakes most likely to
+undermine that goal are rejected before any review round, not discovered in round fifteen.
+
+The goal differs per project, so the criteria do too:
+
+| Project goal | What the criteria therefore forbid |
+|---|---|
+| Real-time performance (a game) | Caches or indexes that hide computation; loops that answer a question every tick; per-item bounds that multiply over a population |
+| Integration with a system the project does not own (a remote service, a browser session) | Shadow copies of its state; enumerating its states; automated recovery from the unexpected (fail closed to a human) |
+| Deterministic simulation / rollback | Frozen copies of live structures; "these callers must do X" lists; checks that change control flow |
+| Durable orchestration / persistence | Derived or cached state; side tables beside the canonical store; reconciling two independently changing records |
+
+### Deriving a project's list
+
+- [ ] **B1** State the project's goal or hard constraint in one sentence (performance, determinism,
+      safety, auditability...).
+- [ ] **B2** List the architectural mistakes that most threaten it, taken from real past failures:
+      a series that did not converge, a design converged on and then discarded, a defect class
+      that recurred.
+- [ ] **B3** Write each as a prohibition on a *shape*, naming this project's own structures
+      (template below). A criterion with no project-specific noun belongs in Part A.
+- [ ] **B4** Check each criterion against a known bad design from B2: it must fail it by naming a
+      structure, not by taste.
+- [ ] **B5** Keep the list short (under ten). A criterion that cannot be failed concretely is
+      guidance; drop it.
+- [ ] **B6** Prohibitions, not heuristics: failing one means rewrite (U-G2), not a finding to patch.
+- [ ] **B7** Scope: criteria govern what a design *adds*, never a re-litigation of a settled
+      primitive it calls (U-P11). In scope at the boundary is which question a primitive answers.
+- [ ] **B8** Reconsider the list when a series passes ten rounds without converging, or converges
+      and is then discarded.
+
+**Template**
+
+> **AC-n: Short name.** The forbidden shape, in one sentence. What it shadows, scans or enumerates,
+> named for this project. The substitute, in one sentence.
+
+### Recurring shapes (a catalogue to instantiate, not a list to adopt)
+
+These recurred independently across projects with different goals. Adopt a row only where its
+population exists in this project, naming that population.
+
+| Shape | Forbidden | Substitute |
+|---|---|---|
+| Shadow structure | A cache, mirror, side table or state machine duplicating a population the design does not own | Read the live source at point of use |
+| Index | An auxiliary structure built only to find or count faster | Fix the addressing |
+| Enumerated completeness | "These callers/states must..." lists | One choke point; one generic outcome for "not what I expected" |
+| Reconciliation | Logic keeping two independently changing structures consistent | Delete the second; derive on demand |
+| Check as control flow | A validator, staleness guard, retry-and-classify loop or confirm gate | Fix the construction; assert, never branch |
+| Bounded search | A loop or retry to *discover* a situation, however small the bound | Executing an identified step is fine; searching is not |
+| Unreachable source | A consumer rebuilding what its canonical source should answer | Make the source reachable and answering |
+| Unneeded primitive | A new type, state field or config field expressible over existing ones | Metadata or a derived value |
+
+---
+
+## Acceptance criteria: box3d
+
+Goal: deterministic, bit-exact rollback over a live solver whose populations (solver sets, the
+constraint graph, islands, ID pools) are created, destroyed, merged, split, slept and reclassified
+by engine code the design does not control. Origin: the history-ring series
+(`docs/designs/20260927-002`, 43 rounds; `docs/designs/20260929-002`, 21 rounds).
+
+- [ ] **AC-1: No shadow structure over an engine population.** No subset, scope set, shadow graph or
+      side table duplicating entities tracked by a solver set, the constraint graph, an island or
+      an ID pool. Read the live structure at the point of use.
+- [ ] **AC-2: No enumerated completeness.** No "the following functions must call X" (journal
+      write, invalidation, link update). Route the mutation through one function that is the only
+      legal way to perform it, so a bypass fails to compile or asserts.
+- [ ] **AC-3: No reconciliation** between a scope over the world and the world, a shadow graph and
+      the live graph, or staged values and live records. Delete the second; derive on demand.
+- [ ] **AC-4: By construction, not by check.** No validator, generation check, staleness guard,
+      "confirm still valid" gate or reconciliation pass. An assertion of a construction-guaranteed
+      invariant is fine; it is never control flow.
