@@ -123,7 +123,8 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-P7** Never ask the reviewer to check index/memory bookkeeping, round counts or status
       lines. Keep them current in the same edit pass.
 - [ ] **U-P8** Citations into round records are never claims and never findings.
-- [ ] **U-P9** After clean rounds, request an explicit skeptical pass.
+- [ ] **U-P9** After a clean round, run a confirmation round: the same prompt at the same scope
+      (U-P4). The prompt adds no skeptical framing; running the round again is the check.
 - [ ] **U-P10** Request one fixed output shape every round: Findings table (`# | Severity |
       Section | Issue | Proposed action`, real defects only, "None." if empty), separate
       **Checked, no change**, Proposed edits, Unresolved, one-line Verdict
