@@ -89,11 +89,12 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-C2** No test mechanism (spies, call counts, fixtures), coverage tables or inventories.
 - [ ] **U-C3** No history, review narration, round counts, finding numbers, reviewer names, or
       citations into round records or the changelog. Front matter says only what the doc is and
-      what it supersedes. The only mention of review is the bare status word.
-- [ ] **U-C4** Rationale for a declined finding lives in the doc, in the doc's own voice, as design
-      rationale (a short Rationale section or beside the decision). Write it whenever a declined
-      finding shows the doc did not say why. Keep it to the decision's reason and any rejected
-      alternative; no stand-alone essays. It never mentions the finding or round that prompted it.
+      what it supersedes. The only mention of review is the bare status word, and the Provenance
+      section (U-C4).
+- [ ] **U-C4** The reasoning for a declined finding is restated plainly in the new version's
+      Provenance section: the decision's reason and any rejected alternative, with no round or
+      finding numbers. Where it is a design reason it also sits beside the decision, in the doc's
+      own voice. Write it whenever a declined finding shows the doc did not say why.
 - [ ] **U-C5** No restated content of another doc; cross-reference it (Restatement Test: a
       paragraph that could be pasted into the doc it cites belongs there).
 - [ ] **U-C6** No redefinition, narrowing or repurposing of an established term (Terminology Rule).
@@ -103,28 +104,34 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-C9** Self-references use the doc's own `§N`, never line numbers. External code is cited
       by path, with line numbers only as the project's Parameters allow.
 - [ ] **U-C10** Test mechanism, fixtures and test-to-requirement mapping belong to the
-      Implementation Prompt, which is exempt from U-C1/U-C2 and from the U-T3 length rule.
+      Implementation Prompt, which is exempt from U-C1/U-C2 and from the U-T3 fix-size rule.
 
 ### U-P — Review prompt
 
-- [ ] **U-P1** Point the reviewer at the current doc, plus only the docs and code it cites.
-- [ ] **U-P2** Never direct the reviewer to prior versions, prior round records, the changelog, or
-      "what changed". Review cold. The reviewer may read them on its own initiative; the prompt
-      never sends it there.
-- [ ] **U-P3** The prompt never restates declined findings or their reasons. The doc answers them
-      (U-C4). A re-raised finding means the doc's rationale was unclear: sharpen it, do not patch
-      the prompt.
+- [ ] **U-P1** Scope the prompt to the document and what it cites.
+- [ ] **U-P2** Never instruct the reviewer to read a previous version. A reviewer that looks at one
+      on its own initiative is not at fault.
+- [ ] **U-P3** A re-raised finding means the doc's reasoning or the prompt's scope wording was
+      unclear: check the scope first. Scope is stated in terms of what the document claims to
+      decide; completeness means completeness of what the document states, because the design as
+      a whole is complete only when the Implementation Prompt (U-C10) is reviewed and canonical.
+      A decision the document assigns to the Implementation Prompt is outside the pass. Scope
+      wording is not a declined finding.
 - [ ] **U-P4** Every round is the same full pass at the same scope. Never narrow after clean rounds.
       The only fixed-scope exception is a target defined by a diff, stated in every prompt.
-- [ ] **U-P5** The reviewer reviews the target's own content only. A finding about another doc goes
-      under Unresolved; the author integrates it there.
+- [ ] **U-P5** Review the doc's own content only, never its history and never citations into other
+      review artifacts. The prompt states as out of scope: the changelog, any "what changed"
+      narrative, and any citation into a round record, finding list or finding-count log. If one
+      of these slips into the doc and the reviewer flags it, that is noise, not a finding; fix it
+      without re-running the round. A finding about another doc goes under Unresolved.
 - [ ] **U-P6** Pressure-test the design. Never ask whether invariants have tests or whether a
       coverage table is complete.
-- [ ] **U-P7** Never ask the reviewer to check index/memory bookkeeping, round counts or status
-      lines. Keep them current in the same edit pass.
-- [ ] **U-P8** Citations into round records are never claims and never findings.
+- [ ] **U-P7** Don't ask the reviewer to check index or bookkeeping.
+- [ ] **U-P8** Citations into round records or the changelog are never claims and never findings,
+      and are never checked.
 - [ ] **U-P9** After a clean round, run a confirmation round: the same prompt at the same scope
       (U-P4). The prompt adds no skeptical framing; running the round again is the check.
+      Implementation review (U-I3) is exempt; see U-I9.
 - [ ] **U-P10** Request one fixed output shape every round: Findings table (`# | Severity |
       Section | Issue | Proposed action`, real defects only, "None." if empty), separate
       **Checked, no change**, Proposed edits, Unresolved, one-line Verdict
@@ -134,6 +141,9 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
       raised with the owner.
 - [ ] **U-P12** State in the prompt that citations follow the project's citation format and that a
       missing line number is not a finding.
+- [ ] **U-P13** A decision recorded in the document's Provenance (U-C4) is settled and binding on
+      the reviewer. It is not re-opened unless a finding shows fresh evidence that its reason no
+      longer holds (U-V4). The prompt may state it as scope.
 
 ### U-V — Verifying findings
 
@@ -142,7 +152,7 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-V3** Precedent claims are grepped/read before being repeated.
 - [ ] **U-V4** Reversal check: a finding that contradicts an earlier reasoned decision is declined
       unless it engages why the reason no longer holds, with fresh source evidence. A decline
-      restates the original reasoning plainly in the new version's rationale (U-C4).
+      restates the original reasoning plainly in the new version's Provenance section (U-C4).
 - [ ] **U-V5** A finding whose only fix adds machinery (state, guard, retry, list entry,
       reconciliation) is checked against Part B first; if it fits, rewrite the surrounding
       structure instead.
@@ -151,8 +161,8 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-V7** A repeated declined finding is re-verified, not waved through.
 - [ ] **U-V8** Declining with a technical rebuttal is a normal, valued outcome.
 - [ ] **U-V9** A round whose findings were all declined is not converged.
-- [ ] **U-V10** Every finding declined this round has its rationale in the doc, beside the decision
-      (U-C4), before the next round is sent. A decline recorded only in the round record is unfinished.
+- [ ] **U-V10** Every finding declined this round has its reasoning in the new version's
+      Provenance section (U-C4), before the next round is sent. A decline recorded only in the round record is unfinished.
 
 ### U-F — Folding fixes
 
@@ -164,7 +174,8 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
       design created, with whatever existed only to support it.
 - [ ] **U-F5** Delete a replaced test in the same edit that writes its replacement.
 - [ ] **U-F6** Fix the property, not the letter; mutation-verify the requirement as written.
-- [ ] **U-F7** After a fix, grep the repo for the removed mechanism's name and for the claim itself.
+- [ ] **U-F7** After a fix, grep the repo for the name of every mechanism or text the fix removed or
+      changed, and for the claim itself. Every copy changes in the same edit.
 - [ ] **U-F8** After a bulk/mechanical edit, grep/script-check for partial or orphaned matches.
 - [ ] **U-F9** The reason an *adopted* edit is correct goes in the round record or changelog, never
       in the doc. (Reasoning for a *declined* finding is different: U-C4.)
@@ -200,9 +211,12 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-T1** Record whether the round's fixes added or removed a named mechanism.
 - [ ] **U-T2** Record whether findings clustered in a section that produced findings last round, and
       whether any finding was a consequence of the previous round's own fix.
-- [ ] **U-T3** Record doc length in lines, previous round -> this round. Longer after a round is
-      presumed to violate U-C1 until each added line is shown to be a decision, required
-      behaviour, or rationale a declined finding showed was missing (U-C4).
+- [ ] **U-T3** Record doc length in lines, previous round -> this round, and the lines each fix
+      added. Growth is expected as required behaviours are stated; length is not itself a defect.
+      The defect is a fix larger than the finding: a minor finding answered by paragraphs rather
+      than a clause, or any narrative of how the decision was reached (U-C1, U-F1, U-C4). Added
+      prose is what the next round's findings land on. Cut such a fix back to the corrected fact
+      or the one-clause reason before the next round.
 - [ ] **U-T4** Findings clustering in one section, answered by fixes that keep adding machinery:
       re-apply Part B to that section as if it were round 1. Scope of the next round is unchanged.
 - [ ] **U-T5** A round of mostly re-raised findings means the doc's rationale is unclear (U-C4), not
@@ -215,8 +229,9 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-S2** Scope growing past the original ask: pause and report.
 - [ ] **U-S3** A finding forks the design (two viable directions, different user-visible
       consequences): the owner decides.
-- [ ] **U-S4** Doc longer than the previous round, twice running, or findings in the same section
-      three rounds running: cut per U-C1 first; if it recurs after a cut, pause and report.
+- [ ] **U-S4** Findings in the same section three rounds running, or fixes that repeatedly add
+      paragraphs where a clause was due: cut per U-C1 and U-F1 first; if it recurs after a cut,
+      pause and report.
 - [ ] **U-S5** Owner reversal wins over the process; record it and excise the withdrawn material.
 - [ ] **U-S6** Do not defend or price a design that fails Part B; rewrite it.
 - [ ] **U-S7** Unanticipated case in a design: fail closed and hand to a human, not branch to
@@ -247,15 +262,23 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
       implementation starts.
 - [ ] **U-I2** The first implementation increment lands with tests that fail without the change;
       never zero new tests.
-- [ ] **U-I3** Then self-review; independent implementation review to zero findings (same rules as
-      U-P/U-V); a closure doc (suite counts, pre-existing failures named, lint/type status,
-      disclosed deviations).
+- [ ] **U-I3** Then self-review (Stage 2); independent implementation review (Stage 3) under U-I8
+      and U-I9, with U-P and U-V otherwise applying; a closure doc (suite counts, pre-existing failures
+      named, lint/type status, disclosed deviations).
 - [ ] **U-I4** Disclose deviations and out-of-scope observations plainly; track deferred gaps as
       numbered items in the project's memory doc and check them before touching the same files.
 - [ ] **U-I5** Status is a bare word (per the project's Status words row). Canonical is the literal
       next edit after the confirming clean round, never written before it.
 - [ ] **U-I6** Superseded versions point forward in their status line only; never deleted.
 - [ ] **U-I7** A doc edited only as a side effect of another's review does not earn Canonical.
+- [ ] **U-I8** Implementation review checks the code against the Implementation Prompt and the design
+      it cites, and nothing else. A finding names the clause the code fails and an input the shipped
+      code can produce today; anything else is an observation (U-I4: disclosed, no fix, no round).
+      A fix restores what the design says. If it needs behaviour the design does not state, or lands
+      in an area an earlier fix of this review touched, it is not made in the review: it gets its own
+      new design document, run through the design process, and is implemented as its own increment.
+- [ ] **U-I9** Implementation review ends at the first round with no findings; there is no
+      confirmation round.
 
 ---
 
