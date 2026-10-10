@@ -42,8 +42,10 @@ tree-order work in `20261011-001-preflight-tree-order-independent-solver.md` is 
 ```c
 typedef struct b3WorldSnapshot b3WorldSnapshot; // opaque
 
-// Step boundary only. Returns NULL if the world is locked (inside a step or a callback) or recording.
-B3_API b3WorldSnapshot* b3World_CreateSnapshot( b3WorldId worldId );
+// Step boundary only. Returns NULL if the world is locked (inside a step or a callback) or recording,
+// or if flags has unknown bits. flags is b3_snapshotNone (0) or b3_snapshotUserData, which also
+// captures body, shape and joint userData; see 20261011-003-preflight-snapshot-userdata.md.
+B3_API b3WorldSnapshot* b3World_CreateSnapshot( b3WorldId worldId, uint32_t flags );
 
 // Restores the world the snapshot was taken from, in place; the world id and handles to
 // surviving objects stay valid. Returns false and leaves the world untouched if it is locked,
@@ -121,7 +123,7 @@ built `slot->live` object moves behind the reader side.
 here should use a wider hash (shapes' materials, contact and manifold state, sensor overlaps, pool
 state) written in `test/`, or extend `b3HashWorldState` in B4. Say which in the PR.
 
-### B2. userData policy
+### B2. userData option
 
 **Files.** `src/world_snapshot.c`, `include/box3d/box3d.h`.
 
@@ -129,8 +131,10 @@ state) written in `test/`, or extend `b3HashWorldState` in B4. Say which in the 
 For an in-process snapshot, zeroed `userData` makes restore useless to a game that keeps an entity
 pointer there.
 
-**Change (recommended).** An internal flag on the serializer: recording keeps zeroing; the public
-snapshot stores `userData` verbatim for bodies, joints and shapes. Document that restored objects
+**Change (decided: optional).** An internal flag on the serializer: recording keeps zeroing; the
+public snapshot stores `userData` verbatim for bodies, joints and shapes only when created with
+`b3_snapshotUserData`, and the flag parameter ships in B1. The full chain is its own preflight,
+`20261011-003-preflight-snapshot-userdata.md`. Document that restored objects
 carry the pointer they had when the snapshot was taken, so an object destroyed and recreated by
 the restore comes back with a pointer the host may have freed; the host must keep targets alive or
 rebind after restore. No automatic rebinding.
@@ -180,7 +184,7 @@ Add a second function rather than altering the first.
 
 ## 6. Open decisions for the owner
 
-1. `userData` (B2): store verbatim (recommended) or zero.
+1. `userData` (B2): settled as an opt-in flag; remaining choices are in the userData preflight.
 2. Geometry ownership (B1): snapshot owns copies (recommended, restore is self-contained) versus
    referencing host-owned mesh and height-field data (smaller snapshots, but a destroyed mesh
    would dangle). A middle path is a shared geometry table reused across snapshots of one world,
