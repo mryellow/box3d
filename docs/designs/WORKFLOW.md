@@ -22,13 +22,14 @@ A citable checklist for the design-doc review loop that precedes implementation.
 | Reviewer command | `codex exec --sandbox read-only` |
 | Model / effort | `gpt-6-sol` / `high`, always passed explicitly |
 | Doc location and IDs | `docs/designs/YYYYMMDD-NNN-<slug>.md` |
-| Version snapshot | new file `docs/designs/YYYYMMDD-NNN-<slug>-vN.md` (same date/number/slug as the chain's first doc; `-v2` for the first revision); superseded status points forward |
-| Round record | one file per round in `docs/designs/reviews/`, `YYYYMMDD-NNN-<slug>[-roundN].md` (`NNN` is the target's number that day; all rounds against a target reuse it); front matter `title`, `target`, `date`, `reviewer`, `mode` (+ `session` only if resumed); sections `## Exact request sent to Codex`, `## Review report (Codex final message)` (Summary / Findings / Checked, no change / Proposed edits / Unresolved / Verdict), `## Post-review verification (Claude)`, `## Status` (tripwire + tallies). A non-Codex review uses `reviewer` + `focus` and is resolved by a `> **Resolution (round N):**` note at its top |
-| Changelog | `docs/designs/YYYYMMDD-NNN-<slug>-changelog.md`, one per chain |
+| Round record | one file per round in `docs/designs/reviews/`, `YYYYMMDD-NNN-<slug>[-roundN].md` (`NNN` is the target's number that day; all rounds against a target reuse it); front matter `title`, `target`, `date`, `reviewer`, `previous`, `mode` (+ `session` only if resumed); sections `## Exact request sent to Codex`, `## Review report (Codex final message)` (Summary / Findings / Checked, no change / Proposed edits / Unresolved / Verdict), `## Post-review verification (Claude)`, `## Status` (tripwire + tallies). A non-Codex review uses `reviewer` + `focus` and is resolved by a `> **Resolution (round N):**` note at its top |
+| Changelog | `docs/designs/YYYYMMDD-NNN-<slug>-changelog.md`, one per doc |
 | Owner | the user |
 | Severity scale | `H`/`M`/`L`; tallies `Round N: F findings (HN-MN-LN), A applied, D declined`, series total, and the full `Findings: ... -> ...` line |
 | Citations | source by path only, never line (`solver.c`); docs by `§N` |
-| Status words | Draft -> Canonical -> Closed/Implemented, bare, in front matter `status:`; the convergence record stays in the last round file's `## Status` |
+| Status words | Draft -> Canonical -> Closed/Implemented, bare, in front matter `status:`; no `review:` line; the convergence record stays in the last round file's `## Status` |
+| Split-check length | 400 lines |
+| Criteria review threshold | 10 rounds without converging |
 | Memory doc | none yet; deferred gaps go in the design doc's successor or a `docs/designs/` note until one exists |
 | Context docs | the source tree the design describes (`src/`, `include/`, `test/`) |
 | Commits | plain descriptive message, no type prefix; rounds may accumulate uncommitted while a series runs |
@@ -81,6 +82,9 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
       rewrite is normal.
 - [ ] **U-G6** Every rule stated for one case is checked against every sibling case in the same
       inventory before sending.
+- [ ] **U-G7** Every claim the design depends on about a system the project does not own is
+      confirmed against that system, or a recorded observation of it, and the doc cites the
+      observation. An unconfirmed claim is a question for the owner, not a design input (U-S7).
 
 ### U-C — Document content (design docs)
 
@@ -91,7 +95,7 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
       citations into round records or the changelog. Front matter says only what the doc is and
       what it supersedes. The only mention of review is the bare status word, and the Provenance
       section (U-C4).
-- [ ] **U-C4** The reasoning for a declined finding is restated plainly in the new version's
+- [ ] **U-C4** The reasoning for a declined finding is restated plainly in the revision's
       Provenance section: the decision's reason and any rejected alternative, with no round or
       finding numbers. Where it is a design reason it also sits beside the decision, in the doc's
       own voice. Write it whenever a declined finding shows the doc did not say why.
@@ -152,7 +156,7 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-V3** Precedent claims are grepped/read before being repeated.
 - [ ] **U-V4** Reversal check: a finding that contradicts an earlier reasoned decision is declined
       unless it engages why the reason no longer holds, with fresh source evidence. A decline
-      restates the original reasoning plainly in the new version's Provenance section (U-C4).
+      restates the original reasoning plainly in the revision's Provenance section (U-C4).
 - [ ] **U-V5** A finding whose only fix adds machinery (state, guard, retry, list entry,
       reconciliation) is checked against Part B first; if it fits, rewrite the surrounding
       structure instead.
@@ -161,7 +165,7 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
 - [ ] **U-V7** A repeated declined finding is re-verified, not waved through.
 - [ ] **U-V8** Declining with a technical rebuttal is a normal, valued outcome.
 - [ ] **U-V9** A round whose findings were all declined is not converged.
-- [ ] **U-V10** Every finding declined this round has its reasoning in the new version's
+- [ ] **U-V10** Every finding declined this round has its reasoning in the revision's
       Provenance section (U-C4), before the next round is sent. A decline recorded only in the round record is unfinished.
 
 ### U-F — Folding fixes
@@ -186,31 +190,35 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
       and the author's resolution (per-finding adopted / declined + why / carried forward,
       convergence line, tripwire). Files per the project's Round record row. A record is never
       revised after its round closes.
-- [ ] **U-R2** Each new version is a new file (per the project's Version snapshot row); never edit
-      a version in place across rounds. Mid-round edits are fine. The superseded version's status
-      points forward.
-- [ ] **U-R3** The resolution is finished before the next version is drafted, as two separate
+- [ ] **U-R2** A doc is one file, edited in place across rounds; a revision is never a new file.
+      History lives in the changelog (U-R6) and the round records, not in copies of the doc.
+- [ ] **U-R3** The resolution is finished before the next revision is drafted, as two separate
       actions. "Record this and start the next round" in one breath is the failure mode.
 - [ ] **U-R4** Raw reviewer output goes to a scratch file. The record holds the exact request and
       the reviewer's closing answer verbatim, trimmed of tool trace. A copy of the target doc
-      echoed inside the transcript is noise; a new version is always freshly authored.
+      echoed inside the transcript is noise; each revision is always freshly authored.
 - [ ] **U-R5** The convergence line is carried forward in full, never elided, in the project's
       severity scale: `N rounds: a/b/c -> a/b/c -> ... -> SETTLED 0/0/0`. Only the Findings table
       counts. It leads any progress summary given to a human.
-- [ ] **U-R6** One running changelog file per chain (per the project's Changelog row), edited in
-      place, appended before each new version. It is where history and verbosity go. Never sent to
+- [ ] **U-R6** One running changelog file per doc (per the project's Changelog row), edited in
+      place, appended before each new revision. It is where history and verbosity go. Never sent to
       the reviewer, never cited from the design doc; citations inside it are never checked.
 - [ ] **U-R7** Re-check the next free identifier immediately before creating a file (concurrent
       sessions collide); renumber the later file, never the earlier.
 - [ ] **U-R8** Non-zero reviewer exit means no result; do not act on it. Record the provenance of a
       killed-then-resumed round.
 - [ ] **U-R9** Before a round, `git diff` the target; read the whole diff, fix any mangling first.
+- [ ] **U-R10** When the doc is marked Canonical, the changelog's closing entry names any rule whose
+      cost in this series exceeded what it caught: rule ID and the case, nothing else. No entry if
+      none. These entries are input to reconsidering Part B (B8) and Part A.
 
 ### U-T — Tripwire (every resolution, between rounds)
 
 - [ ] **U-T1** Record whether the round's fixes added or removed a named mechanism.
 - [ ] **U-T2** Record whether findings clustered in a section that produced findings last round, and
-      whether any finding was a consequence of the previous round's own fix.
+      whether any finding was a consequence of the previous round's own fix. Record whether the raw
+      log shows the reviewer reading round records or the changelog; such a read is evidence of a
+      gap in Provenance (U-C4, U-T5), not a reviewer fault (U-P2).
 - [ ] **U-T3** Record doc length in lines, previous round -> this round, and the lines each fix
       added. Growth is expected as required behaviours are stated; length is not itself a defect.
       The defect is a fix larger than the finding: a minor finding answered by paragraphs rather
@@ -221,6 +229,10 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
       re-apply Part B to that section as if it were round 1. Scope of the next round is unchanged.
 - [ ] **U-T5** A round of mostly re-raised findings means the doc's rationale is unclear (U-C4), not
       that the next round should be narrower.
+- [ ] **U-T6** Above the project's split-check length, record whether the doc decides more than one
+      independent thing. If it does, split before the next round: the doc keeps one decision, each
+      other moves to a new doc with its own number (U-R7) and changelog (U-R6). Length alone is
+      still not a defect (U-T3).
 
 ### U-S — Stop and ask
 
@@ -269,7 +281,8 @@ EXIT_CODE=$?; echo "END: $(date -Iseconds), EXIT_CODE: $EXIT_CODE"
       numbered items in the project's memory doc and check them before touching the same files.
 - [ ] **U-I5** Status is a bare word (per the project's Status words row). Canonical is the literal
       next edit after the confirming clean round, never written before it.
-- [ ] **U-I6** Superseded versions point forward in their status line only; never deleted.
+- [ ] **U-I6** A doc is never deleted. One replaced by a different doc (new subject, new number)
+      is set to Closed and points forward in its status line only.
 - [ ] **U-I7** A doc edited only as a side effect of another's review does not earn Canonical.
 - [ ] **U-I8** Implementation review checks the code against the Implementation Prompt and the design
       it cites, and nothing else. A finding names the clause the code fails and an input the shipped
@@ -313,8 +326,9 @@ The goal differs per project, so the criteria do too:
 - [ ] **B6** Prohibitions, not heuristics: failing one means rewrite (U-G2), not a finding to patch.
 - [ ] **B7** Scope: criteria govern what a design *adds*, never a re-litigation of a settled
       primitive it calls (U-P11). In scope at the boundary is which question a primitive answers.
-- [ ] **B8** Reconsider the list when a series passes ten rounds without converging, or converges
-      and is then discarded.
+- [ ] **B8** Reconsider the acceptance criteria when a series passes the project's criteria review
+      threshold without converging, converges and is then discarded, or when U-R10 entries name
+      the same criterion twice.
 
 **Template**
 
