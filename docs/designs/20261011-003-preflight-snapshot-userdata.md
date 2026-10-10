@@ -8,8 +8,8 @@ parent: 20261011-002-preflight-public-world-snapshot.md (B2)
 # Preflight: userData in the snapshot code
 
 Let an in-process world snapshot **optionally** carry the host's `userData` pointers, without
-changing what a recording stores or what a snapshot taken without the option stores. This expands PR B2 of the public-snapshot preflight into its own chain of
-small PRs. It touches `src/world_snapshot.c` and its callers only.
+changing what a recording stores or what a snapshot taken without the option stores. This expands
+PR B2 of the public-snapshot preflight into its own chain of small PRs. It touches `src/world_snapshot.c` and its callers only.
 
 ## 1. What the code does today
 
@@ -64,17 +64,15 @@ B3_API b3WorldSnapshot* b3World_CreateSnapshot( b3WorldId worldId, uint32_t flag
 ```
 
 - **Opt-in, off by default.** Without the flag a snapshot behaves exactly as today's image: all
-  `userData` comes back `NULL`. This is the conservative default and matches recordings; flipping
-  it to on-by-default later is a one-line change, the reverse would break callers.
+  `userData` comes back `NULL`. This is the conservative default and matches recordings. Zero flags means
+  off, permanently: a later default change would alter existing callers' results.
 - **Fixed at creation.** The flags are stored in the `b3WorldSnapshot`. `b3World_RestoreSnapshot`
   takes no flags and honours the snapshot's. One snapshot cannot be restored both ways, which
   keeps "what is in the snapshot" and "what restore does" the same thing.
-- **Unknown bits are rejected** (`NULL` return, assert in debug), so a later flag cannot be
+- **Unknown bits are rejected** (`NULL` return, no assert: the flags are caller input), so a later flag cannot be
   silently ignored by an older library.
 
 Three candidates for what a restored object's `userData` becomes when the flag is set:
-
-Three candidates for what a restored object's `userData` becomes:
 
 | Policy | Rule | Verdict |
 |---|---|---|
@@ -123,8 +121,9 @@ break it.
 
 **Change.**
 - Writer: when preserving, write `userData` as held, for **live** records only. Free slots keep
-  writing `NULL` so a stale pointer left in a freed body, shape or joint never reaches the image;
-  use the same liveness tests the file already uses (`shape.id == i`, `c->contactId == i`).
+  writing `NULL` so a stale pointer left in a freed body, shape or joint never reaches the image.
+  Liveness is `body.id == i`, `shape.id == i` and `joint.jointId == i`; the body and joint writers
+  have no liveness test today.
 - Reader: when preserving, skip the forced `NULL` for bodies, joints and shapes; free slots still
   come back `NULL`.
 - `materials` and `userShape` stay nulled in the image on both paths.
@@ -138,11 +137,11 @@ break it.
 1. Bodies, shapes and joints with distinct tagged pointers: snapshot, mutate, restore; every
    survivor has its original pointer.
 2. Destroy a body, a shape and a joint after T, restore: they return with the captured pointers.
-3. Create a body after T, restore: it is gone; its slot reads `NULL` from the getter.
+3. Create a body after T, restore: it is gone and `b3Body_IsValid` on its id is false.
 4. `b3Body_SetUserData` after T to a new value, restore: the captured value is back (P1).
-5. Free-slot hygiene: destroy a body before the snapshot, leave a poison value in its freed record
-   if the build allows it, snapshot, restore, create a body in that slot, check the pointer is the
-   new body's own.
+5. Free-slot hygiene: destroy a body before the snapshot (its freed record keeps its `userData`),
+   snapshot, then check the image holds `NULL` for that slot, and that a restored world has `NULL`
+   there before a body is created in it.
 6. `userShape` behaviour unchanged: handle kept on slot and generation match, released via
    `destroyDebugShape` otherwise.
 7. Recording path: start recording on a world full of `userData`, load the recording in a player,
@@ -172,7 +171,7 @@ note that recordings deliberately drop `userData`.
 
 1. P1 (recommended) or P3, for when the flag is set.
 2. Default when the flag is absent: off, as written. On-by-default would be friendlier to the
-   rollback user but makes the zero-`userData` behaviour the opt-in.
+   rollback user but needs an opt-out flag, since zero already means off.
 3. Where the `flags` parameter lands. Cleanest is B1 of the public-snapshot preflight, so the
    function is born with it and never changes signature; this PR then only adds the flag's
    meaning. The public-snapshot preflight is updated to match.
