@@ -1,6 +1,6 @@
 ---
 title: Preflight - tree-order-independent solver changes
-status: Draft
+status: Closed, superseded by 20261012-001
 date: 2026-10-12
 ---
 

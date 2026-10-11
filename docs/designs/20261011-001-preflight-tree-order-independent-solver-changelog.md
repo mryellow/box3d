@@ -28,3 +28,8 @@
 - A3: the array holds every returned candidate with a nonzero `explosionScale`.
 - The document changed after its confirmation round, so convergence is reopened: a clean round and a
   clean confirmation round are needed before Canonical.
+
+## Revision 5: Closed
+
+- Owner decision: 20261012-001 (sorted candidates) is the design that lands. Status set to Closed,
+  pointing forward in the status line (U-I6). The reopened review is not run.

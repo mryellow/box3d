@@ -55,3 +55,14 @@
 
 - No edits. Round 8 confirmation clean on the same document. Converged.
 - A0 paragraph reflowed to the document's line width after round 8; whitespace only, no content change.
+
+## Revision 11: Canonical
+
+- Status set to Canonical after the clean round 7 and the clean confirmation round 8.
+- U-G1 re-run on the final text. AC-1: the per-worker candidate array and the Explode scratch array
+  hold one query's results and are cleared or freed after it; neither shadows an engine population.
+  AC-2: no "must call" list; the sort sits inside the one query path. AC-3: nothing is reconciled.
+  AC-4: no check gates control flow; the A0 helper's contract is stated as construction.
+- Owner decision: the "Tests." paragraphs stay in the document (U-C2/U-C10 move not taken).
+- Opening sentence: supersedes 20261011-001, which is Closed.
+- U-R10: no rule's cost exceeded what it caught in this series.

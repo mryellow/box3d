@@ -1,6 +1,6 @@
 ---
 title: Preflight - sorted-candidate tree-order-independent solver changes
-status: Draft
+status: Canonical
 date: 2026-10-12
 ---
 
@@ -9,9 +9,8 @@ date: 2026-10-12
 One PR to Box3D, carrying three changes (A0-A2). Together they make continuous collision and
 `b3World_Explode` give the same answer for a given world state whatever the internal layout of the
 broad-phase trees is, by evaluating tree candidates in ascending shape-id order. The PR is a
-determinism hardening that upstream can accept on its own merits. It is an alternative to
-20261011-001: the same guarantee with no additional time-of-impact calls and no second tree traversal;
-the owner lands one of the two.
+determinism hardening that upstream can accept on its own merits. It supersedes 20261011-001: the
+same guarantee with no additional time-of-impact calls and no second tree traversal.
 
 ## 1. Why these changes, and only these
 
