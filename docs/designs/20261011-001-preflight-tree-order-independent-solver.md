@@ -37,11 +37,12 @@ Results stay physically comparable but are **not bit-identical to today's** in t
 Any recording (`.b3rec`) or golden hash captured before this PR may stop validating in them. The PR
 description must say so in one line. The cases:
 
-- **CCD sweeps with several competing candidates.** Impact fractions can differ within the TOI
-  tolerance, because the root search's bracket changes. That also changes the point and normal a
-  `preSolve` callback receives, so its decision can change even for a callback that depends only on
-  its arguments. Because `b3TimeOfImpact` judges separation at its limit, a sweep that enters and
-  leaves an obstacle within the step can be missed where today's shorter running limit caught it.
+- **CCD sweeps with several competing candidates.** Impact fractions can differ, with no bound,
+  because each candidate's time-of-impact query runs to a different limit. That also changes the
+  point and normal a `preSolve` callback receives, so its decision can change even for a callback
+  that depends only on its arguments. Because `b3TimeOfImpact` judges separation at its limit, a
+  sweep that enters and leaves an obstacle within the step can be missed where today's shorter
+  running limit caught it.
 - **CCD sweeps with more than 8 sensor candidates.** The eight kept are the eight lowest ids, not the
   eight nearest, and a hit at exactly the solid fraction no longer takes a slot. Because a sensor's
   TOI limit is now the final solid fraction, never above the running fraction it sees today, a sensor
@@ -68,13 +69,17 @@ but its test uses the A0 helper. A0 has no behaviour change and is the first com
 
 **Scope.** `test/` only. No `src/` change.
 
-**Change.** A helper that runs the same scene twice and compares per-step state hashes, where
-the second run perturbs tree layout without changing proxy ids, fat AABBs or any other state.
-Perturbation is a full `b3DynamicTree_Rebuild( tree, true )` on each world tree
-(`b3World_RebuildStaticTree` is the internal world-level equivalent for the static tree). The helper
+**Change.** A helper that runs the same scene twice and compares per-step state hashes, where the
+second run perturbs tree layout. Perturbation is a full `b3DynamicTree_Rebuild( tree, true )` on
+each world tree, called directly (`b3World_RebuildStaticTree` also writes a recording command, which
+is state). A full rebuild of a nonempty tree keeps proxy ids, leaf bounds and moved marks and sets
+the tree ordered; nothing else it writes is simulation state. On an empty tree it returns before
+writing anything. The ordered flag gates the step's pair update together with the moved marks
+(`src/broad_phase.c`), but pair discovery starts only from moved marks, so entering on the flag
+alone finds no pairs and only rebuilds the dynamic and kinematic trees, which is layout. The helper
 can perturb before each step or immediately before a named call such as `b3World_Explode`. It also
-provides a visit-order witness: a way for a test to record, for the query under test, the sequence of
-candidates the query hands back. Tests may include internal headers (`test_broad_phase.c` already
+provides a visit-order witness: a way for a test to record, for the query under test, the sequence
+of candidates the query hands back. Tests may include internal headers (`test_broad_phase.c` already
 does).
 
 **Check before merging.** For the query a test relies on (the CCD queries, or the Explode query), the
@@ -160,8 +165,9 @@ sensors are reported and that no convex sensor lies beyond the solid hit.
 **Change.**
 - The callback only collects `shapeId` for shapes with `explosionScale != 0` into a temporary array
   (`b3Array` on the project allocator, freed before return; the query is serial). It holds every
-  candidate the broad phase returns, including shapes outside the blast distance, so scratch memory
-  and the sort are proportional to the candidate count; allocation failure asserts as elsewhere.
+  candidate the broad phase returns with a nonzero `explosionScale`, including shapes outside the
+  blast distance, so scratch memory and the sort are proportional to that count; allocation failure
+  asserts as elsewhere.
 - After `b3DynamicTree_Query`, sort the ids ascending (`src/qsort.h`) and run the current callback
   body for each in that order, unchanged: distance test, `b3WakeBody`, impulse. Wake order fixes
   colour and overflow-colour order of woken constraints, and sorted order fixes the float addition
