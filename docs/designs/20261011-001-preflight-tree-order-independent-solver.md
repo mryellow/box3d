@@ -33,12 +33,9 @@ by shape-pair key (`src/broad_phase.c`), end-of-step sensor hits are sorted and 
 ### What is not needed
 
 - **No solver change is needed to rewind from a full world image.** `b3SerializeWorld` writes all
-  three trees verbatim (`src/world_snapshot.c`), so a restored world has the original layout. The
-  second preflight (`20261011-002-preflight-public-world-snapshot.md`) therefore has no dependency
-  on this one.
+  three trees verbatim (`src/world_snapshot.c`), so a restored world has the original layout.
 - These PRs are needed once restore stops imaging trees: the static tree first (it is world-sized),
-  the kinematic and dynamic trees later. They are the prerequisite for that work, not for the
-  public snapshot API.
+  the kinematic and dynamic trees later. They are the prerequisite for that work.
 
 ### Behaviour change, stated up front
 
