@@ -57,6 +57,8 @@ real dependency (A2 evaluates sensors against A1's final solid fraction). A3 sha
 them, but its test uses the A0 helper, so PR 2 merges after PR 1. A0 has no behaviour change and is
 the first commit of PR 1.
 
+Both PRs fork from `main`, never from a feature branch, so they carry none of the rewind work.
+
 ### A0. Test helper: perturb tree layout
 
 **Scope.** `test/` only. No `src/` change.
