@@ -7,10 +7,10 @@ parent: 20260929-002-rewind-only-history-ring.md (§7.4)
 
 # Preflight: tree-order-independent solver changes
 
-Four small PRs to Box3D. Together they make the step, and `b3World_Explode`, give the same answer
-whatever the internal layout of the broad-phase trees is. Each PR stands alone: it is a determinism
-hardening that upstream can accept on its own merits, with no mention of rewind, history rings or
-journals.
+Two small PRs to Box3D, carrying four changes (A0-A3). Together they make the step, and
+`b3World_Explode`, give the same answer whatever the internal layout of the broad-phase trees is.
+Each PR is a determinism hardening that upstream can accept on its own merits, with no mention of
+rewind, history rings or journals.
 
 ## 1. Why these changes, and only these
 
@@ -48,12 +48,14 @@ say so.
 ## 2. PR sequence
 
 ```
-A0 tree-layout test helper ──┬── A1 CCD solid min ── A2 CCD sensor hits
-                             └── A3 Explode order
+PR 1 (CCD):     A0 tree-layout test helper ── A1 CCD solid min ── A2 CCD sensor hits
+PR 2 (Explode): A3 Explode order
 ```
 
-A1 -> A2 is a real dependency (A2 evaluates sensors against A1's final solid fraction). A3 is
-independent of both. A0 has no behaviour change and merges first.
+PR 1 holds A0, A1 and A2 as one commit each, in that order, so each stays bisectable. A1 -> A2 is a
+real dependency (A2 evaluates sensors against A1's final solid fraction). A3 shares no code with
+them, but its test uses the A0 helper, so PR 2 merges after PR 1. A0 has no behaviour change and is
+the first commit of PR 1.
 
 ### A0. Test helper: perturb tree layout
 
@@ -149,10 +151,10 @@ bit and equal awake-set order. Fails before the change.
 
 ## 3. Review checklist for each PR
 
-- [ ] Diff touches only the files listed for that PR, plus a test and the docs sentence.
+- [ ] Diff touches only the files listed for its changes, plus a test and the docs sentence.
 - [ ] New test fails on `main` and passes on the branch (or the PR says why it cannot fail).
 - [ ] Existing `test` target passes, including `test_determinism.c`.
-- [ ] Benchmark delta quoted for the hot-path PRs (A1, A2).
+- [ ] Benchmark delta quoted for A1 and A2 separately, one per commit of PR 1.
 - [ ] PR text states the not-bit-identical-to-before consequence in one line.
 - [ ] No mention of rewind, ring, journal or history in code, comments or PR text.
 
