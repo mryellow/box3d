@@ -119,11 +119,23 @@ the profile's `bullets` field, which is zero for non-bullet bodies.
 | PR, main | non-bullet, total | 5361 | 5078 | -5.3% |
 | PR, main | bullet, continuous stage | 4863 | 4567 | -6.1% |
 
-The PR is faster in every pairing. The likely reason is locality: evaluating candidates in
-ascending shape id walks the shape and body arrays in memory order instead of tree order, and that
-gain exceeds the cost of pushing each candidate and sorting a few dozen ids. The candidate array is
-reserved once per worker at world creation (`src/physics_world.c`), so there is no per-step
-allocation. The Explode change (f66ee7f) is not exercised by any benchmark.
+The PR is faster in every pairing. The cause is not measured. Neither branch allocates per step in
+the continuous path: the candidate array is reserved once per worker at world creation
+(`src/physics_world.c`), so the gain is not from allocation. Three candidates remain, not separated
+here:
+
+- Memory order: ascending shape id walks the shape array and the body lookups it triggers
+  sequentially, where tree order is spatial.
+- Separated loops: on `main` the tree traversal is interleaved with time-of-impact solves inside the
+  callback; on the PR the traversal runs as one tight loop and the solves as another.
+- Running-fraction evolution: each solve brackets on the running best fraction, so the order sets
+  how fast the bracket narrows and how many iterations later candidates need. Shape id order and
+  tree order are both arbitrary with respect to distance, but they differ in which candidates come
+  first.
+
+Separating them would take a profiler run on both builds, or a variant that collects the candidates
+and evaluates them in tree order, which isolates the sort from the loop separation. The Explode
+change (f66ee7f) is not exercised by any benchmark.
 
 ## 6. Replication
 
