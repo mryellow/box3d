@@ -15,8 +15,15 @@ engine in real scenes, and by how much in a scene that is nothing but continuous
 ## 1. Result
 
 The sort does not slow the engine. In the fifteen project benchmarks the PR is within run-to-run
-noise of `main`. In a scene built to be dominated by continuous queries the PR is 5 to 7 percent
-faster than `main`, in every pairing and either run order.
+noise of `main`. In a scene built to be dominated by continuous queries the sort's own cost is
+below the noise floor: a variant that sorts by a hash of the id, a more expensive comparison than
+the PR's, matches `main`. What the microbenchmark does expose is that the evaluation order moves
+the continuous stage by 10 to 20 percent either way according to whether the first candidates
+evaluated are near or far along the sweep, because the first hit narrows every later
+time-of-impact solve. The PR's apparent 5 to 7 percent gain in the first runs (§5) was that
+effect: the scene creates its boxes in ascending x, so ascending shape id was nearest-first.
+Reversing the travel direction turns the same gain into a loss. Neither shape id order nor tree
+order tracks distance in general, so the expected real-world effect of the PR is parity.
 
 ## 2. Setup
 
@@ -149,10 +156,53 @@ same microbenchmark. Times in ms.
 
 The machine slows across the rotations, so rows compare within themselves. In every row the
 variant is within 0 to 4 percent of `main` and the PR is 5 to 8 percent faster than both. Splitting
-the traversal from the evaluation is not the gain; the sorted order is. That leaves memory order and
-running-fraction evolution, not separated here; a variant that evaluates in a deterministic but
-non-ascending order (descending, or hashed) would tell them apart. The Explode change (f66ee7f) is
-not exercised by any benchmark.
+the traversal from the evaluation is not the gain; the sorted order is.
+
+**Descending and hashed variants.** Two more scratch builds of the PR head: one with the sort
+comparison reversed (descending shape id) and one sorting by a multiplicative hash of the id (a
+deterministic order unrelated to shape id, with a dearer comparison than the PR's). Four builds in
+four rotations, each build once in each position.
+
+| Rotation | Variant | `main` | PR | descending | hashed |
+|---|---|---|---|---|---|
+| main, PR, desc, hash | non-bullet, total | 4360 | 4150 | 5058 | 4545 |
+| hash, main, PR, desc | non-bullet, total | 4770 | 4635 | 5522 | 4623 |
+| desc, hash, main, PR | non-bullet, total | 5096 | 4804 | 5576 | 4986 |
+| PR, desc, hash, main | non-bullet, total | 5196 | 4852 | 5771 | 5165 |
+| main, PR, desc, hash | bullet, continuous stage | 4752 | 4467 | 5384 | 4682 |
+| hash, main, PR, desc | bullet, continuous stage | 4691 | 4393 | 5292 | 4648 |
+| desc, hash, main, PR | bullet, continuous stage | 5941 | 5451 | 5307 | 4630 |
+| PR, desc, hash, main | bullet, continuous stage | 5801 | 5358 | 6548 | 5775 |
+
+Hashed order sits within noise of `main` in every row, so the collection, the sort and a hash per
+comparison together cost nothing measurable. Descending order is 10 to 16 percent slower than
+`main` and ascending 5 to 8 percent faster. Memory order cannot explain a swing of that size between
+two sequential walks of the same ids, and the hashed order, the worst for memory, is not the
+slowest. The scene explains it: `ccdbench.c` creates its boxes with x as the outer loop, so shape
+id ascends with x, and the spheres travel in +x. Ascending id evaluates the candidate nearest the
+start of the sweep first; its fraction then brackets every later solve, which converges in fewer
+iterations or rejects outright. Descending id evaluates the farthest first and narrows the bracket
+one candidate at a time.
+
+**Reversed travel.** The same four builds with the spheres fired in -x, which makes ascending id
+farthest-first and descending nearest-first. Non-bullet totals, two rotations.
+
+| Rotation | `main` | PR | descending | hashed |
+|---|---|---|---|---|
+| main, PR, desc, hash | 6348 | 7019 | 5261 | 5207 |
+| hash, desc, PR, main | 5362 | 5895 | 4979 | 5224 |
+
+The PR is now 10 percent slower than `main` and descending is the fastest. The order's effect is
+distance along the sweep, not memory. The PR's gain in the earlier tables was an artefact of the
+scene's construction and is not a property of the change. The cost of the sort itself is the hashed
+variant's distance from `main`: nil within noise. The Explode change (f66ee7f) is not exercised by
+any benchmark.
+
+A note for later, outside this PR's scope: since the order of evaluation moves the stage by 10 to 20
+percent in a dense scene, sorting candidates by a deterministic distance along the sweep (for
+example the entry fraction of the fat box) instead of by shape id would keep layout independence
+and take the nearest-first gain in every scene. Ties and float comparisons would need the same
+care as the id sort.
 
 ## 6. Replication
 
@@ -213,6 +263,9 @@ changes no conclusion of §1.
   over a burst, so single-run deltas under about 5 percent are not evidence either way.
 - The project scenarios are a poor probe of the continuous stage. The microbenchmark is the probe,
   and it is an extreme: every body is fast every step and every query returns many candidates.
+- The microbenchmark's shape ids correlate with position along the sweep, which made the first
+  measurements read as a gain for the PR. The hashed-order and reversed-travel runs in §5 are the
+  controls; read the PR's microbenchmark numbers against them, not against `main` alone.
 - Not measured: worlds with many workers in the microbenchmark (the sort is per query, so per-worker
   cost does not change with worker count), and Explode.
 
@@ -220,7 +273,7 @@ changes no conclusion of §1.
 
 Built against the Release static library:
 `gcc -std=c17 -O2 ccdbench.c -I include -L build/src -lbox3d -lm -lpthread`. Arguments: sphere
-count, steps, repeats, bullets flag.
+count, steps, repeats, bullets flag, travel direction (+1 or -1).
 
 ```c
 // Continuous-collision microbenchmark: many fast spheres swept through a dense static field every
@@ -243,7 +296,8 @@ int main( int argc, char** argv )
 	int steps = argc > 2 ? atoi( argv[2] ) : 100;
 	int repeats = argc > 3 ? atoi( argv[3] ) : 3;
 	bool bullets = argc > 4 ? atoi( argv[4] ) != 0 : false;
-	float speed = 300.0f, dt = 1.0f / 60.0f;
+	float direction = argc > 5 ? (float)atoi( argv[5] ) : 1.0f;
+	float speed = 300.0f * direction, dt = 1.0f / 60.0f;
 
 	float bestStep = 1e30f, bestCcd = 1e30f;
 	int candidates = 0;
@@ -306,8 +360,8 @@ int main( int argc, char** argv )
 		free( starts );
 		b3DestroyWorld( world );
 	}
-	printf( "spheres %d, static boxes %d, steps %d, bullets %d: continuous stage %.1f ms, total %.1f ms (min of %d)\n", sphereCount,
-			candidates, steps, bullets, bestCcd, bestStep, repeats );
+	printf( "spheres %d, static boxes %d, steps %d, bullets %d, direction %+.0f: continuous stage %.1f ms, total %.1f ms (min of %d)\n", sphereCount,
+			candidates, steps, bullets, direction, bestCcd, bestStep, repeats );
 	return 0;
 }
 ```
