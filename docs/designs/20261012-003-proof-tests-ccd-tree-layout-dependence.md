@@ -1,6 +1,6 @@
 ---
 title: Proof tests - continuous collision depends on broad-phase tree layout
-status: Draft
+status: Canonical
 date: 2026-10-12
 supports: solver-tree-order-independent-pr (20261012-001 A1, 20261012-002)
 ---
@@ -16,19 +16,24 @@ PR head, and proposes the tests to land.
 
 ## 1. The proposition, and what counts as proof
 
-**Proposition P.** Take two worlds with identical bodies, shapes, ids, flags, velocities and
-transforms, whose only difference is the internal layout of the static broad-phase tree. On `main`
-one `b3World_Step` can give different results, observable through the public API as:
+**Proposition P.** Take two worlds with identical bodies, shapes, public ids, proxy bounds, flags,
+velocities and transforms, whose only difference is the internal layout of the static broad-phase
+tree. Public ids of two worlds are compared with the world selector ignored: equal index and equal
+generation. On `main` one `b3World_Step` can give different results, observable through the public
+API as:
 
-- **P1** the fast body's transform after the step (its time-of-impact fraction), and the continuous
-  iteration counters of `b3World_GetCounters`;
+- **P1** the fast body's transform after the step (its time-of-impact fraction), and each of the
+  three continuous iteration counters of `b3World_GetCounters` (`distanceIterations`,
+  `pushBackIterations`, `rootIterations`), each its own observable; the body's velocities are not
+  claimed;
 - **P2** the sequence, and the set, of `b3PreSolveFcn` calls, even for a callback that depends only
   on its arguments;
 - **P3** the set of sensor begin events when more than eight sensors lie on a bullet's path.
 
 Not claimed: run-to-run nondeterminism. The same program gives the same result every run on `main`
 (`DeterminismTest` passes there). The claim is about equal worlds with different construction
-histories, which §3 shows a user reaches with ordinary calls.
+histories, which §3 shows a user reaches with ordinary calls. The proofs use the strict perturbation
+of §3, which keeps public ids and bounds.
 
 A proof is a test that:
 
@@ -38,9 +43,10 @@ A proof is a test that:
 3. prints both results, then asserts they are equal;
 4. fails on `main` on that assertion and passes on the PR branch, with the witness still differing.
 
-What would falsify P: the test passing on `main` with a differing witness. What would void a proof: a
-perturbation that changes anything besides layout (ids, bounds, state), or a witness over a candidate
-set wider than the query's.
+A test that passes on `main` with a differing witness proves nothing for its case; P stands on any
+case that fails there. What would void a proof: a perturbation that changes anything besides layout
+(public ids, bounds, state, the tree's moved marks included), a witness over a candidate set wider
+than the query's, or a step that produced no impact, no call or no sensor report to compare.
 
 ## 2. Why layout reaches the result on `main`
 
@@ -63,8 +69,9 @@ In `src/solver.c` (`b3ContinuousQueryCallback`, `b3SolveContinuous`) and `src/di
   the order and the set of calls depend on visit order. A callback that returns false keeps the
   fraction open and is then called for every on-path candidate, in visit order (P2).
 - A sensor candidate takes one of the eight slots when its fraction is no greater than the running
-  one, first come first served. With more than eight on the path, the eight kept are the first eight
-  visited (P3).
+  one, first come first served. With more than eight on the path and every candidate a hit, the eight
+  kept are the first eight visited (P3); a candidate that misses the sweep also takes a slot and is
+  dropped when hits are emitted.
 
 After the change the callback only collects ids and the evaluation runs in ascending shape id per
 query, so none of the four depends on the layout.
@@ -76,11 +83,11 @@ internal header; a third is internal.
 
 | Perturbation | Public calls | Effect on the static tree |
 |---|---|---|
-| Destroy and recreate | `b3DestroyBody` or `b3DestroyShape`, then create again | Freed ids are reused last in, first out (`src/id_pool.c`): destroying the upper half of the shapes in descending order and recreating them in ascending order hands back the same body and shape ids. Each recreated proxy is inserted afresh with rotations (`b3InsertLeaf`, `src/dynamic_tree.c`), so the layout differs from one insertion pass. |
-| Move away and back | `b3Body_SetTransform` twice | A static body's proxy is moved when its box leaves its fat box (`src/body.c`): a remove and reinsert without rotation (`b3DynamicTree_MoveProxyInternal`). After the second move the bounds and ids are what they were. |
+| Move away and back, the strict form | `b3Body_SetTransform` twice per static body | A static body's proxy is moved when its box leaves its fat box (`src/body.c`): a remove and reinsert without rotation (`b3DynamicTree_MoveProxyInternal`). The moved box is inflated by the shape margin where creation used the speculative distance (`src/shape.c`), so the first cycle changes the bounds once. The strict form gives every static body exactly one cycle in both worlds, world A in ascending and world B in descending body order: bounds, public ids and moved marks are then equal and only the reinsertion order, hence the layout, differs. The moved mark stays set until the step's pair update (`src/broad_phase.c`) clears it, before the continuous stage. One body's shapes are reinserted in shape-list order whatever the cycle, so the P3 scene puts each sensor on its own static body. |
+| Destroy and recreate | `b3DestroyBody` or `b3DestroyShape`, then create again | Freed ids are reused last in, first out (`src/id_pool.c`): destroying the upper half of the shapes in descending order and recreating them in ascending order hands back the same body and shape indices, with advanced generations (`src/body.c`, `src/shape.c`). Each recreated proxy is inserted afresh with rotations (`b3InsertLeaf`, `src/dynamic_tree.c`), so the layout differs. The worlds are not equal in public ids, so this is how a user reaches a layout, not a proof perturbation (§8). |
 | Full rebuild | `b3World_RebuildStaticTree` | Not public: declared in `src/physics_world.h` only. The PR's helper calls `b3DynamicTree_Rebuild` directly through internal headers. |
 
-Game code does the first two routinely: level streaming, editor undo, moving a platform. The dynamic
+Game code does the first two routinely: moving a platform, editor undo, level streaming. The dynamic
 and kinematic trees have a fourth way, the step's incremental rebuild that keeps settled subtrees
 (the PR's corridor construction); it is not needed for the static-tree proofs.
 
@@ -100,7 +107,7 @@ The PR's tests (`test/test_tree_order.c`) and their fail-before runs, from the c
 |---|---|---|
 | `ContinuousCallbackOrderTest` | P2 order, in all three trees, in every run | callback logs in visit order, different between runs, none ascending |
 | `ContinuousSensorSelectionTest` | P3 | `4 6 7 8 9 10 11 12` against `4 5 7 8 9 10 11 12` |
-| `ContinuousCandidateOrderTest` | P1 statistically | static corridor 23 of 40 seeds, field 1 of 40, kinematic 0, dynamic 1; four workers static 5 of 8 |
+| `ContinuousCandidateOrderTest` | world-state divergence under a full rebuild of all three trees, statistically | static corridor 23 of 40 seeds, field 1 of 40, kinematic 0, dynamic 1; four workers static 5 of 8 |
 | `TreeOrderHelperTest` | the witness itself | none (no behaviour to fail on) |
 | `ExplodeOrderTest` | not continuous collision | awake order and velocities differ |
 
@@ -125,55 +132,59 @@ Shortfalls as proof for someone reading the PR:
 A scratch program, `proof.c`, public headers only, built against the Debug float `libbox3dd.a` of
 `main` at `5d83df8` and of the PR head `f66ee7f` (GCC 14.2, one worker). Scene: the PR's static
 corridor, a sphere of radius 1.0 at 300 m/s, time step 1/60 with four sub-steps, sixteen static
-0.1 m boxes scattered inside the swept cylinder, zero gravity, no sleep; seeds 1 to 200 of the PR's
-placement rule. World A is built once; world B is built the same way, then perturbed as in §3, then
-checked to hold the same body and shape ids. The witness is `b3World_OverlapAABB` over a box
-covering the corridor, recorded before the step, the sphere's own shape removed. Sensor case: the
-PR's twelve sensors on one static body and one bullet. The whole run takes under half a second.
+0.1 m boxes on sixteen static bodies scattered inside the swept cylinder, zero gravity, no sleep;
+seeds 1 to 200 of the PR's placement rule. Both worlds are built the same way and given the strict
+perturbation of §3, world A in ascending and world B in descending body order, then checked to hold
+the same body and shape ids. The witness is `b3World_OverlapAABB` over a box covering the corridor,
+recorded before the step, the sphere's own shape removed. Sensor case: the PR's twelve sensors at the
+PR's spacing, each on its own static body, none overlapping another, and one bullet. The whole run
+takes under half a second.
 
-| Proof | Perturbation | Witness: same set, order differs | `main` | PR head |
-|---|---|---|---|---|
-| P1 transform, no callbacks | destroy and recreate | 200 / 106 of 200 | transform diverges 19, counters differ 25 | 0, 0 |
-| P1 transform, no callbacks | move away and back | 200 / 186 of 200 | transform diverges 60, counters differ 42 | 0, 0 |
-| P2 order, rejecting callback | destroy and recreate | 200 / 106 of 200 | call order differs 106, sets equal | 0 |
-| P2 set, accepting callback | destroy and recreate | 200 / 106 of 200 | call set differs 70 | 0 |
-| P3 sensor set | destroy and recreate | yes | sets differ | sets equal |
-| P3 sensor set | move away and back | yes | sets differ | sets equal |
+| Proof | Witness: same set / order differs | `main` | PR head |
+|---|---|---|---|
+| P1 transform, no callbacks | 200 / 200 of 200 | transform diverges 107; velocities 0 | 0 |
+| P1 counters | same run | `distanceIterations` 67, `pushBackIterations` 67, `rootIterations` 67 | 0, 0, 0 |
+| P2 order, rejecting callback | 200 / 200 of 200 | call order differs 200, call sets equal | 0 |
+| P2 set, accepting callback | 200 / 200 of 200 | call set differs 188, call order differs 188 | 0, 0 |
+| P3 sensor set | yes | sets differ | sets equal |
 
-Excerpts from the `main` run. Shape ids are internal (`index1 - 1`); the preSolve log is the other
-shape's id in call order with an accepting callback, so its last entry is the accepted hit.
+No seed diverged in any observable without a differing witness order. Excerpts from the `main` run;
+shape ids are internal (`index1 - 1`), and the preSolve log is the other shape's id in call order,
+so with an accepting callback its last entry is the accepted hit.
 
 ```
-seed 26, destroy and recreate
-  visit order A: 6 8 13 0 14 5 11 1 2 4 9 7 10 15 3 12
-  visit order B: 4 9 0 6 5 11 1 2 14 15 3 12 7 13 8 10
-  preSolve A: 6
-  preSolve B: 4 9 0 6
-  sphere A: p (0.576496363 0 0)
-  sphere B: p (0.576496124 0 0)
+seed 1
+  visit order A: 4 5 15 10 14 3 13 6 7 11 1 9 8 12 0 2
+  visit order B: 5 4 15 14 10 3 13 7 1 11 9 6 2 0 12 8
+  preSolve A (accepting): 4 5 15 13 6
+  preSolve B (accepting): 5 15 13 1 6
+  sphere A: p (0.664135039 0 0)
+  sphere B: p (0.664135158 0 0)
 
-seed 32, destroy and recreate
-  preSolve A: 15 8 6 13 1 11
-  preSolve B: 15 8 6 13 11
-  sphere A: p (0.499357581 0 0)
-  sphere B: p (0.499357492 0 0)
+seed 5
+  preSolve A (accepting): 6 3 10 15
+  preSolve B (accepting): 11 3 10 15
+  sphere A: p (0.534326911 0 0)
+  sphere B: p (0.534326911 0 0)
 
-sensors, destroy and recreate
-  visit order A: 9 10 11 6 7 8 5 3 4 2 0 1
-  visit order B: 5 3 4 2 0 1 9 10 11 6 7 8
+sensors
+  visit order A: 10 11 9 7 8 5 6 3 4 2 0 1
+  visit order B: 11 10 7 9 8 4 3 6 5 2 1 0
   reported A: 3 5 6 7 8 9 10 11
-  reported B: 0 1 2 3 4 5 9 10
+  reported B: 3 4 6 7 8 9 10 11
 ```
 
-Seed 26 is the mechanism of §2 in one case: both runs end on box 6, but in A box 6 is visited first
-and its time-of-impact call runs to the full sweep, while in B it runs to box 0's fraction, and the
-two calls return fractions four ulps apart. Seed 32 ends on box 11 in both runs with box 1 called in
-A only. On the PR head the sensors reported are `0 1 2 3 4 5 6 7` in every run and the counts in the
-last column are all zero while the witness columns are unchanged, so the proofs are not vacuous there.
+Seed 1 is the mechanism of §2 in one case: both runs end on box 6, but box 6's time-of-impact call
+runs to box 13's fraction in A and to box 1's in B, and the two calls return fractions two ulps
+apart; box 4 is called in A only and box 1 in B only. Seed 5 shows the accepting-callback set
+changing (box 6 against box 11) with the transform unchanged. On the PR head the sensors reported are
+`0 1 2 3 4 5 6 7` in both runs and every count in the last column is zero while the witness column
+is unchanged, so the proofs are not vacuous there.
 
-Three things the run adds to §4: the rejecting-callback order differs in exactly the seeds whose
-witness differs (106 of 106), so P2 is a guaranteed proof, not a statistical one; the public counters
-change more often than the transform does; and the perturbations are two ordinary user operations.
+Three things the run adds to §4: the rejecting-callback order differs in every seed whose witness
+differs (200 of 200), so P2 is a guaranteed proof, not a statistical one; each public counter changes
+in a third of the layouts; and the perturbation is an ordinary user operation applied in a
+different order.
 
 ## 6. Proposed proof tests
 
@@ -184,25 +195,28 @@ reproduces the fail-before on the PR branch itself:
 
 ```bash
 git checkout main -- src                               # on solver-tree-order-independent-pr
-cmake --build build --target test && ./build/bin/test ContinuousLayoutImpactTest
+cmake --build build --target test
+for t in ContinuousLayoutImpactTest ContinuousLayoutPreSolveTest ContinuousLayoutSensorTest; do ./build/bin/test $t; done
 git checkout solver-tree-order-independent-pr -- src
 ```
 
 No scratch worktree and no file copying. The three tests live in a new `test/test_ccd_layout.c`
-(§8), one entry function each, registered in `test/main.c` like the PR's others, each printing its
-evidence before its first assertion:
+(§8). Each uses the strict perturbation of §3. Each requires the witness to hold the same complete
+candidate set in both worlds, some seed's order to differ, and every seed whose results differ to
+have a differing order. Each prints the divergence counts and, for the first diverging seed of each
+observable, both values and both witness orders, before its first assertion.
 
-- **`ContinuousLayoutImpactTest`** (P1). The corridor at seeds 1 to 200 under both perturbations of
-  §3. Per seed: require the witness to hold the same set; count the seeds whose order differs, the
-  seeds whose sphere transform and velocities differ bitwise, and the seeds whose counters differ.
-  Print the counts and the first diverging seed's visit orders and positions. Require the
-  order-differs count above zero and both divergence counts zero. Fail-before: 19 and 60 of 200.
+- **`ContinuousLayoutImpactTest`** (P1). The corridor at seeds 1 to 200. Per seed: require the
+  sixteen boxes in the witness, equal contact counts before the step and an impact in both worlds;
+  count separately the seeds whose order differs, whose sphere transform differs bitwise, and whose
+  `distanceIterations`, `pushBackIterations` and `rootIterations` differ. Require the four
+  divergence counts zero. Fail-before: 107 and 67, 67, 67 of 200.
 - **`ContinuousLayoutPreSolveTest`** (P2). The same corridor with `enablePreSolveEvents` on every
   shape and a callback that logs the other shape's id. Two passes: a rejecting callback, requiring
-  equal call sequences (fail-before 106 of 200), and an accepting one, requiring equal call sequences,
-  which fixes the set too (fail-before 70 of 200).
-- **`ContinuousLayoutSensorTest`** (P3). The twelve-sensor scene under both perturbations. Require the
-  witness to differ and the reported sets to be equal. Fail-before: the sets in §5.
+  equal, non-empty call sequences (fail-before 200 of 200); an accepting one, counting and requiring
+  separately equal, non-empty call sets and equal call sequences (fail-before 188 and 188 of 200).
+- **`ContinuousLayoutSensorTest`** (P3). The twelve-sensor scene of §5. Require the reported sets to
+  be equal and to hold eight. Fail-before: the sets in §5.
 
 The existing tests stay. They cover what the public proofs cannot: the kinematic and dynamic trees
 (bullets), four workers, the ascending-order property itself, and Explode. The public proofs add
@@ -228,6 +242,9 @@ user-reachability, the accepting-callback set and the counters.
 - **Which evidence leads the PR text.** The three public proofs, with the `git checkout main -- src`
   recipe and the §5 counts; the internal tests are presented as coverage of the other trees and of
   parallel workers.
-- **Both perturbations.** Move-away-and-back has the higher divergence rate (60 of 200) and is the
-  more everyday operation; destroy-and-recreate shows the id pools hand back the same ids, which
-  pre-empts the objection that the two worlds are not equal.
+- **One perturbation, the strict move-away-and-back form.** Destroy and recreate was to be a second
+  proof perturbation because it hands back the same indices; it advances the id generations, so a
+  proof under it is a proof for worlds that are not equal in public ids, and P would have to be
+  weakened to equal indices. The strict move form proves every observable with equal public ids and
+  bounds, at a higher rate in each, so nothing is lost. Destroy and recreate stays in §3 as a way a
+  user reaches a different layout.
