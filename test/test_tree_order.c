@@ -18,6 +18,7 @@
 #include "box3d/math_functions.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 typedef struct RandomState
@@ -302,8 +303,8 @@ static int RunScenePair( const Scene* scene, bool perturbEachStep, PairResult* o
 // two runs reach the corridor step in different layouts. The candidate set of the sphere's
 // query is the cluster by construction.
 
-#define CORRIDOR_BOX_COUNT 6
-#define CORRIDOR_FIRST_PART_COUNT 3
+#define CORRIDOR_BOX_COUNT 16
+#define CORRIDOR_FIRST_PART_COUNT 8
 #define CORRIDOR_STEP 1
 
 typedef struct CorridorPlan
@@ -361,29 +362,39 @@ static void PlanCorridor( Corridor* corridor, RandomState* random, b3BodyType cl
 	CorridorPlan* plan = &corridor->plan;
 	plan->clusterTree = clusterTree;
 	plan->origin = origin;
-	plan->radius = 0.25f;
+	plan->radius = 1.0f;
 	plan->speed = 300.0f;
 	plan->timeStep = timeStep;
 	plan->boxHalfExtent = 0.05f;
 	plan->enableCallbacks = enableCallbacks;
 
-	// Every box sits on the sphere's path. One box per slot along x, with a gap that keeps the
-	// boxes' fat bounds apart, and a lateral jitter small enough that the sphere hits each one.
+	// Every box sits on the sphere's path, scattered through the swept cylinder in all three
+	// axes so the insertion layout and a full build group them differently. The boxes keep
+	// their fat bounds apart so resting dynamic boxes make no pairs.
 	float r = plan->radius;
 	float d = plan->speed * plan->timeStep;
-	float start = r + 0.4f;
-	float end = d - r - 0.4f;
-	float slot = ( end - start ) / CORRIDOR_BOX_COUNT;
-	float jitter = 0.09f;
+	float xStart = r + 0.4f;
+	float xEnd = d - r - 0.4f;
+	float lateral = 0.8f;
+	float separation = 0.35f;
 	for ( int i = 0; i < CORRIDOR_BOX_COUNT; ++i )
 	{
-		float x = start + slot * ( i + RandomFloat( random, 0.15f, 0.85f ) );
-		float y = RandomFloat( random, -jitter, jitter );
-		float z = RandomFloat( random, -jitter, jitter );
-		plan->boxOffsets[i] = (b3Vec3){ x, y, z };
+		b3Vec3 p;
+		bool accepted = false;
+		while ( accepted == false )
+		{
+			p = (b3Vec3){ RandomFloat( random, xStart, xEnd ), RandomFloat( random, -lateral, lateral ),
+						  RandomFloat( random, -lateral, lateral ) };
+			accepted = p.y * p.y + p.z * p.z < lateral * lateral;
+			for ( int j = 0; j < i && accepted; ++j )
+			{
+				accepted = b3Distance( p, plan->boxOffsets[j] ) > separation;
+			}
+		}
+		plan->boxOffsets[i] = p;
 	}
 
-	// The first part is a random subset so the settled subtree and the insertions interleave along x
+	// The first part is a random subset so the settled subtree and the insertions interleave
 	int order[CORRIDOR_BOX_COUNT];
 	for ( int i = 0; i < CORRIDOR_BOX_COUNT; ++i )
 	{
@@ -845,6 +856,535 @@ static int UnchangedHashCase( void )
 					result.hashes[1][step][0] );
 		}
 		ENSURE( result.hashes[0][step][0] == result.hashes[1][step][0] );
+	}
+
+	return 0;
+}
+
+// Continuous collision candidates must be evaluated in an order that does not depend on tree
+// layout. Three tests: a seeded fuzz over a field of static boxes with corridors on every tree,
+// the sensor selection with more candidates than the continuous sensor limit, and the order of
+// the pre-solve and custom filter callbacks.
+
+// Field of static boxes with fast bodies launched through it, plus one corridor per tree kind in
+// regions disjoint from the field and from each other.
+
+#define FUZZ_STATIC_COUNT 140
+#define FUZZ_FAST_COUNT 60
+#define FUZZ_BULLET_COUNT 40
+#define FUZZ_STEPS 10
+
+typedef struct FuzzScene
+{
+	Corridor corridors[3];
+
+	b3Pos staticPositions[FUZZ_STATIC_COUNT];
+	b3Vec3 staticExtents[FUZZ_STATIC_COUNT];
+
+	b3Pos fastPositions[FUZZ_FAST_COUNT];
+	b3Vec3 fastVelocities[FUZZ_FAST_COUNT];
+	float fastRadii[FUZZ_FAST_COUNT];
+
+	b3BodyId fastIds[2][FUZZ_FAST_COUNT];
+
+	// Workload check for the four worker runs, read after the first step
+	int fastBulletCount[2];
+	int awakeBodyCount[2];
+} FuzzScene;
+
+static void PlanFuzzScene( FuzzScene* scene, RandomState* random, float timeStep )
+{
+	memset( scene, 0, sizeof( FuzzScene ) );
+	PlanThreeCorridors( scene->corridors, random, timeStep, false );
+
+	// A slab of static boxes around the origin
+	float slab = 15.0f;
+	for ( int i = 0; i < FUZZ_STATIC_COUNT; ++i )
+	{
+		scene->staticPositions[i] =
+			(b3Pos){ RandomFloat( random, -slab, slab ), RandomFloat( random, -3.0f, 3.0f ), RandomFloat( random, -slab, slab ) };
+		scene->staticExtents[i] =
+			(b3Vec3){ RandomFloat( random, 0.2f, 0.6f ), RandomFloat( random, 0.2f, 0.6f ), RandomFloat( random, 0.2f, 0.6f ) };
+	}
+
+	// Fast bodies start above or below the slab and fly into it at speeds well above the fast
+	// threshold for their radius
+	for ( int i = 0; i < FUZZ_FAST_COUNT; ++i )
+	{
+		float side = RandomInt( random, 2 ) == 0 ? 10.0f : -10.0f;
+		b3Pos start = { RandomFloat( random, -12.0f, 12.0f ), side, RandomFloat( random, -12.0f, 12.0f ) };
+		b3Pos target = { RandomFloat( random, -12.0f, 12.0f ), RandomFloat( random, -2.0f, 2.0f ),
+						 RandomFloat( random, -12.0f, 12.0f ) };
+		b3Vec3 direction = b3Normalize( b3SubPos( target, start ) );
+		scene->fastPositions[i] = start;
+		scene->fastVelocities[i] = b3MulSV( RandomFloat( random, 30.0f, 90.0f ), direction );
+		scene->fastRadii[i] = RandomFloat( random, 0.2f, 0.4f );
+	}
+}
+
+static void FuzzSceneCreate( b3WorldId worldId, int runIndex, void* context )
+{
+	FuzzScene* scene = context;
+
+	for ( int i = 0; i < 3; ++i )
+	{
+		CreateCorridorPart1( scene->corridors + i, worldId, runIndex );
+	}
+
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	for ( int i = 0; i < FUZZ_STATIC_COUNT; ++i )
+	{
+		b3BodyDef bodyDef = b3DefaultBodyDef();
+		bodyDef.position = scene->staticPositions[i];
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+		b3Vec3 e = scene->staticExtents[i];
+		b3BoxHull box = b3MakeBoxHull( e.x, e.y, e.z );
+		b3CreateHullShape( bodyId, &shapeDef, &box.base );
+	}
+
+	for ( int i = 0; i < FUZZ_FAST_COUNT; ++i )
+	{
+		b3BodyDef bodyDef = b3DefaultBodyDef();
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.position = scene->fastPositions[i];
+		bodyDef.linearVelocity = scene->fastVelocities[i];
+		bodyDef.isBullet = i < FUZZ_BULLET_COUNT;
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+		b3Sphere sphere = { b3Vec3_zero, scene->fastRadii[i] };
+		b3CreateSphereShape( bodyId, &shapeDef, &sphere );
+		scene->fastIds[runIndex][i] = bodyId;
+	}
+}
+
+static int FuzzSceneBeforeStep( b3WorldId worldId, int runIndex, int stepIndex, void* context )
+{
+	FuzzScene* scene = context;
+	if ( stepIndex == CORRIDOR_STEP )
+	{
+		for ( int i = 0; i < 3; ++i )
+		{
+			ENSURE( CorridorBeforeStep( scene->corridors + i, worldId, runIndex ) == 0 );
+		}
+	}
+	return 0;
+}
+
+static int FuzzSceneAfterStep( b3WorldId worldId, int runIndex, int stepIndex, void* context )
+{
+	FuzzScene* scene = context;
+	if ( stepIndex == 0 )
+	{
+		int fastBulletCount = 0;
+		for ( int i = 0; i < FUZZ_BULLET_COUNT; ++i )
+		{
+			fastBulletCount += IsBodyFast( scene->fastIds[runIndex][i] ) ? 1 : 0;
+		}
+		scene->fastBulletCount[runIndex] = fastBulletCount;
+		scene->awakeBodyCount[runIndex] = b3World_GetAwakeBodyCount( worldId );
+	}
+
+	if ( stepIndex == CORRIDOR_STEP - 1 )
+	{
+		for ( int i = 0; i < 3; ++i )
+		{
+			CreateCorridorPart2( scene->corridors + i, worldId, runIndex );
+		}
+	}
+	else if ( stepIndex == CORRIDOR_STEP )
+	{
+		for ( int i = 0; i < 3; ++i )
+		{
+			ENSURE( CorridorAfterStep( scene->corridors + i, worldId, runIndex ) == 0 );
+		}
+	}
+	return 0;
+}
+
+static void FuzzSceneHash( b3WorldId worldId, int runIndex, int stepIndex, uint32_t* hashes, void* context )
+{
+	MAYBE_UNUSED( stepIndex );
+	FuzzScene* scene = context;
+	hashes[0] = HashWorldState( worldId, scene->fastIds[runIndex], FUZZ_FAST_COUNT );
+}
+
+typedef struct FuzzCounts
+{
+	int seeds;
+	int field;
+	int corridor[3];
+} FuzzCounts;
+
+// One seed: both runs, every witness checked, divergences counted rather than failed
+static int RunFuzzSeed( uint32_t seed, int workerCount, FuzzCounts* counts )
+{
+	static FuzzScene fuzzScene;
+	RandomState random = { seed };
+	float timeStep = 1.0f / 60.0f;
+	PlanFuzzScene( &fuzzScene, &random, timeStep );
+
+	Scene scene = { 0 };
+	scene.create = FuzzSceneCreate;
+	scene.beforeStep = FuzzSceneBeforeStep;
+	scene.afterStep = FuzzSceneAfterStep;
+	scene.hash = FuzzSceneHash;
+	scene.context = &fuzzScene;
+	scene.worldDef = b3DefaultWorldDef();
+	scene.worldDef.gravity = b3Vec3_zero;
+	scene.worldDef.enableSleep = false;
+	scene.worldDef.enableContinuous = true;
+	scene.worldDef.workerCount = workerCount;
+	scene.stepCount = FUZZ_STEPS;
+	scene.timeStep = timeStep;
+	scene.subStepCount = 4;
+	scene.hashCount = 1;
+
+	static PairResult result;
+	ENSURE( RunScenePair( &scene, true, &result ) == 0 );
+
+	if ( workerCount > 1 )
+	{
+		// Finalize and bullet continuous collision each form at least four blocks
+		for ( int runIndex = 0; runIndex < 2; ++runIndex )
+		{
+			ENSURE( fuzzScene.awakeBodyCount[runIndex] >= 49 );
+			ENSURE( fuzzScene.fastBulletCount[runIndex] >= 25 );
+		}
+	}
+
+	counts->seeds += 1;
+
+	bool fieldDiverged = false;
+	for ( int step = 0; step < FUZZ_STEPS; ++step )
+	{
+		if ( result.hashes[0][step][0] != result.hashes[1][step][0] )
+		{
+			fieldDiverged = true;
+		}
+	}
+	counts->field += fieldDiverged ? 1 : 0;
+
+	for ( int i = 0; i < 3; ++i )
+	{
+		Corridor* corridor = fuzzScene.corridors + i;
+		ENSURE( CheckCorridorWitness( corridor ) == 0 );
+		counts->corridor[i] += corridor->runs[0].hash != corridor->runs[1].hash ? 1 : 0;
+	}
+
+	return 0;
+}
+
+static void PrintFuzzCounts( const char* label, const FuzzCounts* counts )
+{
+	printf( "  %s: seeds %d, field divergences %d, corridor divergences static %d kinematic %d dynamic %d\n", label,
+			counts->seeds, counts->field, counts->corridor[0], counts->corridor[1], counts->corridor[2] );
+}
+
+static int CheckFuzzCounts( const FuzzCounts* counts )
+{
+	ENSURE( counts->field == 0 );
+	ENSURE( counts->corridor[0] == 0 );
+	ENSURE( counts->corridor[1] == 0 );
+	ENSURE( counts->corridor[2] == 0 );
+	return 0;
+}
+
+int ContinuousCandidateOrderTest( void )
+{
+	FuzzCounts single = { 0 };
+	for ( uint32_t seed = 1; seed <= 40; ++seed )
+	{
+		ENSURE( RunFuzzSeed( 0x9E3779B9u * seed, 1, &single ) == 0 );
+	}
+
+	FuzzCounts parallel = { 0 };
+	for ( uint32_t seed = 1; seed <= 8; ++seed )
+	{
+		ENSURE( RunFuzzSeed( 0x9E3779B9u * seed, 4, &parallel ) == 0 );
+	}
+
+	// Print every count before the first assertion
+	PrintFuzzCounts( "one worker", &single );
+	PrintFuzzCounts( "four workers", &parallel );
+	ENSURE( CheckFuzzCounts( &single ) == 0 );
+	ENSURE( CheckFuzzCounts( &parallel ) == 0 );
+	return 0;
+}
+
+// More sensors than the continuous sensor limit, all on one static body along a bullet's path.
+// The sensors kept must be the lowest ids whatever the layout.
+
+#define SENSOR_LIMIT 8
+#define SENSOR_COUNT 12
+
+static int CompareInts( const void* a, const void* b )
+{
+	int ia = *(const int*)a;
+	int ib = *(const int*)b;
+	return ia < ib ? -1 : ( ia > ib ? 1 : 0 );
+}
+
+int ContinuousSensorSelectionTest( void )
+{
+	RandomState random = { 0x5E4504u };
+	float timeStep = 1.0f / 60.0f;
+	float sensorRadius = 0.15f;
+	float bulletRadius = 0.25f;
+	float spacing = 0.35f;
+	float lead = 0.8f;
+	float distance = 2.0f * lead + spacing * ( SENSOR_COUNT - 1 );
+	float speed = distance / timeStep;
+	b3Pos origin = { 50.0, 50.0, 50.0 };
+
+	b3Vec3 sensorOffsets[SENSOR_COUNT];
+	for ( int i = 0; i < SENSOR_COUNT; ++i )
+	{
+		sensorOffsets[i] =
+			(b3Vec3){ lead + spacing * i, RandomFloat( &random, -0.05f, 0.05f ), RandomFloat( &random, -0.05f, 0.05f ) };
+	}
+
+	VisitOrder witness[2];
+	VisitOrder reported[2];
+	int sensorIds[2][SENSOR_COUNT];
+	for ( int runIndex = 0; runIndex < 2; ++runIndex )
+	{
+		b3WorldDef worldDef = b3DefaultWorldDef();
+		worldDef.gravity = b3Vec3_zero;
+		b3WorldId worldId = b3CreateWorld( &worldDef );
+
+		b3BodyDef sensorBodyDef = b3DefaultBodyDef();
+		sensorBodyDef.position = origin;
+		b3BodyId sensorBodyId = b3CreateBody( worldId, &sensorBodyDef );
+		b3ShapeDef sensorDef = b3DefaultShapeDef();
+		sensorDef.isSensor = true;
+		sensorDef.enableSensorEvents = true;
+		for ( int i = 0; i < SENSOR_COUNT; ++i )
+		{
+			b3Sphere sphere = { sensorOffsets[i], sensorRadius };
+			b3ShapeId shapeId = b3CreateSphereShape( sensorBodyId, &sensorDef, &sphere );
+			sensorIds[runIndex][i] = shapeId.index1;
+		}
+
+		b3BodyDef bulletDef = b3DefaultBodyDef();
+		bulletDef.type = b3_dynamicBody;
+		bulletDef.position = origin;
+		bulletDef.linearVelocity = (b3Vec3){ speed, 0.0f, 0.0f };
+		bulletDef.isBullet = true;
+		b3BodyId bulletId = b3CreateBody( worldId, &bulletDef );
+		b3ShapeDef bulletShapeDef = b3DefaultShapeDef();
+		bulletShapeDef.enableSensorEvents = true;
+		b3Sphere bullet = { b3Vec3_zero, bulletRadius };
+		b3CreateSphereShape( bulletId, &bulletShapeDef, &bullet );
+
+		if ( runIndex == 1 )
+		{
+			PerturbTreeLayout( worldId );
+		}
+
+		b3AABB cover = { { -1.0f, -1.0f, -1.0f }, { distance + 1.0f, 1.0f, 1.0f } };
+		RecordVisitOrder( worldId, b3_staticBody, b3OffsetAABB( cover, origin ), B3_DEFAULT_MASK_BITS, witness + runIndex );
+
+		b3World_Step( worldId, timeStep, 4 );
+
+		ENSURE( IsBodyFast( bulletId ) );
+
+		b3SensorEvents events = b3World_GetSensorEvents( worldId );
+		reported[runIndex].count = 0;
+		for ( int i = 0; i < events.beginCount; ++i )
+		{
+			reported[runIndex].ids[reported[runIndex].count] = events.beginEvents[i].sensorShapeId.index1;
+			reported[runIndex].count += 1;
+		}
+
+		b3DestroyWorld( worldId );
+	}
+
+	ENSURE( witness[0].count == SENSOR_COUNT );
+	ENSURE( WitnessDiffers( "sensors", witness + 0, witness + 1 ) );
+
+	for ( int runIndex = 0; runIndex < 2; ++runIndex )
+	{
+		ENSURE( sensorIds[runIndex][0] == sensorIds[0][0] );
+	}
+
+	// The eight lowest sensor shape ids
+	int lowest[SENSOR_COUNT];
+	memcpy( lowest, sensorIds[0], sizeof( lowest ) );
+	qsort( lowest, SENSOR_COUNT, sizeof( int ), CompareInts );
+	VisitOrder expected = { 0 };
+	for ( int i = 0; i < SENSOR_LIMIT; ++i )
+	{
+		expected.ids[i] = lowest[i];
+	}
+	expected.count = SENSOR_LIMIT;
+
+	for ( int runIndex = 0; runIndex < 2; ++runIndex )
+	{
+		PrintVisitOrder( runIndex == 0 ? "run 1 sensors" : "run 2 sensors", reported + runIndex );
+		ENSURE( reported[runIndex].count == SENSOR_LIMIT );
+	}
+
+	ENSURE( SameSet( reported + 0, &expected ) );
+	ENSURE( SameSet( reported + 1, &expected ) );
+	return 0;
+}
+
+// The pre-solve and custom filter callbacks are called in ascending shape id within each query.
+// One corridor per tree kind with both callbacks enabled on the sphere and every cluster box.
+
+typedef struct CallbackLog
+{
+	int sphereIndex[3];
+	VisitOrder filterLog[3];
+	VisitOrder preSolveLog[3];
+} CallbackLog;
+
+typedef struct CallbackScene
+{
+	Corridor corridors[3];
+	CallbackLog logs[2];
+} CallbackScene;
+
+// Keep only calls with a corridor sphere, logged under that sphere as the other shape's id
+static int LogCorridorCall( CallbackLog* log, VisitOrder* logs, b3ShapeId idA, b3ShapeId idB )
+{
+	for ( int i = 0; i < 3; ++i )
+	{
+		if ( idA.index1 == log->sphereIndex[i] )
+		{
+			VisitOrderCallback( 0, (uint64_t)( idB.index1 - 1 ), logs + i );
+			return 1;
+		}
+		if ( idB.index1 == log->sphereIndex[i] )
+		{
+			VisitOrderCallback( 0, (uint64_t)( idA.index1 - 1 ), logs + i );
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static bool CallbackSceneFilter( b3ShapeId idA, b3ShapeId idB, void* context )
+{
+	CallbackLog* log = context;
+	LogCorridorCall( log, log->filterLog, idA, idB );
+	return true;
+}
+
+static bool CallbackScenePreSolve( b3ShapeId idA, b3ShapeId idB, b3Pos point, b3Vec3 normal, void* context )
+{
+	MAYBE_UNUSED( point );
+	MAYBE_UNUSED( normal );
+	CallbackLog* log = context;
+	LogCorridorCall( log, log->preSolveLog, idA, idB );
+
+	// Keep the running fraction open so every on-path box reaches the callback
+	return false;
+}
+
+static void CallbackSceneCreate( b3WorldId worldId, int runIndex, void* context )
+{
+	CallbackScene* scene = context;
+	b3World_SetCustomFilterCallback( worldId, CallbackSceneFilter, scene->logs + runIndex );
+	b3World_SetPreSolveCallback( worldId, CallbackScenePreSolve, scene->logs + runIndex );
+	for ( int i = 0; i < 3; ++i )
+	{
+		CreateCorridorPart1( scene->corridors + i, worldId, runIndex );
+	}
+}
+
+static int CallbackSceneBeforeStep( b3WorldId worldId, int runIndex, int stepIndex, void* context )
+{
+	CallbackScene* scene = context;
+	if ( stepIndex == CORRIDOR_STEP )
+	{
+		for ( int i = 0; i < 3; ++i )
+		{
+			ENSURE( CorridorBeforeStep( scene->corridors + i, worldId, runIndex ) == 0 );
+		}
+	}
+	return 0;
+}
+
+static int CallbackSceneAfterStep( b3WorldId worldId, int runIndex, int stepIndex, void* context )
+{
+	CallbackScene* scene = context;
+	if ( stepIndex == CORRIDOR_STEP - 1 )
+	{
+		for ( int i = 0; i < 3; ++i )
+		{
+			CreateCorridorPart2( scene->corridors + i, worldId, runIndex );
+			scene->logs[runIndex].sphereIndex[i] = scene->corridors[i].runs[runIndex].sphereShapeId.index1;
+		}
+	}
+	else if ( stepIndex == CORRIDOR_STEP )
+	{
+		for ( int i = 0; i < 3; ++i )
+		{
+			ENSURE( CorridorAfterStep( scene->corridors + i, worldId, runIndex ) == 0 );
+		}
+	}
+	return 0;
+}
+
+int ContinuousCallbackOrderTest( void )
+{
+	static CallbackScene callbackScene;
+	memset( &callbackScene, 0, sizeof( CallbackScene ) );
+	RandomState random = { 0xCA11BACu };
+	float timeStep = 1.0f / 60.0f;
+	PlanThreeCorridors( callbackScene.corridors, &random, timeStep, true );
+
+	Scene scene = { 0 };
+	scene.create = CallbackSceneCreate;
+	scene.beforeStep = CallbackSceneBeforeStep;
+	scene.afterStep = CallbackSceneAfterStep;
+	scene.context = &callbackScene;
+	scene.worldDef = b3DefaultWorldDef();
+	scene.worldDef.gravity = b3Vec3_zero;
+	scene.worldDef.enableSleep = false;
+	scene.stepCount = 2;
+	scene.timeStep = timeStep;
+	scene.subStepCount = 4;
+
+	static PairResult result;
+	ENSURE( RunScenePair( &scene, true, &result ) == 0 );
+
+	// Print every log before the first assertion
+	for ( int i = 0; i < 3; ++i )
+	{
+		const Corridor* corridor = callbackScene.corridors + i;
+		const char* name = TreeName( corridor->plan.clusterTree );
+		for ( int runIndex = 0; runIndex < 2; ++runIndex )
+		{
+			const CallbackLog* log = callbackScene.logs + runIndex;
+			printf( "  %s corridor run %d\n", name, runIndex + 1 );
+			PrintVisitOrder( "custom filter", log->filterLog + i );
+			PrintVisitOrder( "pre-solve", log->preSolveLog + i );
+		}
+	}
+
+	for ( int i = 0; i < 3; ++i )
+	{
+		const Corridor* corridor = callbackScene.corridors + i;
+		const char* name = TreeName( corridor->plan.clusterTree );
+		ENSURE( CheckCorridorWitness( corridor ) == 0 );
+
+		// The on-path boxes alone must also be visited in a different order
+		VisitOrder onPath1 = RestrictToSet( &corridor->runs[0].witness, &corridor->runs[0].onPath );
+		VisitOrder onPath2 = RestrictToSet( &corridor->runs[1].witness, &corridor->runs[1].onPath );
+		ENSURE( WitnessDiffers( name, &onPath1, &onPath2 ) );
+
+		VisitOrder cluster = CorridorClusterSet( corridor, 0 );
+		SortVisitOrder( &cluster );
+		VisitOrder onPath = corridor->runs[0].onPath;
+		SortVisitOrder( &onPath );
+
+		for ( int runIndex = 0; runIndex < 2; ++runIndex )
+		{
+			const CallbackLog* log = callbackScene.logs + runIndex;
+			ENSURE( SameSequence( log->filterLog + i, &cluster ) );
+			ENSURE( SameSequence( log->preSolveLog + i, &onPath ) );
+		}
 	}
 
 	return 0;

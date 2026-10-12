@@ -16,6 +16,7 @@
 #include "parallel_for.h"
 #include "physics_world.h"
 #include "platform.h"
+#include "qsort.h"
 #include "sensor.h"
 #include "shape.h"
 #include "solver_set.h"
@@ -331,17 +332,27 @@ typedef struct b3ContinuousContext
 	int distanceIterations;
 	int pushBackIterations;
 	int rootIterations;
+
+	// Candidates of one tree query, collected by the callback and evaluated in shape id order
+	b3Array( int ) * candidates;
 } b3ContinuousContext;
 
-// This is called from b3DynamicTree_Query for continuous collision
+// This is called from b3DynamicTree_Query for continuous collision. It only collects the
+// candidate. Evaluation happens after the query in ascending shape id, so the result does not
+// depend on the tree layout.
 static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* context )
 {
 	B3_UNUSED( proxyId );
 
-	int shapeId = (int)userData;
 	b3ContinuousContext* continuousContext = context;
 	continuousContext->visitCount += 1;
+	b3Array_Push( *continuousContext->candidates, (int)userData );
+	return true;
+}
 
+// Evaluate one continuous collision candidate against the fast shape
+static void b3EvaluateContinuousCandidate( b3ContinuousContext* continuousContext, int shapeId )
+{
 	b3Shape* fastShape = continuousContext->fastShape;
 	b3BodySim* fastBodySim = continuousContext->fastBodySim;
 
@@ -350,7 +361,7 @@ static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* con
 	// Skip same shape
 	if ( shapeId == fastShape->id )
 	{
-		return true;
+		return;
 	}
 
 	b3World* world = continuousContext->world;
@@ -359,21 +370,21 @@ static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* con
 	// Skip same body
 	if ( shape->bodyId == fastShape->bodyId )
 	{
-		return true;
+		return;
 	}
 
 	// Skip sensors unless both shapes want sensor events
 	bool isSensor = shape->sensorIndex != B3_NULL_INDEX;
 	if ( isSensor && ( ( shape->flags & b3_enableSensorEvents ) == 0 || ( fastShape->flags & b3_enableSensorEvents ) == 0 ) )
 	{
-		return true;
+		return;
 	}
 
 	// Skip filtered shapes
 	bool canCollide = b3ShouldShapesCollide( fastShape->filter, shape->filter );
 	if ( canCollide == false )
 	{
-		return true;
+		return;
 	}
 
 	b3Body* body = b3Array_Get( world->bodies, shape->bodyId );
@@ -384,7 +395,7 @@ static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* con
 	// Skip bullets
 	if ( body->flags & b3_isBullet )
 	{
-		return true;
+		return;
 	}
 
 	// Skip filtered bodies
@@ -392,7 +403,7 @@ static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* con
 	canCollide = b3ShouldBodiesCollide( world, fastBody, body );
 	if ( canCollide == false )
 	{
-		return true;
+		return;
 	}
 
 	// Custom user filtering
@@ -406,7 +417,7 @@ static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* con
 			canCollide = customFilterFcn( idA, idB, world->customFilterContext );
 			if ( canCollide == false )
 			{
-				return true;
+				return;
 			}
 		}
 	}
@@ -464,9 +475,39 @@ static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* con
 		const char* name = b3FindNameWithDefault( &world->names, body->nameId, "NULL" );
 		b3Log( "CCD stall: duration %.1f ms for %s versus %s", ms, nameFast, name );
 	}
+}
 
-	// Continue query
-	return true;
+// Sort the candidates of one tree query and evaluate them in ascending shape id. The array is
+// cleared for the next query.
+static void b3EvaluateContinuousCandidates( b3ContinuousContext* continuousContext )
+{
+	b3Array( int )* candidates = continuousContext->candidates;
+	int* ids = candidates->data;
+	int count = candidates->count;
+
+	{
+#define LESS( i, j ) ( ids[(int)( i )] < ids[(int)( j )] )
+#define SWAP( i, j )                                                                                                             \
+	do                                                                                                                           \
+	{                                                                                                                            \
+		int tmp_ = ids[(int)( i )];                                                                                              \
+		ids[(int)( i )] = ids[(int)( j )];                                                                                       \
+		ids[(int)( j )] = tmp_;                                                                                                  \
+	}                                                                                                                            \
+	while ( 0 )
+
+		QSORT( count, LESS, SWAP );
+
+#undef LESS
+#undef SWAP
+	}
+
+	for ( int i = 0; i < count; ++i )
+	{
+		b3EvaluateContinuousCandidate( continuousContext, ids[i] );
+	}
+
+	b3Array_Clear( *candidates );
 }
 
 // Continuous collision of dynamic versus static
@@ -504,6 +545,8 @@ static void b3SolveContinuous( b3World* world, int bodySimIndex, b3TaskContext* 
 	context.base = base;
 	context.fastBodySim = fastBodySim;
 	context.fraction = 1.0f;
+	context.candidates = &taskContext->continuousCandidates;
+	B3_ASSERT( context.candidates->count == 0 );
 
 	bool isBullet = ( fastBodySim->flags & b3_isBullet ) != 0;
 
@@ -536,13 +579,18 @@ static void b3SolveContinuous( b3World* world, int bodySimIndex, b3TaskContext* 
 			continue;
 		}
 
+		// Each tree query is sorted and evaluated on its own, so the candidate order within a
+		// query is fixed by shape id and the tree order is static, kinematic, dynamic.
 		b3AABB sweptBox = b3AABB_Union( box1, box2 );
 		b3DynamicTree_Query( staticTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
+		b3EvaluateContinuousCandidates( &context );
 
 		if ( isBullet )
 		{
 			b3DynamicTree_Query( kinematicTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
+			b3EvaluateContinuousCandidates( &context );
 			b3DynamicTree_Query( dynamicTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
+			b3EvaluateContinuousCandidates( &context );
 		}
 	}
 

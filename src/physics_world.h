@@ -80,6 +80,9 @@ typedef struct b3TaskContext
 	// Broad-phase pairs.
 	b3Array( uint64_t ) pairKeys;
 
+	// Continuous collision candidates of one tree query, evaluated in shape id order.
+	b3Array( int ) continuousCandidates;
+
 	// These bits align with the b3ConstraintGraph::contactBlocks and signal a change in contact status
 	b3BitSet contactStateBitSet;
 

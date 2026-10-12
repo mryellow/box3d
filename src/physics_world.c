@@ -177,6 +177,7 @@ static void b3CreateWorkerContexts( b3World* world )
 		world->taskContexts.data[i].arena = b3CreateArena( 128 * 1024 );
 		b3Array_Reserve( world->taskContexts.data[i].sensorHits, 8 );
 		b3Array_Reserve( world->taskContexts.data[i].pairKeys, 64 );
+		b3Array_Reserve( world->taskContexts.data[i].continuousCandidates, 32 );
 		world->taskContexts.data[i].contactStateBitSet = b3CreateBitSet( 1024 );
 		world->taskContexts.data[i].hitEventBitSet = b3CreateBitSet( 1024 );
 		world->taskContexts.data[i].hasHitEvents = false;
@@ -195,6 +196,7 @@ static void b3DestroyWorkerContexts( b3World* world )
 		b3DestroyArena( &world->taskContexts.data[i].arena );
 		b3Array_Destroy( world->taskContexts.data[i].sensorHits );
 		b3Array_Destroy( world->taskContexts.data[i].pairKeys );
+		b3Array_Destroy( world->taskContexts.data[i].continuousCandidates );
 		b3DestroyBitSet( &world->taskContexts.data[i].contactStateBitSet );
 		b3DestroyBitSet( &world->taskContexts.data[i].hitEventBitSet );
 		b3DestroyBitSet( &world->taskContexts.data[i].jointStateBitSet );
@@ -2556,6 +2558,7 @@ void b3World_DumpMemoryStats( b3WorldId worldId )
 		b3TaskContext* taskContext = world->taskContexts.data + i;
 		taskContextBytes += b3Array_ByteCount( taskContext->sensorHits );
 		taskContextBytes += b3Array_ByteCount( taskContext->pairKeys );
+		taskContextBytes += b3Array_ByteCount( taskContext->continuousCandidates );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->contactStateBitSet );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->jointStateBitSet );
 		taskContextBytes += b3GetBitSetBytes( &taskContext->hitEventBitSet );
