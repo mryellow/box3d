@@ -69,6 +69,16 @@ typedef struct b3DebugLine
 	b3HexColor color;
 } b3DebugLine;
 
+// A continuous collision candidate of one tree query: a sort key estimating where along the sweep
+// the fast shape first reaches the candidate, and the shape id as the tie-break.
+typedef struct b3ContinuousCandidate
+{
+	float key;
+	int shapeId;
+} b3ContinuousCandidate;
+
+b3DeclareArrayNative( b3ContinuousCandidate );
+
 // Per thread task storage
 typedef struct b3TaskContext
 {
@@ -80,8 +90,8 @@ typedef struct b3TaskContext
 	// Broad-phase pairs.
 	b3Array( uint64_t ) pairKeys;
 
-	// Continuous collision candidates of one tree query, evaluated in shape id order.
-	b3Array( int ) continuousCandidates;
+	// Continuous collision candidates of one tree query, evaluated in ascending sweep key, then shape id.
+	b3Array( b3ContinuousCandidate ) continuousCandidates;
 
 	// These bits align with the b3ConstraintGraph::contactBlocks and signal a change in contact status
 	b3BitSet contactStateBitSet;

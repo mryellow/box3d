@@ -6,6 +6,7 @@
 // step gives the same answer. A visit-order witness shows the perturbation changed the order
 // the query under test sees, so a passing comparison is not vacuous.
 
+#include "aabb.h"
 #include "body.h"
 #include "broad_phase.h"
 #include "physics_world.h"
@@ -226,6 +227,96 @@ static bool IsBodyFast( b3BodyId bodyId )
 	return ( bodySim->flags & b3_isFast ) != 0;
 }
 
+// The sweep key. The solver evaluates the candidates of one tree query in ascending key, then
+// ascending shape id. The key is the fraction at which the fast shape's centroid segment enters
+// the candidate's box grown by the fast shape's bounding radius, and 1 when the segment misses.
+
+typedef struct SweepData
+{
+	// Sweep base, the fast body's centre at the start of the step
+	b3Pos base;
+
+	// The fast shape's centroid at the start and end of the step, relative to the base
+	b3Vec3 centroid1, centroid2;
+
+	// Distance from the start centroid to the farthest corner of the fast shape's start box
+	float radius;
+} SweepData;
+
+static b3AABB RelativeBox( b3AABB box, b3Pos base )
+{
+	b3AABB result;
+	result.lowerBound.x = (float)( box.lowerBound.x - base.x );
+	result.lowerBound.y = (float)( box.lowerBound.y - base.y );
+	result.lowerBound.z = (float)( box.lowerBound.z - base.z );
+	result.upperBound.x = (float)( box.upperBound.x - base.x );
+	result.upperBound.y = (float)( box.upperBound.y - base.y );
+	result.upperBound.z = (float)( box.upperBound.z - base.z );
+	return result;
+}
+
+// The one-step sweep of a fast body's shape, taken before the step as the solver takes it, with
+// the given travel of the centroid over the step
+static SweepData MakeSweepData( b3WorldId worldId, b3BodyId bodyId, b3ShapeId shapeId, b3Vec3 travel )
+{
+	b3World* world = b3GetWorldFromId( worldId );
+	b3Body* body = b3GetBodyFullId( world, bodyId );
+	b3BodySim* bodySim = b3GetBodySim( world, body );
+	b3Shape* shape = b3Array_Get( world->shapes, shapeId.index1 - 1 );
+
+	SweepData data;
+	data.base = bodySim->center;
+	b3Sweep sweep = b3MakeRelativeSweep( bodySim, data.base );
+	b3Transform xf1 = { .p = b3Sub( sweep.c1, b3RotateVector( sweep.q1, sweep.localCenter ) ), .q = sweep.q1 };
+	data.centroid1 = b3TransformPoint( xf1, shape->localCentroid );
+	data.centroid2 = b3Add( data.centroid1, travel );
+	b3Vec3 farthestCorner = b3FarthestPointOnAABB( RelativeBox( shape->aabb, data.base ), data.centroid1 );
+	data.radius = b3Distance( farthestCorner, data.centroid1 );
+	return data;
+}
+
+static float SweepKey( const SweepData* sweep, b3AABB candidateBox )
+{
+	b3AABB box = b3AABB_Inflate( RelativeBox( candidateBox, sweep->base ), sweep->radius );
+	float key = 1.0f;
+	float exitFraction = 1.0f;
+	if ( b3RayCastAABB( box, sweep->centroid1, sweep->centroid2, &key, &exitFraction ) == false || !( key < 1.0f ) )
+	{
+		key = 1.0f;
+	}
+	return key;
+}
+
+// The given shapes in ascending sweep key, then ascending id, keyed from the box each shape holds now
+static VisitOrder SortBySweepKey( b3WorldId worldId, const SweepData* sweep, const VisitOrder* shapes )
+{
+	b3World* world = b3GetWorldFromId( worldId );
+	VisitOrder order = *shapes;
+	float keys[VISIT_CAPACITY];
+	for ( int i = 0; i < order.count; ++i )
+	{
+		keys[i] = SweepKey( sweep, b3Array_Get( world->shapes, order.ids[i] )->aabb );
+	}
+
+	// Insertion sort, the sets are small
+	for ( int i = 1; i < order.count; ++i )
+	{
+		float key = keys[i];
+		int id = order.ids[i];
+		int j = i;
+		while ( j > 0 && ( keys[j - 1] > key || ( keys[j - 1] == key && order.ids[j - 1] > id ) ) )
+		{
+			keys[j] = keys[j - 1];
+			order.ids[j] = order.ids[j - 1];
+			j -= 1;
+		}
+		keys[j] = key;
+		order.ids[j] = id;
+	}
+
+	return order;
+}
+
 // Scene pair runner. The scene is built twice in two fresh worlds with identical definitions.
 // Run 1 steps plainly. Run 2 perturbs the tree layout immediately before every step when asked.
 // The hooks run in both runs with the world, the run index and the step index: one before each
@@ -329,6 +420,11 @@ typedef struct CorridorRun
 	VisitOrder onPath;
 	VisitOrder witness;
 	uint32_t hash;
+
+	// The sphere's sweep, taken before the corridor step, and the cluster in the solver's
+	// evaluation order, taken after it
+	SweepData sweep;
+	VisitOrder sweepOrder;
 } CorridorRun;
 
 typedef struct Corridor
@@ -410,6 +506,30 @@ static void PlanCorridor( Corridor* corridor, RandomState* random, b3BodyType cl
 	for ( int i = 0; i < CORRIDOR_FIRST_PART_COUNT; ++i )
 	{
 		plan->firstPart[order[i]] = true;
+	}
+}
+
+// Reorder a planned corridor so its boxes are created far-to-near along the sweep: the first part
+// is the farthest half, and each part is created in descending x. Ascending shape id is then the
+// reverse of the sweep.
+static void PlanCorridorFarToNear( Corridor* corridor )
+{
+	CorridorPlan* plan = &corridor->plan;
+	for ( int i = 1; i < CORRIDOR_BOX_COUNT; ++i )
+	{
+		b3Vec3 p = plan->boxOffsets[i];
+		int j = i;
+		while ( j > 0 && plan->boxOffsets[j - 1].x < p.x )
+		{
+			plan->boxOffsets[j] = plan->boxOffsets[j - 1];
+			j -= 1;
+		}
+		plan->boxOffsets[j] = p;
+	}
+
+	for ( int i = 0; i < CORRIDOR_BOX_COUNT; ++i )
+	{
+		plan->firstPart[i] = i < CORRIDOR_FIRST_PART_COUNT;
 	}
 }
 
@@ -536,6 +656,8 @@ static int CorridorBeforeStep( Corridor* corridor, b3WorldId worldId, int runInd
 
 	ENSURE( run->onPath.count >= 2 );
 
+	run->sweep = MakeSweepData( worldId, run->sphereId, run->sphereShapeId, b3Sub( sweepB.c2, sweepB.c1 ) );
+
 	if ( plan->clusterTree == b3_staticBody )
 	{
 		RecordVisitOrder( worldId, b3_staticBody, CorridorCoverBox( plan ), B3_DEFAULT_MASK_BITS, &run->witness );
@@ -547,6 +669,9 @@ static int CorridorBeforeStep( Corridor* corridor, b3WorldId worldId, int runInd
 // After the corridor step: the kinematic or dynamic tree witness is recorded with the sphere's
 // own shape removed, since the step rebuilt that tree before the continuous query and only
 // enlarged bounds after it. The sphere must have been flagged fast, or the query never ran.
+// The cluster's sweep order is keyed from the boxes the cluster holds now: a static box is fixed
+// through the step, and a resting kinematic or dynamic box holds the end-of-step box the step
+// wrote before the continuous stage queried it.
 static int CorridorAfterStep( Corridor* corridor, b3WorldId worldId, int runIndex )
 {
 	const CorridorPlan* plan = &corridor->plan;
@@ -559,6 +684,9 @@ static int CorridorAfterStep( Corridor* corridor, b3WorldId worldId, int runInde
 	}
 
 	ENSURE( IsBodyFast( run->sphereId ) );
+
+	VisitOrder cluster = CorridorClusterSet( corridor, runIndex );
+	run->sweepOrder = SortBySweepKey( worldId, &run->sweep, &cluster );
 
 	b3BodyId bodies[1 + CORRIDOR_BOX_COUNT];
 	bodies[0] = run->sphereId;
@@ -1130,7 +1258,8 @@ int ContinuousCandidateOrderTest( void )
 }
 
 // More sensors than the continuous sensor limit, all on one static body along a bullet's path.
-// The sensors kept must be the lowest ids whatever the layout.
+// The sensors kept must be the eight nearest by sweep key, tie by id, whatever the layout. The
+// sensors are created farthest-first, so the eight lowest ids are not the eight nearest.
 
 #define SENSOR_LIMIT 8
 #define SENSOR_COUNT 12
@@ -1163,6 +1292,7 @@ int ContinuousSensorSelectionTest( void )
 
 	VisitOrder witness[2];
 	VisitOrder reported[2];
+	VisitOrder sweepOrder[2];
 	int sensorIds[2][SENSOR_COUNT];
 	for ( int runIndex = 0; runIndex < 2; ++runIndex )
 	{
@@ -1176,7 +1306,7 @@ int ContinuousSensorSelectionTest( void )
 		b3ShapeDef sensorDef = b3DefaultShapeDef();
 		sensorDef.isSensor = true;
 		sensorDef.enableSensorEvents = true;
-		for ( int i = 0; i < SENSOR_COUNT; ++i )
+		for ( int i = SENSOR_COUNT - 1; i >= 0; --i )
 		{
 			b3Sphere sphere = { sensorOffsets[i], sensorRadius };
 			b3ShapeId shapeId = b3CreateSphereShape( sensorBodyId, &sensorDef, &sphere );
@@ -1192,7 +1322,7 @@ int ContinuousSensorSelectionTest( void )
 		b3ShapeDef bulletShapeDef = b3DefaultShapeDef();
 		bulletShapeDef.enableSensorEvents = true;
 		b3Sphere bullet = { b3Vec3_zero, bulletRadius };
-		b3CreateSphereShape( bulletId, &bulletShapeDef, &bullet );
+		b3ShapeId bulletShapeId = b3CreateSphereShape( bulletId, &bulletShapeDef, &bullet );
 
 		if ( runIndex == 1 )
 		{
@@ -1201,6 +1331,16 @@ int ContinuousSensorSelectionTest( void )
 
 		b3AABB cover = { { -1.0f, -1.0f, -1.0f }, { distance + 1.0f, 1.0f, 1.0f } };
 		RecordVisitOrder( worldId, b3_staticBody, b3OffsetAABB( cover, origin ), B3_DEFAULT_MASK_BITS, witness + runIndex );
+
+		// The sensors in the solver's evaluation order, from the bullet's one-step sweep
+		VisitOrder sensors = { 0 };
+		for ( int i = 0; i < SENSOR_COUNT; ++i )
+		{
+			sensors.ids[i] = sensorIds[runIndex][i] - 1;
+		}
+		sensors.count = SENSOR_COUNT;
+		SweepData sweep = MakeSweepData( worldId, bulletId, bulletShapeId, (b3Vec3){ speed * timeStep, 0.0f, 0.0f } );
+		sweepOrder[runIndex] = SortBySweepKey( worldId, &sweep, &sensors );
 
 		b3World_Step( worldId, timeStep, 4 );
 
@@ -1225,30 +1365,44 @@ int ContinuousSensorSelectionTest( void )
 		ENSURE( sensorIds[runIndex][0] == sensorIds[0][0] );
 	}
 
-	// The eight lowest sensor shape ids
-	int lowest[SENSOR_COUNT];
-	memcpy( lowest, sensorIds[0], sizeof( lowest ) );
-	qsort( lowest, SENSOR_COUNT, sizeof( int ), CompareInts );
+	// The eight sensors first in sweep order, as public shape ids
+	ENSURE( SameSequence( sweepOrder + 0, sweepOrder + 1 ) );
 	VisitOrder expected = { 0 };
 	for ( int i = 0; i < SENSOR_LIMIT; ++i )
 	{
-		expected.ids[i] = lowest[i];
+		expected.ids[i] = sweepOrder[0].ids[i] + 1;
 	}
 	expected.count = SENSOR_LIMIT;
 
+	// The eight lowest sensor shape ids are a different set, so the order is not id order
+	int lowest[SENSOR_COUNT];
+	memcpy( lowest, sensorIds[0], sizeof( lowest ) );
+	qsort( lowest, SENSOR_COUNT, sizeof( int ), CompareInts );
+	VisitOrder lowestIds = { 0 };
+	for ( int i = 0; i < SENSOR_LIMIT; ++i )
+	{
+		lowestIds.ids[i] = lowest[i];
+	}
+	lowestIds.count = SENSOR_LIMIT;
+
+	PrintVisitOrder( "sweep order", sweepOrder + 0 );
+	PrintVisitOrder( "expected", &expected );
 	for ( int runIndex = 0; runIndex < 2; ++runIndex )
 	{
 		PrintVisitOrder( runIndex == 0 ? "run 1 sensors" : "run 2 sensors", reported + runIndex );
 		ENSURE( reported[runIndex].count == SENSOR_LIMIT );
 	}
 
+	ENSURE( SameSet( &expected, &lowestIds ) == false );
 	ENSURE( SameSet( reported + 0, &expected ) );
 	ENSURE( SameSet( reported + 1, &expected ) );
 	return 0;
 }
 
-// The pre-solve and custom filter callbacks are called in ascending shape id within each query.
-// One corridor per tree kind with both callbacks enabled on the sphere and every cluster box.
+// The pre-solve and custom filter callbacks are called in ascending sweep key, then ascending
+// shape id, within each query. One corridor per tree kind with both callbacks enabled on the
+// sphere and every cluster box. The boxes are created far-to-near, so ascending id and the sweep
+// disagree.
 
 typedef struct CallbackLog
 {
@@ -1352,6 +1506,10 @@ int ContinuousCallbackOrderTest( void )
 	RandomState random = { 0xCA11BACu };
 	float timeStep = 1.0f / 60.0f;
 	PlanThreeCorridors( callbackScene.corridors, &random, timeStep, true );
+	for ( int i = 0; i < 3; ++i )
+	{
+		PlanCorridorFarToNear( callbackScene.corridors + i );
+	}
 
 	Scene scene = { 0 };
 	scene.create = CallbackSceneCreate;
@@ -1377,6 +1535,7 @@ int ContinuousCallbackOrderTest( void )
 		{
 			const CallbackLog* log = callbackScene.logs + runIndex;
 			printf( "  %s corridor run %d\n", name, runIndex + 1 );
+			PrintVisitOrder( "sweep order", &corridor->runs[runIndex].sweepOrder );
 			PrintVisitOrder( "custom filter", log->filterLog + i );
 			PrintVisitOrder( "pre-solve", log->preSolveLog + i );
 		}
@@ -1393,15 +1552,19 @@ int ContinuousCallbackOrderTest( void )
 		VisitOrder onPath2 = RestrictToSet( &corridor->runs[1].witness, &corridor->runs[1].onPath );
 		ENSURE( WitnessDiffers( name, &onPath1, &onPath2 ) );
 
+		// The sweep order holds the cluster, is the same in both runs, and is not ascending id
 		VisitOrder cluster = CorridorClusterSet( corridor, 0 );
 		SortVisitOrder( &cluster );
-		VisitOrder onPath = corridor->runs[0].onPath;
-		SortVisitOrder( &onPath );
+		const VisitOrder* sweepOrder = &corridor->runs[0].sweepOrder;
+		ENSURE( SameSet( sweepOrder, &cluster ) );
+		ENSURE( SameSequence( sweepOrder, &corridor->runs[1].sweepOrder ) );
+		ENSURE( SameSequence( sweepOrder, &cluster ) == false );
 
+		VisitOrder onPath = RestrictToSet( sweepOrder, &corridor->runs[0].onPath );
 		for ( int runIndex = 0; runIndex < 2; ++runIndex )
 		{
 			const CallbackLog* log = callbackScene.logs + runIndex;
-			ENSURE( SameSequence( log->filterLog + i, &cluster ) );
+			ENSURE( SameSequence( log->filterLog + i, sweepOrder ) );
 			ENSURE( SameSequence( log->preSolveLog + i, &onPath ) );
 		}
 	}
