@@ -547,8 +547,8 @@ Verification on the rebased branch, same build and run commands as §2:
 | Commit | Float: tests run / passed | Double precision: tests run / passed |
 |---|---|---|
 | `e0ddc5d` (A0) | 29 / 29 | not run (A0 is test only and unchanged) |
-| `e9bbb72` (A1) | PENDING_A1 | not run |
-| `f66ee7f` (A2) | PENDING_A2_FLOAT | PENDING_A2_DP |
+| `e9bbb72` (A1) | 32 / 32 | not run |
+| `f66ee7f` (A2) | 33 / 33 | 33 / 33 |
 
 Upstream's `main` has 28 entry functions, as before. The `test` target built with zero warnings at
 each commit. `DeterminismTest`, whose goldens upstream rewrote in the meantime, passed unchanged.
@@ -565,9 +565,12 @@ ContinuousSensorSelectionTest:   run 1 sensors: 4 6 7 8 9 10 11 12
 ContinuousCandidateOrderTest:    one worker: seeds 40, field divergences 1, corridor divergences static 23 kinematic 0 dynamic 1
                                  four workers: seeds 8, field divergences 0, corridor divergences static 5 kinematic 0 dynamic 0
                                  condition false: counts->field == 0
-ExplodeOrderTest:                PENDING_EXPLODE
+ExplodeOrderTest:                awake set order equal 0, velocities equal 0
+                                 condition false: sameAwakeOrder
 ```
 
-The identical fail-before counts show upstream's tree performance work did not change the
+At `f66ee7f` the five new tests pass by name with the same printed values as §5: zero fuzz
+divergences at one and four workers, sensors `1 2 3 4 5 6 7 8` in both runs, awake set order and
+velocities equal. The identical fail-before counts show upstream's tree performance work did not change the
 layouts the witnesses depend on in these scenes. The measurements of §7 were taken before the
 rebase, against `main` at `5643cd8`, and were not repeated.
