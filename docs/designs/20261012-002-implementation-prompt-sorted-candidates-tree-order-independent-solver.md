@@ -13,10 +13,6 @@ document decides how it lands and how it is shown to work.
 
 ## 1. Task
 
-Before any code: an issue labelled `ready-for-pr` exists for this change (`CONTRIBUTING.md`; the PR
-check needs a linked, approved issue, so a Discussion alone is not enough). The owner opens it and
-supplies its number; do not start until it exists.
-
 Implement `docs/designs/20261012-001-preflight-sorted-candidates-tree-order-independent-solver.md`
 (Canonical) in this repository, on the branch `solver-tree-order-independent`, as the three
 commits its §2 names (A0, A1, A2), in that order, each bisectable. The design is binding: where this
@@ -449,7 +445,7 @@ Measurements the PR text needs (design §2 A1 costs):
 ## 8. PR text and closure doc
 
 PR description, in this order: one line stating results are not bit-identical to before in the §1
-cases; `Closes #<issue>` with the approved issue's number (§1); the repository's
+cases; the repository's
 `.github/pull_request_template.md` filled in full, its samples box ticked only after running every
 sample in the samples app from a build with `BOX3D_SAMPLES` on, and otherwise left unticked with a
 sentence saying what was run; the three commits; the measurements of §7; any golden changed under §5 with old

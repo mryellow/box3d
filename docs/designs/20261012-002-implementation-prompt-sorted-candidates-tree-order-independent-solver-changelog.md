@@ -280,3 +280,9 @@
 - U-R10: U-C10, the Implementation Prompt's exemption from U-C1 and the U-T3 fix-size rule; under it
   the §7 shell block grew across revisions 13 to 20 and drew five findings in rounds 14 to 19 before
   the owner withdrew it in revision 21.
+
+## Revision 30 (owner reversal, after Canonical)
+
+- The owner withdrew the requirement for a `ready-for-pr` issue before code and the `Closes #`
+  line in the PR text; both are removed (U-S5). Status unchanged.
+- 478 -> 474 lines.
