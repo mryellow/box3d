@@ -16,6 +16,7 @@
 #include "joint.h"
 #include "parallel_for.h"
 #include "platform.h"
+#include "qsort.h"
 #include "recording.h"
 #include "scheduler.h"
 #include "sensor.h"
@@ -3383,8 +3384,13 @@ typedef struct ExplosionContext
 	float radius;
 	float falloff;
 	float impulsePerArea;
+
+	// Candidates with a nonzero explosion scale, applied in shape id order after the query
+	b3Array( int ) shapeIds;
 } ExplosionContext;
 
+// This is called from b3DynamicTree_Query for the explosion. It only collects the candidate, so
+// the wake and impulse order below does not depend on the tree layout.
 static bool ExplosionCallback( int proxyId, uint64_t userData, void* context )
 {
 	B3_UNUSED( proxyId );
@@ -3398,6 +3404,16 @@ static bool ExplosionCallback( int proxyId, uint64_t userData, void* context )
 	{
 		return true;
 	}
+
+	b3Array_Push( explosionContext->shapeIds, shapeId );
+	return true;
+}
+
+// Wake and push the body of one shape in range
+static void ApplyExplosion( ExplosionContext* explosionContext, int shapeId )
+{
+	b3World* world = explosionContext->world;
+	b3Shape* shape = b3Array_Get( world->shapes, shapeId );
 
 	b3Body* body = b3Array_Get( world->bodies, shape->bodyId );
 	B3_ASSERT( body->type == b3_dynamicBody );
@@ -3421,14 +3437,14 @@ static bool ExplosionCallback( int proxyId, uint64_t userData, void* context )
 	float falloff = explosionContext->falloff;
 	if ( output.distance > radius + falloff )
 	{
-		return true;
+		return;
 	}
 
 	b3WakeBody( world, body );
 
 	if ( body->setIndex != b3_awakeSet )
 	{
-		return true;
+		return;
 	}
 
 	// Witness point is already in the body local query frame
@@ -3467,8 +3483,6 @@ static bool ExplosionCallback( int proxyId, uint64_t userData, void* context )
 	// Lever arm from the center of mass to the closest point, rotated to world
 	b3Vec3 r = b3RotateVector( xf.q, b3Sub( closestPoint, bodySim->localCenter ) );
 	state->angularVelocity = b3Add( state->angularVelocity, b3MulMV( bodySim->invInertiaWorld, b3Cross( r, impulse ) ) );
-
-	return true;
 }
 
 void b3World_Explode( b3WorldId worldId, const b3ExplosionDef* explosionDef )
@@ -3495,7 +3509,8 @@ void b3World_Explode( b3WorldId worldId, const b3ExplosionDef* explosionDef )
 	// Locked due to waking
 	world->locked = true;
 
-	struct ExplosionContext explosionContext = { world, position, radius, falloff, impulsePerArea };
+	struct ExplosionContext explosionContext = { world, position, radius, falloff, impulsePerArea, { 0 } };
+	b3Array_Create( explosionContext.shapeIds );
 
 	// The broad-phase tree is float, so translate a local query box out to world with outward rounding
 	float extent = radius + falloff;
@@ -3503,6 +3518,33 @@ void b3World_Explode( b3WorldId worldId, const b3ExplosionDef* explosionDef )
 	b3AABB aabb = b3OffsetAABB( localBox, position );
 
 	b3DynamicTree_Query( world->broadPhase.trees + b3_dynamicBody, aabb, maskBits, false, ExplosionCallback, &explosionContext );
+
+	// Sort the candidates so bodies wake and sum impulses in shape id order whatever the tree layout
+	{
+		int* ids = explosionContext.shapeIds.data;
+		int count = explosionContext.shapeIds.count;
+#define LESS( i, j ) ( ids[(int)( i )] < ids[(int)( j )] )
+#define SWAP( i, j )                                                                                                             \
+	do                                                                                                                           \
+	{                                                                                                                            \
+		int tmp_ = ids[(int)( i )];                                                                                              \
+		ids[(int)( i )] = ids[(int)( j )];                                                                                       \
+		ids[(int)( j )] = tmp_;                                                                                                  \
+	}                                                                                                                            \
+	while ( 0 )
+
+		QSORT( count, LESS, SWAP );
+
+#undef LESS
+#undef SWAP
+	}
+
+	for ( int i = 0; i < explosionContext.shapeIds.count; ++i )
+	{
+		ApplyExplosion( &explosionContext, explosionContext.shapeIds.data[i] );
+	}
+
+	b3Array_Destroy( explosionContext.shapeIds );
 
 	world->locked = false;
 }

@@ -39,6 +39,7 @@ extern int ContinuousSensorSelectionTest( void );
 extern int DeterminismTest( void );
 extern int DistanceTest( void );
 extern int DynamicTreeTest( void );
+extern int ExplodeOrderTest( void );
 extern int HashTest( void );
 extern int HeightFieldTest( void );
 extern int HullTest( void );
@@ -121,6 +122,7 @@ int main( int argc, char** argv )
 	MAYBE_RUN_TEST( DeterminismTest );
 	MAYBE_RUN_TEST( DistanceTest );
 	MAYBE_RUN_TEST( DynamicTreeTest );
+	MAYBE_RUN_TEST( ExplodeOrderTest );
 	MAYBE_RUN_TEST( HashTest );
 	MAYBE_RUN_TEST( HeightFieldTest );
 	MAYBE_RUN_TEST( HullTest );
