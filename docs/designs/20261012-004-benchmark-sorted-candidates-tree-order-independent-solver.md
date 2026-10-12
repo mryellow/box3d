@@ -133,9 +133,26 @@ here:
   tree order are both arbitrary with respect to distance, but they differ in which candidates come
   first.
 
-Separating them would take a profiler run on both builds, or a variant that collects the candidates
-and evaluates them in tree order, which isolates the sort from the loop separation. The Explode
-change (f66ee7f) is not exercised by any benchmark.
+**Tree-order variant.** To separate the loop split from the sort, a scratch build of the PR head
+with the `QSORT` call in `b3EvaluateContinuousCandidates` removed: candidates are still collected
+and evaluated after the query, but in tree order. Three builds, three rotations of the run order,
+same microbenchmark. Times in ms.
+
+| Rotation | Variant | `main` | PR | tree-order variant |
+|---|---|---|---|---|
+| main, PR, var | non-bullet, total | 4368 | 4125 | 4358 |
+| var, main, PR | non-bullet, total | 4668 | 4498 | 4480 |
+| PR, var, main | non-bullet, total | 4974 | 4556 | 4827 |
+| main, PR, var | bullet, continuous stage | 4629 | 4323 | 4581 |
+| var, main, PR | bullet, continuous stage | 4729 | 4438 | 4616 |
+| PR, var, main | bullet, continuous stage | 4769 | 4454 | 4700 |
+
+The machine slows across the rotations, so rows compare within themselves. In every row the
+variant is within 0 to 4 percent of `main` and the PR is 5 to 8 percent faster than both. Splitting
+the traversal from the evaluation is not the gain; the sorted order is. That leaves memory order and
+running-fraction evolution, not separated here; a variant that evaluates in a deterministic but
+non-ascending order (descending, or hashed) would tell them apart. The Explode change (f66ee7f) is
+not exercised by any benchmark.
 
 ## 6. Replication
 
