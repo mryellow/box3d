@@ -7,10 +7,10 @@ supports: 20261012-005 (preflight)
 
 # Benchmark: sweep-ordered continuous candidates, prototype measurements
 
-A measurement of the two changes the preflight 20261012-005 proposes, taken on a prototype of each
-that implements the preflight's B1 and B2 as written (key growth, filters in the callback, the
-convex-solid flag and the skip restricted to it), so that the design rests on an observation rather
-than on the extrapolation in 20261012-004 §5. The questions: does ordering by the sweep key reach
+A measurement of sweep-key ordering (B1) and of a static-candidate cull on top of it (B2), taken on
+a prototype of each, so that the preflight 20261012-005 rests on an observation rather than on the
+extrapolation in 20261012-004 §5. The preflight proposes B1 alone; B2 is measured here and not
+proposed (§6). The questions: does ordering by the sweep key reach
 the nearest-first time in both travel directions, what does the key itself cost, and how much does
 the static cull remove.
 
@@ -34,9 +34,9 @@ replaces.
   binaries of `ccdbench.c` (20261012-004 appendix): `main` at `5d83df8`, the sorted-candidate PR
   head at `f66ee7f`, the descending-id variant of 20261012-004 §5 (all three the binaries of that
   document), and two prototypes on the PR head: B1 (sweep-key order, all queries) and B1+B2
-  (B1 with the static cull). The prototype diff is in the appendix. The key growth, the filters in
-  the callback, the key-1 rule, the convex-solid flag and the skip restricted to flagged candidates
-  are the preflight's.
+  (B1 with the static cull). The prototype diff is in the appendix: filters in the callback, the
+  key-1 rule, a key growth of `r` plus two linear slops plus a rounding term, a convex-solid flag on
+  each candidate, and a static skip restricted to flagged candidates.
 - Machine: Intel i5-10400F under WSL2, otherwise idle, turbo and thermal state uncontrolled, as in
   20261012-004. Rows compare within themselves.
 - Scene: 4000 spheres at 300 m/s through 14,641 static boxes, 100 steps, four sub-steps, one worker,
@@ -112,6 +112,11 @@ tree.
 
 ## 6. Caveats
 
+- The prototype is not the preflight's change. The preflight proposes B1 with a growth of `r` alone
+  and no element flag, and no skip of any candidate; its Costs paragraph points at §1 here. Read it
+  against the B1 columns only: the B1+B2 columns measure a cull the preflight does not propose, and
+  the B1 build differs from the preflight's B1 by the two-slop and rounding terms in the growth
+  (about a centimetre on the box edge) and an unused flag in the element.
 - One machine, WSL2, drift of 5 to 8 percent across a burst (20261012-004 §7); the B1+B2 margins
   exceed it in every row, the B1 margins against `main` do not in every row.
 - Every candidate in this scene is a convex solid box, so the skip's restriction to flagged
