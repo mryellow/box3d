@@ -149,3 +149,42 @@ small part of their step.
 - Worker counts above one were not run for the microbenchmark; the key and the sort are per query.
 - The microbenchmark's `main` column is the same binary as in 20261012-004 and 20261012-006 and
   landed within 3 percent of both.
+
+## 6. Project benchmarks against `main`, interleaved pairs
+
+The owner asked for the branch against `main` on the project scenarios in the form of the
+sorted-candidate PR's interleaved chart. Ten pairs per scenario and worker count, each pair one run
+(`-r=1`) of each build back to back, the build order alternating pair by pair: `main` `5d83df8`
+and the branch `854bd28`. The delta of a pair is the branch's step time relative to `main`'s in that
+pair. Chart: `E:\src\sweep-order-cost-interleaved.png`, beside the PR's `pr-cost-interleaved.png`;
+raw pairs in `sweep-order-cost-interleaved.txt` in the same directory. Machine idle for the whole run.
+
+| Scenario | 1 worker median | 1 worker range | 4 workers median | 4 workers range |
+|---|---|---|---|---|
+| convex_pile | +0.5% | -1.7 to +2.4 | +0.6% | -5.1 to +4.4 |
+| joint_grid | -4.1% | -9.2 to +4.2 | +6.3% | -15.0 to +22.7 |
+| junkyard | -0.5% | -7.5 to +4.8 | -2.8% | -24.7 to +1.4 |
+| large_pyramid | +5.9% | -30.5 to +30.9 | -1.6% | -44.1 to +18.5 |
+| large_world | -1.6% | -45.9 to +11.9 | +1.2% | -15.8 to +26.0 |
+| many_pyramids | +2.3% | -5.4 to +9.7 | -1.1% | -21.1 to +6.2 |
+| mesh_drop | +0.4% | -6.6 to +2.4 | +0.8% | -2.1 to +2.5 |
+| rain | +0.8% | -0.7 to +9.4 | +0.0% | -1.5 to +2.9 |
+| sleep | -0.7% | -5.2 to +3.8 | +1.0% | -3.6 to +9.1 |
+| spinner | +2.0% | -2.1 to +3.2 | +1.8% | -1.1 to +11.5 |
+| trees100 | +1.1% | -3.5 to +5.2 | +1.3% | -7.0 to +7.6 |
+| trees50 | +0.5% | -7.4 to +3.4 | +2.1% | -3.6 to +9.5 |
+| trees25 | -0.4% | -1.1 to +2.7 | +1.4% | -4.6 to +4.4 |
+| village | +0.4% | -7.8 to +8.3 | +0.2% | -6.1 to +6.5 |
+| washer | +0.5% | -1.1 to +4.0 | +1.0% | -3.1 to +4.1 |
+
+Mean of the scenario medians: +0.5 percent at one worker, +0.8 percent at four. Median of all 150
+pairs: +0.4 and +0.6 percent. Twelve of fifteen single-worker medians and thirteen of fifteen
+four-worker medians lie inside ±2 percent, with both signs; the sorted-candidate PR's own
+interleaved chart gave +0.1 and +0.7 percent by the same measure, so the sweep key adds nothing the
+measurement can see on top of it. The wide boxes are the scenarios' own run-to-run spread, present
+in both builds: single `large_pyramid` runs ranged from 2.9 to 5.2 s for either build in the same
+session where its minimum of two runs was 2.6 s, and `large_world` runs for 10 to 20 ms. The
+`joint_grid` medians of -4.1 and +6.3 percent come from pairs whose two builds trade places pair by
+pair (one-worker pairs 1 to 8 favour the branch by 1 to 9 percent, pairs 9 and 10 favour `main`),
+which is drift inside the burst rather than a cost of the code. The project benchmarks hold few
+fast bodies, so the continuous stage is a small part of every step here.
