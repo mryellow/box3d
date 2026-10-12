@@ -332,9 +332,25 @@ typedef struct b3ContinuousContext
 	int pushBackIterations;
 	int rootIterations;
 
-	// Candidates of one tree query, collected by the callback and evaluated in shape id order
-	b3Array( int ) * candidates;
+	// Candidates of one tree query, collected by the callback with a sweep key and evaluated in
+	// ascending key, then shape id
+	b3Array( b3ContinuousCandidate ) * candidates;
+
+	// Bounding radius of the fast shape about its centroid, valid for every pose of the sweep
+	float fastRadius;
+
+	// Candidates whose key is at or beyond the running fraction cannot improve it: skip them.
+	// Only sound for the static tree, whose boxes do not move during the sweep.
+	bool cullByKey;
 } b3ContinuousContext;
+
+#ifndef B3_SWEEP_CULL
+#define B3_SWEEP_CULL 0
+#endif
+#ifdef B3_TOI_COUNT
+int b3_toiCalls = 0;
+int b3_toiCandidates = 0;
+#endif
 
 // This is called from b3DynamicTree_Query for continuous collision. It only collects the
 // candidate. Evaluation happens after the query in ascending shape id, so the result does not
@@ -344,7 +360,34 @@ static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* con
 	B3_UNUSED( proxyId );
 
 	b3ContinuousContext* continuousContext = context;
-	b3Array_Push( *continuousContext->candidates, (int)userData );
+
+	int shapeId = (int)userData;
+	b3Shape* shape = b3Array_Get( continuousContext->world->shapes, shapeId );
+
+	// The candidate's box relative to the sweep base, rounded outward, grown by the fast shape's
+	// bounding radius. The fast centroid's segment enters this box no later than the fast shape
+	// can touch the candidate.
+	b3Pos base = continuousContext->base;
+	float r = continuousContext->fastRadius;
+	b3AABB box;
+	box.lowerBound.x = b3RoundDownFloat( shape->aabb.lowerBound.x - base.x ) - r;
+	box.lowerBound.y = b3RoundDownFloat( shape->aabb.lowerBound.y - base.y ) - r;
+	box.lowerBound.z = b3RoundDownFloat( shape->aabb.lowerBound.z - base.z ) - r;
+	box.upperBound.x = b3RoundUpFloat( shape->aabb.upperBound.x - base.x ) + r;
+	box.upperBound.y = b3RoundUpFloat( shape->aabb.upperBound.y - base.y ) + r;
+	box.upperBound.z = b3RoundUpFloat( shape->aabb.upperBound.z - base.z ) + r;
+
+	float key = 1.0f, exitFraction = 1.0f;
+	if ( b3RayCastAABB( box, continuousContext->centroid1, continuousContext->centroid2, &key, &exitFraction ) == false )
+	{
+		key = 1.0f;
+	}
+
+	b3ContinuousCandidate candidate = { key, shapeId };
+#ifdef B3_TOI_COUNT
+	b3_toiCandidates += 1;
+#endif
+	b3Array_Push( *continuousContext->candidates, candidate );
 	return true;
 }
 
@@ -424,6 +467,9 @@ static void b3EvaluateContinuousCandidate( b3ContinuousContext* continuousContex
 	b3Sweep sweepA = b3MakeRelativeSweep( bodySim, continuousContext->base );
 
 	// Time of impact versus shape. Supports all shape types
+#ifdef B3_TOI_COUNT
+	b3_toiCalls += 1;
+#endif
 	b3TOIOutput output = b3ShapeTimeOfImpact( shape, fastShape, &sweepA, &continuousContext->sweep, continuousContext->fraction );
 	if ( isSensor )
 	{
@@ -469,18 +515,20 @@ static void b3EvaluateContinuousCandidate( b3ContinuousContext* continuousContex
 // cleared for the next query.
 static void b3EvaluateContinuousCandidates( b3ContinuousContext* continuousContext )
 {
-	b3Array( int )* candidates = continuousContext->candidates;
-	int* ids = candidates->data;
+	b3Array( b3ContinuousCandidate )* candidates = continuousContext->candidates;
+	b3ContinuousCandidate* cs = candidates->data;
 	int count = candidates->count;
 
 	{
-#define LESS( i, j ) ( ids[(int)( i )] < ids[(int)( j )] )
+#define LESS( i, j )                                                                                                             \
+	( cs[(int)( i )].key < cs[(int)( j )].key ||                                                                                 \
+	  ( cs[(int)( i )].key == cs[(int)( j )].key && cs[(int)( i )].shapeId < cs[(int)( j )].shapeId ) )
 #define SWAP( i, j )                                                                                                             \
 	do                                                                                                                           \
 	{                                                                                                                            \
-		int tmp_ = ids[(int)( i )];                                                                                              \
-		ids[(int)( i )] = ids[(int)( j )];                                                                                       \
-		ids[(int)( j )] = tmp_;                                                                                                  \
+		b3ContinuousCandidate tmp_ = cs[(int)( i )];                                                                             \
+		cs[(int)( i )] = cs[(int)( j )];                                                                                         \
+		cs[(int)( j )] = tmp_;                                                                                                   \
 	}                                                                                                                            \
 	while ( 0 )
 
@@ -492,7 +540,14 @@ static void b3EvaluateContinuousCandidates( b3ContinuousContext* continuousConte
 
 	for ( int i = 0; i < count; ++i )
 	{
-		b3EvaluateContinuousCandidate( continuousContext, ids[i] );
+#if B3_SWEEP_CULL
+		if ( continuousContext->cullByKey && cs[i].key >= continuousContext->fraction )
+		{
+			// Sorted ascending: no later candidate can improve the running fraction either
+			break;
+		}
+#endif
+		b3EvaluateContinuousCandidate( continuousContext, cs[i].shapeId );
 	}
 
 	b3Array_Clear( *candidates );
@@ -608,11 +663,28 @@ static void b3SolveContinuous( b3World* world, int bodySimIndex, b3TaskContext* 
 		// Each tree query is sorted and evaluated on its own, so the candidate order within a
 		// query is fixed by shape id and the tree order is static, kinematic, dynamic.
 		b3AABB sweptBox = b3AABB_Union( box1, box2 );
+
+		// Bounding radius about the centroid: the distance to the farthest corner of the start box.
+		// Rigid motion keeps every shape point within it for the whole sweep.
+		{
+			b3AABB box1Rel;
+			box1Rel.lowerBound.x = b3RoundDownFloat( box1.lowerBound.x - base.x );
+			box1Rel.lowerBound.y = b3RoundDownFloat( box1.lowerBound.y - base.y );
+			box1Rel.lowerBound.z = b3RoundDownFloat( box1.lowerBound.z - base.z );
+			box1Rel.upperBound.x = b3RoundUpFloat( box1.upperBound.x - base.x );
+			box1Rel.upperBound.y = b3RoundUpFloat( box1.upperBound.y - base.y );
+			box1Rel.upperBound.z = b3RoundUpFloat( box1.upperBound.z - base.z );
+			b3Vec3 far = b3FarthestPointOnAABB( box1Rel, context.centroid1 );
+			context.fastRadius = b3Length( b3Sub( far, context.centroid1 ) );
+		}
+
+		context.cullByKey = true;
 		b3DynamicTree_Query( staticTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
 		b3EvaluateContinuousCandidates( &context );
 
 		if ( isBullet )
 		{
+			context.cullByKey = false;
 			b3DynamicTree_Query( kinematicTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
 			b3EvaluateContinuousCandidates( &context );
 			b3DynamicTree_Query( dynamicTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
