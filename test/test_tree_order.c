@@ -681,11 +681,21 @@ static int CorridorWitnessCase( void )
 
 #define EXPLODE_SINGLE_COUNT 10
 
+#define EXPLODE_MULTI_SHAPE_COUNT 3
+#define EXPLODE_BODY_COUNT ( EXPLODE_SINGLE_COUNT + 2 )
+
 typedef struct ExplodeScene
 {
 	b3ExplosionDef def;
 	b3Vec3 singleOffsets[EXPLODE_SINGLE_COUNT];
 	float singleRadius;
+
+	// A body with several shapes inside the radius, placed so their contributions are not symmetric
+	b3Vec3 multiOffset;
+	b3Vec3 multiShapeOffsets[EXPLODE_MULTI_SHAPE_COUNT];
+
+	// A body whose closest surface lies beyond the radius and within the falloff
+	b3Vec3 farOffset;
 } ExplodeScene;
 
 static void PlanExplodeScene( ExplodeScene* scene, RandomState* random )
@@ -705,6 +715,15 @@ static void PlanExplodeScene( ExplodeScene* scene, RandomState* random )
 		scene->singleOffsets[i] = (b3Vec3){ RandomFloat( random, -inner, inner ), RandomFloat( random, -inner, inner ),
 											RandomFloat( random, -inner, inner ) };
 	}
+
+	// Spread wide so the tree can group the three shapes with different neighbours
+	scene->multiOffset = (b3Vec3){ 0.4f, 0.3f, -0.2f };
+	scene->multiShapeOffsets[0] = (b3Vec3){ 1.5f, 0.2f, -0.3f };
+	scene->multiShapeOffsets[1] = (b3Vec3){ -1.1f, 1.2f, 0.4f };
+	scene->multiShapeOffsets[2] = (b3Vec3){ 0.1f, -1.3f, -1.4f };
+
+	// Centre at radius + 0.5, surface at radius + 0.3 with the single radius
+	scene->farOffset = (b3Vec3){ 0.6f * ( scene->def.radius + 0.5f ), 0.8f * ( scene->def.radius + 0.5f ), 0.0f };
 }
 
 static b3AABB ExplosionBox( const b3ExplosionDef* def )
@@ -1387,6 +1406,137 @@ int ContinuousCallbackOrderTest( void )
 		}
 	}
 
+	return 0;
+}
+
+// The explosion wakes bodies and applies impulses in ascending shape id, so the awake set order
+// and the summed impulses do not depend on the dynamic tree layout. The world is never stepped
+// and every body sleeps in its own set before the explosion.
+
+typedef struct ExplodeRun
+{
+	b3BodyId bodies[EXPLODE_BODY_COUNT];
+	VisitOrder witness;
+	VisitOrder bodyWitness;
+	VisitOrder awakeOrder;
+	b3Vec3 linearVelocity[EXPLODE_BODY_COUNT];
+	b3Vec3 angularVelocity[EXPLODE_BODY_COUNT];
+} ExplodeRun;
+
+int ExplodeOrderTest( void )
+{
+	ExplodeScene explodeScene;
+	RandomState random = { 0xE8D10DEu };
+	PlanExplodeScene( &explodeScene, &random );
+	const b3ExplosionDef* def = &explodeScene.def;
+
+	static ExplodeRun runs[2];
+	memset( runs, 0, sizeof( runs ) );
+
+	for ( int runIndex = 0; runIndex < 2; ++runIndex )
+	{
+		ExplodeRun* run = runs + runIndex;
+
+		b3WorldDef worldDef = b3DefaultWorldDef();
+		worldDef.gravity = b3Vec3_zero;
+		worldDef.enableSleep = true;
+		worldDef.workerCount = 1;
+		b3WorldId worldId = b3CreateWorld( &worldDef );
+
+		int bodyCount = 0;
+		{
+			b3BodyDef bodyDef = b3DefaultBodyDef();
+			bodyDef.type = b3_dynamicBody;
+			bodyDef.position = b3OffsetPos( def->position, explodeScene.multiOffset );
+			bodyDef.isAwake = false;
+			b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+			b3ShapeDef shapeDef = b3DefaultShapeDef();
+			for ( int i = 0; i < EXPLODE_MULTI_SHAPE_COUNT; ++i )
+			{
+				b3Sphere sphere = { explodeScene.multiShapeOffsets[i], explodeScene.singleRadius };
+				b3CreateSphereShape( bodyId, &shapeDef, &sphere );
+			}
+			run->bodies[bodyCount++] = bodyId;
+		}
+
+		for ( int i = 0; i < EXPLODE_SINGLE_COUNT; ++i )
+		{
+			run->bodies[bodyCount++] = CreateExplodeSingle( &explodeScene, worldId, i, false );
+		}
+
+		{
+			b3BodyDef bodyDef = b3DefaultBodyDef();
+			bodyDef.type = b3_dynamicBody;
+			bodyDef.position = b3OffsetPos( def->position, explodeScene.farOffset );
+			bodyDef.isAwake = false;
+			b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+			b3ShapeDef shapeDef = b3DefaultShapeDef();
+			b3Sphere sphere = { b3Vec3_zero, explodeScene.singleRadius };
+			b3CreateSphereShape( bodyId, &shapeDef, &sphere );
+			run->bodies[bodyCount++] = bodyId;
+		}
+
+		ENSURE( bodyCount == EXPLODE_BODY_COUNT );
+		ENSURE( b3World_GetAwakeBodyCount( worldId ) == 0 );
+
+		if ( runIndex == 1 )
+		{
+			PerturbTreeLayout( worldId );
+		}
+
+		RecordVisitOrder( worldId, b3_dynamicBody, ExplosionBox( def ), def->maskBits, &run->witness );
+
+		// Each shape mapped to its body, keeping the first visit of each body, witnesses the wake order
+		b3World* world = b3GetWorldFromId( worldId );
+		for ( int i = 0; i < run->witness.count; ++i )
+		{
+			int bodyId = b3Array_Get( world->shapes, run->witness.ids[i] )->bodyId;
+			if ( ContainsId( &run->bodyWitness, bodyId ) == false )
+			{
+				run->bodyWitness.ids[run->bodyWitness.count] = bodyId;
+				run->bodyWitness.count += 1;
+			}
+		}
+
+		b3World_Explode( worldId, def );
+
+		for ( int i = 0; i < EXPLODE_BODY_COUNT; ++i )
+		{
+			ENSURE( b3Body_IsAwake( run->bodies[i] ) );
+			run->linearVelocity[i] = b3Body_GetLinearVelocity( run->bodies[i] );
+			run->angularVelocity[i] = b3Body_GetAngularVelocity( run->bodies[i] );
+			ENSURE( b3LengthSquared( run->linearVelocity[i] ) > 0.0f );
+		}
+
+		b3SolverSet* awakeSet = b3Array_Get( world->solverSets, b3_awakeSet );
+		for ( int i = 0; i < awakeSet->bodySims.count; ++i )
+		{
+			run->awakeOrder.ids[run->awakeOrder.count] = awakeSet->bodySims.data[i].bodyId;
+			run->awakeOrder.count += 1;
+		}
+
+		b3DestroyWorld( worldId );
+	}
+
+	ENSURE( runs[0].witness.count == EXPLODE_SINGLE_COUNT + EXPLODE_MULTI_SHAPE_COUNT + 1 );
+
+	// The multi-shape body's own shapes, for the record
+	VisitOrder multiShapes = { { 0, 1, 2 }, EXPLODE_MULTI_SHAPE_COUNT };
+	VisitOrder multi1 = RestrictToSet( &runs[0].witness, &multiShapes );
+	VisitOrder multi2 = RestrictToSet( &runs[1].witness, &multiShapes );
+	PrintVisitOrder( "run 1 multi-shape body", &multi1 );
+	PrintVisitOrder( "run 2 multi-shape body", &multi2 );
+	ENSURE( WitnessDiffers( "explode shapes", &runs[0].witness, &runs[1].witness ) );
+	ENSURE( WitnessDiffers( "explode bodies", &runs[0].bodyWitness, &runs[1].bodyWitness ) );
+
+	bool sameAwakeOrder = SameSequence( &runs[0].awakeOrder, &runs[1].awakeOrder );
+	bool sameVelocities = memcmp( runs[0].linearVelocity, runs[1].linearVelocity, sizeof( runs[0].linearVelocity ) ) == 0 &&
+						  memcmp( runs[0].angularVelocity, runs[1].angularVelocity, sizeof( runs[0].angularVelocity ) ) == 0;
+	printf( "  awake set order equal %d, velocities equal %d\n", sameAwakeOrder, sameVelocities );
+	PrintVisitOrder( "run 1 awake order", &runs[0].awakeOrder );
+	PrintVisitOrder( "run 2 awake order", &runs[1].awakeOrder );
+	ENSURE( sameAwakeOrder );
+	ENSURE( sameVelocities );
 	return 0;
 }
 
