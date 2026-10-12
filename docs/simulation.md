@@ -1226,7 +1226,8 @@ b3World_SetPreSolveCallback(myWorldId, MyPreSolve, myGame);
 
 The callback is also issued from continuous collision for bullets and fast bodies. There it is
 called for a solid candidate with pre-solve events enabled on either shape whose time of impact
-lies strictly between zero and the running fraction, in ascending shape id within each tree query,
+lies strictly between zero and the running fraction, within each tree query in ascending order of
+an estimate of where along the sweep the fast shape reaches the candidate, ties broken by shape id,
 so for a callback that depends only on its arguments the result does not depend on the broad-phase
 layout. A callback that keeps state sees calls from different bodies interleave across workers, and
 the custom filter is also called during pair discovery and sensor overlap in tree order.

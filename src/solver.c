@@ -332,77 +332,124 @@ typedef struct b3ContinuousContext
 	int pushBackIterations;
 	int rootIterations;
 
-	// Candidates of one tree query, collected by the callback and evaluated in shape id order
-	b3Array( int ) * candidates;
+	// Candidates of one tree query, collected by the callback with a sweep key and evaluated in
+	// ascending key, then shape id
+	b3Array( b3ContinuousCandidate ) * candidates;
+
+	// Bounding radius of the fast shape about its centroid: the distance from the start centroid
+	// to the farthest corner of the start box. Each candidate's box is grown by it for the key.
+	float fastRadius;
 } b3ContinuousContext;
 
-// This is called from b3DynamicTree_Query for continuous collision. It only collects the
-// candidate. Evaluation happens after the query in ascending shape id, so the result does not
-// depend on the tree layout.
+// A world box relative to the sweep base
+static b3AABB b3MakeRelativeAABB( b3AABB box, b3Pos base )
+{
+	b3AABB result;
+	result.lowerBound.x = (float)( box.lowerBound.x - base.x );
+	result.lowerBound.y = (float)( box.lowerBound.y - base.y );
+	result.lowerBound.z = (float)( box.lowerBound.z - base.z );
+	result.upperBound.x = (float)( box.upperBound.x - base.x );
+	result.upperBound.y = (float)( box.upperBound.y - base.y );
+	result.upperBound.z = (float)( box.upperBound.z - base.z );
+	return result;
+}
+
+// This is called from b3DynamicTree_Query for continuous collision. It applies the filters that
+// depend only on the two shapes and their bodies, then collects the candidate with its sweep key:
+// the entry fraction of the fast centroid's segment into the candidate's box grown by the fast
+// shape's bounding radius. Evaluation happens after the query in ascending key, then shape id,
+// so the result does not depend on the tree layout. The key orders the candidates and nothing
+// else: no candidate is skipped from it.
 static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* context )
 {
 	B3_UNUSED( proxyId );
 
 	b3ContinuousContext* continuousContext = context;
-	b3Array_Push( *continuousContext->candidates, (int)userData );
-	return true;
-}
-
-// Evaluate one continuous collision candidate against the fast shape
-static void b3EvaluateContinuousCandidate( b3ContinuousContext* continuousContext, int shapeId )
-{
+	b3World* world = continuousContext->world;
 	b3Shape* fastShape = continuousContext->fastShape;
 	b3BodySim* fastBodySim = continuousContext->fastBodySim;
 
-	B3_ASSERT( fastShape->sensorIndex == B3_NULL_INDEX );
+	int shapeId = (int)userData;
 
 	// Skip same shape
 	if ( shapeId == fastShape->id )
 	{
-		return;
+		return true;
 	}
 
-	b3World* world = continuousContext->world;
 	b3Shape* shape = b3Array_Get( world->shapes, shapeId );
 
 	// Skip same body
 	if ( shape->bodyId == fastShape->bodyId )
 	{
-		return;
+		return true;
 	}
 
 	// Skip sensors unless both shapes want sensor events
 	bool isSensor = shape->sensorIndex != B3_NULL_INDEX;
 	if ( isSensor && ( ( shape->flags & b3_enableSensorEvents ) == 0 || ( fastShape->flags & b3_enableSensorEvents ) == 0 ) )
 	{
-		return;
+		return true;
 	}
 
 	// Skip filtered shapes
-	bool canCollide = b3ShouldShapesCollide( fastShape->filter, shape->filter );
-	if ( canCollide == false )
+	if ( b3ShouldShapesCollide( fastShape->filter, shape->filter ) == false )
 	{
-		return;
+		return true;
 	}
 
 	b3Body* body = b3Array_Get( world->bodies, shape->bodyId );
-
-	b3BodySim* bodySim = b3GetBodySim( world, body );
 	B3_ASSERT( body->type == b3_staticBody || ( fastBodySim->flags & b3_isBullet ) );
 
 	// Skip bullets
 	if ( body->flags & b3_isBullet )
 	{
-		return;
+		return true;
 	}
 
 	// Skip filtered bodies
 	b3Body* fastBody = b3Array_Get( world->bodies, fastBodySim->bodyId );
-	canCollide = b3ShouldBodiesCollide( world, fastBody, body );
-	if ( canCollide == false )
+	if ( b3ShouldBodiesCollide( world, fastBody, body ) == false )
 	{
-		return;
+		return true;
 	}
+
+	// The key: the fraction at which the fast centroid's segment enters the candidate's box grown
+	// by the fast shape's bounding radius, 1 when the segment misses the box. It is an estimate of
+	// the order, not a bound: a rotating shape's centroid follows a curve, a near-axis direction
+	// counts as parallel in the slab test, and the float box can be coarser than the shape.
+	b3AABB box = b3AABB_Inflate( b3MakeRelativeAABB( shape->aabb, continuousContext->base ), continuousContext->fastRadius );
+	float key = 1.0f;
+	float exitFraction = 1.0f;
+	if ( b3RayCastAABB( box, continuousContext->centroid1, continuousContext->centroid2, &key, &exitFraction ) == false )
+	{
+		key = 1.0f;
+	}
+
+	// A key that is not below 1, including NaN, is stored as 1 so the sort never compares unordered
+	if ( !( key < 1.0f ) )
+	{
+		key = 1.0f;
+	}
+
+	b3ContinuousCandidate candidate = { key, shapeId };
+	b3Array_Push( *continuousContext->candidates, candidate );
+	return true;
+}
+
+// Evaluate one continuous collision candidate against the fast shape. The filters that depend
+// only on the two shapes and their bodies were applied when the candidate was collected.
+static void b3EvaluateContinuousCandidate( b3ContinuousContext* continuousContext, int shapeId )
+{
+	b3Shape* fastShape = continuousContext->fastShape;
+
+	B3_ASSERT( fastShape->sensorIndex == B3_NULL_INDEX );
+
+	b3World* world = continuousContext->world;
+	b3Shape* shape = b3Array_Get( world->shapes, shapeId );
+	bool isSensor = shape->sensorIndex != B3_NULL_INDEX;
+	b3Body* body = b3Array_Get( world->bodies, shape->bodyId );
+	b3BodySim* bodySim = b3GetBodySim( world, body );
 
 	// Custom user filtering
 	if ( ( shape->flags & b3_enableCustomFiltering ) != 0 || ( fastShape->flags & b3_enableCustomFiltering ) != 0 )
@@ -412,7 +459,7 @@ static void b3EvaluateContinuousCandidate( b3ContinuousContext* continuousContex
 		{
 			b3ShapeId idA = { shape->id + 1, world->worldId, shape->generation };
 			b3ShapeId idB = { fastShape->id + 1, world->worldId, fastShape->generation };
-			canCollide = customFilterFcn( idA, idB, world->customFilterContext );
+			bool canCollide = customFilterFcn( idA, idB, world->customFilterContext );
 			if ( canCollide == false )
 			{
 				return;
@@ -465,22 +512,24 @@ static void b3EvaluateContinuousCandidate( b3ContinuousContext* continuousContex
 	}
 }
 
-// Sort the candidates of one tree query and evaluate them in ascending shape id. The array is
-// cleared for the next query.
+// Sort the candidates of one tree query and evaluate them in ascending sweep key, then ascending
+// shape id. Every candidate is evaluated. The array is cleared for the next query.
 static void b3EvaluateContinuousCandidates( b3ContinuousContext* continuousContext )
 {
-	b3Array( int )* candidates = continuousContext->candidates;
-	int* ids = candidates->data;
+	b3Array( b3ContinuousCandidate )* candidates = continuousContext->candidates;
+	b3ContinuousCandidate* cs = candidates->data;
 	int count = candidates->count;
 
 	{
-#define LESS( i, j ) ( ids[(int)( i )] < ids[(int)( j )] )
+#define LESS( i, j )                                                                                                             \
+	( cs[(int)( i )].key < cs[(int)( j )].key ||                                                                                 \
+	  ( cs[(int)( i )].key == cs[(int)( j )].key && cs[(int)( i )].shapeId < cs[(int)( j )].shapeId ) )
 #define SWAP( i, j )                                                                                                             \
 	do                                                                                                                           \
 	{                                                                                                                            \
-		int tmp_ = ids[(int)( i )];                                                                                              \
-		ids[(int)( i )] = ids[(int)( j )];                                                                                       \
-		ids[(int)( j )] = tmp_;                                                                                                  \
+		b3ContinuousCandidate tmp_ = cs[(int)( i )];                                                                             \
+		cs[(int)( i )] = cs[(int)( j )];                                                                                         \
+		cs[(int)( j )] = tmp_;                                                                                                   \
 	}                                                                                                                            \
 	while ( 0 )
 
@@ -492,7 +541,7 @@ static void b3EvaluateContinuousCandidates( b3ContinuousContext* continuousConte
 
 	for ( int i = 0; i < count; ++i )
 	{
-		b3EvaluateContinuousCandidate( continuousContext, ids[i] );
+		b3EvaluateContinuousCandidate( continuousContext, cs[i].shapeId );
 	}
 
 	b3Array_Clear( *candidates );
@@ -605,8 +654,18 @@ static void b3SolveContinuous( b3World* world, int bodySimIndex, b3TaskContext* 
 			}
 		}
 
-		// Each tree query is sorted and evaluated on its own, so the candidate order within a
-		// query is fixed by shape id and the tree order is static, kinematic, dynamic.
+		// Bounding radius about the centroid: the distance from the start centroid to the farthest
+		// corner of the start box. Rigid motion keeps every point of the shape within it for the
+		// whole sweep, as far as the box resolves the shape.
+		{
+			b3AABB relativeBox1 = b3MakeRelativeAABB( box1, base );
+			b3Vec3 farthestCorner = b3FarthestPointOnAABB( relativeBox1, context.centroid1 );
+			context.fastRadius = b3Distance( farthestCorner, context.centroid1 );
+		}
+
+		// Each tree query is collected, sorted and evaluated on its own, so the candidate order
+		// within a query is fixed by sweep key then shape id and the tree order is static,
+		// kinematic, dynamic.
 		b3AABB sweptBox = b3AABB_Union( box1, box2 );
 		b3DynamicTree_Query( staticTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
 		b3EvaluateContinuousCandidates( &context );
