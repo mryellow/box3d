@@ -13,14 +13,17 @@ was amended for it.
 
 ## 1. Commits
 
-Forked from `main` at `5643cd8`. The branch also carries the owner's design and prompt documents
-below `docs/designs/`, which are not part of the PR.
+The work was done on `solver-tree-order-independent`, forked from `main` at `5643cd8`, which also
+carries the owner's design and prompt documents below `docs/designs/` and this closure doc. The PR
+branch is `solver-tree-order-independent-pr`, a fresh branch from `main` after it was fast-forwarded
+to upstream (`erincatto/box3d`) at `5d83df8`, holding the three commits cherry-picked and nothing
+else. Sections 2 to 10 report the original commits; §11 reports the rebase.
 
-| Commit | Message | Files |
-|---|---|---|
-| `a073352` | Add a tree-layout perturbation test helper with a visit-order witness | `test/test_tree_order.c` (new), `test/main.c`, `test/CMakeLists.txt` |
-| `affab6a` | Evaluate continuous collision candidates in ascending shape-id order | `src/solver.c`, `src/physics_world.h`, `src/physics_world.c`, `docs/simulation.md`, `test/test_tree_order.c`, `test/main.c` |
-| `ee183e7` | Apply explosion wakes and impulses in ascending shape-id order | `src/physics_world.c`, `test/test_tree_order.c`, `test/main.c` |
+| Change | Original commit | Rebased commit | Message | Files |
+|---|---|---|---|---|
+| A0 | `a073352` | `e0ddc5d` | Add a tree-layout perturbation test helper with a visit-order witness | `test/test_tree_order.c` (new), `test/main.c`, `test/CMakeLists.txt` |
+| A1 | `affab6a` | `e9bbb72` | Evaluate continuous collision candidates in ascending shape-id order | `src/solver.c`, `src/physics_world.h`, `src/physics_world.c`, `docs/simulation.md`, `test/test_tree_order.c`, `test/main.c` |
+| A2 | `ee183e7` | `f66ee7f` | Apply explosion wakes and impulses in ascending shape-id order | `src/physics_world.c`, `test/test_tree_order.c`, `test/main.c` |
 
 No other file changed. `test/test_determinism.c` was not changed: no golden moved (§3).
 
@@ -472,18 +475,18 @@ built or run.
 
 ### Commits
 
-1. `a073352` Add a tree-layout perturbation test helper with a visit-order witness. Test only. A
+1. `e0ddc5d` (originally `a073352`) Add a tree-layout perturbation test helper with a visit-order witness. Test only. A
    helper that runs a scene twice, fully rebuilds every broad-phase tree before each step of the
    second run, records the candidate order a tree query hands back, and hashes world state. Its
    sanity test shows the order changes at the continuous and explosion queries and that a scene
    with no fast body, sensor or explosion hashes the same. This test does not fail before the
    change: it has no behaviour to fail on.
-2. `affab6a` Evaluate continuous collision candidates in ascending shape-id order. The tree
+2. `e9bbb72` (originally `affab6a`) Evaluate continuous collision candidates in ascending shape-id order. The tree
    callback only collects shape ids into a per-worker array on `b3TaskContext`; after each of the
    three tree queries the array is sorted and the existing per-candidate logic runs in that
    order. `docs/simulation.md` now states where the pre-solve callback is issued from continuous
    collision and in what order. Three tests fail before and pass after.
-3. `ee183e7` Apply explosion wakes and impulses in ascending shape-id order. `ExplosionCallback`
+3. `f66ee7f` (originally `ee183e7`) Apply explosion wakes and impulses in ascending shape-id order. `ExplosionCallback`
    collects shape ids with a nonzero explosion scale; after the query they are sorted and the
    existing wake and impulse logic runs per id. One test fails before and passes after.
 
@@ -520,3 +523,51 @@ test to fail on at the previous commit.
 - [x] Existing `test` target passes, including `test_determinism.c`. §2 and §3.
 - [x] Benchmark delta quoted for A1. §7.1.
 - [x] PR text states the not-bit-identical-to-before consequence in one line. §9, first paragraph.
+
+## 11. Rebase onto updated `main`
+
+`main` was fast-forwarded from `5643cd8` to upstream `5d83df8` (eight commits: SAT samples and
+benchmark, AVX2 with runtime feature detection, tree performance work, shape cast support for box
+movers, recording and compound fixes, compound serialization). A fresh branch
+`solver-tree-order-independent-pr` was made from it and the three commits cherry-picked in order.
+
+- A0 (`e0ddc5d`) applied cleanly.
+- A1 (`e9bbb72`) conflicted in `src/solver.c` in three places, all against upstream's continuous
+  collision changes: upstream removed the `visitCount` counter from `b3ContinuousContext` and its
+  increment in the tree callback, removed the two "CCD stall" logs and their `b3GetTicks`, and
+  added a per-shape fast check (`b3IsShapeFast`) for non-bullet bodies before the swept box is
+  built. Resolution: the tree callback only pushes the shape id and returns; the evaluation function
+  ends after the running-fraction update with no stall log; the sort-and-evaluate helper and the
+  three sort passes are as before; upstream's per-shape fast check is kept ahead of the queries.
+  No other line of A1 changed; the changed hunks were re-checked with `git clang-format`.
+- A2 (`f66ee7f`) applied cleanly.
+
+Verification on the rebased branch, same build and run commands as §2:
+
+| Commit | Float: tests run / passed | Double precision: tests run / passed |
+|---|---|---|
+| `e0ddc5d` (A0) | 29 / 29 | not run (A0 is test only and unchanged) |
+| `e9bbb72` (A1) | PENDING_A1 | not run |
+| `f66ee7f` (A2) | PENDING_A2_FLOAT | PENDING_A2_DP |
+
+Upstream's `main` has 28 entry functions, as before. The `test` target built with zero warnings at
+each commit. `DeterminismTest`, whose goldens upstream rewrote in the meantime, passed unchanged.
+
+Fail-before on the rebased base (scratch worktree at `e0ddc5d` with the rebased test files for the
+A1 tests, at `e9bbb72` for the A2 test), each failing on the same divergence check as in §5 with
+the same printed values:
+
+```
+ContinuousCallbackOrderTest:     condition false: SameSequence( log->filterLog + i, &cluster )
+ContinuousSensorSelectionTest:   run 1 sensors: 4 6 7 8 9 10 11 12
+                                 run 2 sensors: 4 5 7 8 9 10 11 12
+                                 condition false: SameSet( reported + 0, &expected )
+ContinuousCandidateOrderTest:    one worker: seeds 40, field divergences 1, corridor divergences static 23 kinematic 0 dynamic 1
+                                 four workers: seeds 8, field divergences 0, corridor divergences static 5 kinematic 0 dynamic 0
+                                 condition false: counts->field == 0
+ExplodeOrderTest:                PENDING_EXPLODE
+```
+
+The identical fail-before counts show upstream's tree performance work did not change the
+layouts the witnesses depend on in these scenes. The measurements of §7 were taken before the
+rebase, against `main` at `5643cd8`, and were not repeated.
