@@ -1,85 +1,137 @@
 ---
-title: Preflight - evaluate continuous candidates in sweep order
-status: Draft
+title: Preflight - sweep-ordered continuous candidates
+status: Canonical
 date: 2026-10-12
-follows: 20261012-004 (benchmark), solver-tree-order-independent-pr (20261012-002)
+follows: solver-tree-order-independent-pr (20261012-002), 20261012-004 (benchmark)
 ---
 
-# Preflight: evaluate continuous candidates in sweep order
+# Preflight: sweep-ordered continuous candidates
 
-A lead from the benchmark (20261012-004 §5), recorded so it is not lost. It is a separate change
-from the sorted-candidate PR and should land after it, if at all.
+One change to Box3D, in one PR after the sorted-candidate PR has landed. The continuous stage keeps
+evaluating each tree query's candidates in a deterministic, layout-independent order, but the order
+becomes nearest-first along the sweep instead of ascending shape id. The guarantee of the
+sorted-candidate PR is unchanged; the cost of the stage falls in the measured dense scene and can rise
+slightly where id order is already nearest-first. Measurements are in 20261012-006.
 
-## 1. What the benchmark showed
+## 1. Why this change
 
-In a scene of 4000 fast spheres swept through 14,641 static boxes every step, the order in which
-the continuous stage evaluates a query's candidates moved the stage's time by 10 to 20 percent in
-either direction. Nearest-first along the sweep was fastest, farthest-first slowest, and any order
-unrelated to distance (tree order, shape id, a hash of the id) sat in between at the same cost.
-The mechanism is in `b3EvaluateContinuousCandidate` (`src/solver.c`): each candidate's
-`b3ShapeTimeOfImpact` runs with the running best fraction as its upper bracket, so once the true
-nearest hit has been evaluated every later candidate either converges in fewer iterations or is
-rejected outright. The PR fixed the order at ascending shape id, which is layout independent but
-no better than tree order for this effect.
+`b3EvaluateContinuousCandidate` (`src/solver.c`) calls `b3ShapeTimeOfImpact` with the running best
+fraction as the upper end of the sweep interval. Inside `b3TimeOfImpact` (`src/distance.c`) every
+call first evaluates the distance at fraction 0 and, unless that is already a hit, advances towards
+the running fraction; a convex candidate that is clearly separated at the interval's upper end
+usually returns after one separation evaluation there, while a candidate that improves on it runs the
+root finder to convergence. The order therefore sets how many candidates run to a root. Once the
+nearest solid hit has been evaluated, later convex candidates beyond it are usually rejected cheaply. The benchmark
+(20261012-004 §5) measured the swing at 10 to 20 percent between nearest-first and
+farthest-first in a dense scene; ascending shape id, tree order and a hashed order all sit in between,
+because none of them tracks distance.
 
-## 2. Proposal
+So each query's candidates are sorted by an estimate of where along the sweep the fast shape first
+reaches them. The estimate is the entry fraction of the fast centroid's segment into the candidate's
+box grown by the fast shape's bounding radius: a slab test per candidate, against a time-of-impact
+call that costs a distance query and a separation evaluation. A candidate whose grown box contains the
+start centroid has key 0 and is evaluated first. The key only orders the candidates; it is a heuristic, not a bound, and no candidate is skipped.
+A worse key costs time and never changes which candidates are evaluated. Three cases give one: a
+rotating shape's centroid follows a curve, so the endpoint segment can miss a box the shape hits;
+`b3RayCastAABB` treats a normalised direction component below `FLT_EPSILON` as parallel to the slab;
+and a float box is coarser than the shapes it bounds where the float step at its position approaches
+their size, which ties candidates at key 0 so that they are ordered by id.
 
-After the PR's collection step, sort each query's candidates by a key that estimates where along
-the sweep the candidate is first reached, ascending, with shape id as the tie-break. Evaluate in
-that order. Everything after the sort is unchanged.
+Nothing else in the stage changes: the per-candidate filters, the accept tests, the sensor buffer and
+its end filter, `preSolve`, the swept boxes and `fastShape->aabb` keep the sorted-candidate PR's
+behaviour.
 
-Key: the entry fraction of the fast body's centroid segment `centroid1 -> centroid2` (already in
-the context, relative to `base`) against the candidate's world box `shape->aabb` grown by the fast
-shape's extent, from `b3RayCastAABB` (`src/aabb.h`). A candidate the segment misses, which the
-grown box makes rare since the query already overlapped the swept box, takes key 1. The key is a
-float computed from state the two worlds of the proposition share (transforms, shapes), so equal
-worlds give equal keys and the tie-break makes the order total.
+### Behaviour change, stated up front
 
-Cost per candidate: one slab test, a few dozen flops, against a time-of-impact solve of hundreds.
-The sort already exists; its comparison grows from one integer compare to a float compare and an
-integer compare.
+The rollback guarantee is unchanged. The key is computed from state the two worlds of the proposition
+share (the fast body's sweep relative to its own `center0`, and each candidate's `shape->aabb`), with
+the same scalar float code on every worker, so equal worlds give equal keys, and the shape-id
+tie-break makes the order total.
 
-## 3. What changes for users
+The change alters the order within a query, so relative to the sorted-candidate PR, and relative to
+`main`, results are **not bit-identical** in the same cases that PR names: CCD sweeps with several
+candidates in one query (impact fraction differs with no bound, `preSolve` is called for a different
+set of candidates in a different order, the custom filter arrives in the new order, the eight sensor
+hits kept can differ), the public CCD iteration counters. Where key order equals id order, nothing
+changes. Any recording (`.b3rec`) or golden hash captured before this PR may stop validating in those
+cases; the PR description says so in one line.
 
-Deterministic and layout independent, as before. But the order is different from the PR's, so:
+## 2. The change
 
-- The accepted fraction can differ from the PR's by the same few ulps that §2 of 20261012-003
-  describes between any two orders. Not a regression against `main`, where the order was
-  arbitrary; a change against the PR's ascending-id results.
-- An accepting `preSolve` callback is called for fewer candidates, since fewer improve on the
-  running fraction once the nearest is first. The set of calls is still deterministic. A rejecting
-  callback is still called for every on-path candidate, in the new order.
-- The sensor selection past eight hits keeps the first eight in the new order, which is now
-  nearest-first rather than lowest id first. That is arguably the better choice.
-- The three continuous counters change value, as they are maxima over accepted candidates.
+**Files.** `src/solver.c`: `b3ContinuousContext`, `b3ContinuousQueryCallback`,
+`b3EvaluateContinuousCandidates`, `b3SolveContinuous`. `src/physics_world.h`: the element type of
+`continuousCandidates`.
 
-The PR's public proof tests (`test/test_ccd_layout.c`) and internal tests (`test/test_tree_order.c`)
-compare two layouts of the same world, so they pass unchanged; the ascending-id property test in
-`test_tree_order.c` would need to assert the new order instead.
+- The candidate element becomes `{ float key; int shapeId; }`. Reserve, destroy and the memory-statistics
+  code are unchanged; the element doubles from four to eight bytes, so the array's reported bytes
+  follow the element size and the allocated capacity.
+- Once per fast shape, before its queries: `r`, the distance from `centroid1` to the farthest corner
+  of the fast shape's start box (`box1`, taken relative to `base`). Rigid motion keeps every point of
+  the shape within `r` of its centroid for the whole sweep, whatever the shape type, where the stored box
+  resolves the shape; `r` is a float estimate of that distance, not a strict bound.
+- The tree callback applies the argument-only filters that `b3EvaluateContinuousCandidate` applies
+  today (same shape, same body, sensor flags, shape filter, bullet, body filter) and drops a candidate
+  that fails one. The custom filter and everything after it stay in the evaluation loop, in sorted
+  order. For a candidate that passes, the callback computes the key: the candidate's `shape->aabb`
+  relative to `base`, inflated on every side by `r`; `key` is the entry fraction of the segment
+  `centroid1 -> centroid2` into that box from `b3RayCastAABB` (`src/aabb.h`); a segment that misses
+  the box gives key 1. Any key that is not below 1, including NaN, is set to 1 before it is stored, so
+  the sort never sees a value that compares unordered.
+- The sort orders by ascending key, then ascending shape id. The evaluation loop is unchanged.
+- The same key and order apply to all three queries. A kinematic or dynamic candidate's `shape->aabb`
+  is whichever box it holds when the query runs: its end-of-step box, or the box at the fraction
+  where continuous collision stopped it earlier in the stage. A static candidate's box is fixed
+  through the step. The key is an estimate of the order in every case; the order is deterministic.
 
-## 4. Measure
+**Costs.** Per candidate: six subtractions, six additions for the growth, one slab test, and a
+float-and-int comparison in the sort instead of an int. Per fast shape: one farthest-corner distance.
+The measured cost and gain are in 20261012-006 §1, taken on a prototype whose key growth adds two
+linear slops and a rounding term to `r` (20261012-006 §6).
 
-The microbenchmark `ccdbench.c` (20261012-004 appendix) in both travel directions. Expected:
-sweep order matches the better of the ascending and descending variants in both directions, about
-5 to 8 percent under `main` in the dense scene, and parity in the project benchmarks, which hold
-few fast bodies. If sweep order does not reach the nearest-first variant's time in the +x direction,
-the key is not tracking the true hit order and needs refining (for example the fast shape's
-leading point rather than its centroid).
+**Tests.**
+- The existing layout-independence fuzz (`ContinuousCandidateOrderTest`) passes unchanged.
+- `ContinuousCallbackOrderTest` asserts the new order: a corridor whose boxes are created far-to-near
+  so that ascending id and the sweep disagree, logging the custom-filter and `preSolve` calls and
+  requiring ascending key, then id. Fails before the change.
+- `ContinuousSensorSelectionTest` expects the eight nearest sensors by key, tie by id, with the
+  sensors created in an order that differs from the sweep. Fails before the change.
 
-## 5. Risks and open questions
+## 3. Review checklist
 
-- The key is an estimate. Rotating fast bodies and long thin shapes can reach a candidate before
-  the centroid segment enters its grown box. The order is still deterministic; only the gain
-  shrinks. The safety factor the existing fast-body test uses could grow the box the same way.
-- NaN or infinite keys from degenerate sweeps must sort deterministically; clamp to 1 before the
-  compare.
-- Double precision: the key is computed in the base-relative float frame the sweep already uses,
-  so it does not reintroduce far-from-origin error.
-- Whether the accepting `preSolve` call-set change is acceptable to users who rely on seeing every
-  improving candidate. The PR's decision record (20261012-001 §6) narrowed the guarantee to
-  argument-only callbacks, which this keeps.
+- [ ] Diff touches only the files listed, plus tests and the docs sentence.
+- [ ] The new tests fail on the sorted-candidate PR head and pass on the branch.
+- [ ] Existing `test` target passes, including `test_determinism.c`, `test_tree_order.c` and
+      `test_ccd_layout.c`.
+- [ ] Benchmark delta quoted: `ccdbench.c` (20261012-004 appendix) in both travel directions, and the
+      project benchmarks.
+- [ ] PR text states the not-bit-identical-to-before consequence in one line.
 
-## 6. Decision
+## 4. Out of scope
 
-Not part of the sorted-candidate PR. Revisit once that PR has landed, if the dense-scene
-continuous cost matters to a consumer.
+- Skipping any candidate from its key. The key orders; it is not a bound.
+- Narrow-phase and contact order. Contact pairs are already sorted by pair key and solved by colour;
+  no running bound exists there, so no order is cheaper than another.
+- Candidates that overlap the fast shape at the start of the step. Telling them apart earlier needs
+  a distance query.
+- `b3World_Explode` and the public queries, as in the sorted-candidate PR.
+
+## 5. Open decisions for the owner
+
+None.
+
+## 6. Provenance
+
+- **The key is the entry fraction of the grown box, not a projection onto the travel direction.** A
+  projection is cheaper but misorders oblique approaches.
+- **The bounding radius comes from the start box, not from `b3ComputeShapeExtent`.** The start box is
+  already in hand for the swept query, and the distance to its farthest corner estimates the extent of every
+  shape type the box resolves without per-type code.
+- **The key box carries only the bounding radius.** The key orders and nothing depends on it being
+  below a hit fraction, so no slop or rounding allowance is added.
+- **No candidate is skipped from its key.** A skip needs the key to be at or below every fraction
+  `b3TimeOfImpact` can report, and that depends on how the primitive reports a hit, which this change
+  does not alter. The ordering alone takes the measured gain this change is for.
+- **The key is computed in the collection callback, not after the query.** The same number of keys
+  is computed either way; computing them as candidates arrive keeps the sort and the loop plain.
+- **Exact distance is not used as the key.** A `b3ShapeDistance` call per candidate costs what the
+  first distance evaluation of the time-of-impact call costs; the order gain cannot repay it.
