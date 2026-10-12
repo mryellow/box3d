@@ -1224,8 +1224,12 @@ bool MyPreSolve(b3ShapeId shapeIdA, b3ShapeId shapeIdB,
 b3World_SetPreSolveCallback(myWorldId, MyPreSolve, myGame);
 ```
 
-Note this currently does not work with high speed collisions, so you may see a
-pause in those situations.
+The callback is also issued from continuous collision for bullets and fast bodies. There it is
+called for a solid candidate with pre-solve events enabled on either shape whose time of impact
+lies strictly between zero and the running fraction, in ascending shape id within each tree query,
+so for a callback that depends only on its arguments the result does not depend on the broad-phase
+layout. A callback that keeps state sees calls from different bodies interleave across workers, and
+the custom filter is also called during pair discovery and sensor overlap in tree order.
 
 ## Joints
 Joints are used to constrain bodies to the world or to each other.
