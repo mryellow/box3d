@@ -26,3 +26,9 @@ which is what the measurement counts.
 Marked Canonical after the confirming clean round. Gates re-run against the four acceptance
 criteria: the change deletes work on the common path and adds no structure, check or
 reconciliation. No rule's cost in this series exceeded what it caught.
+
+## Revision 5 (2026-10-13)
+
+Marked Implemented. The change landed as `78397ad` on `solver-tree-order-independent-pr` and
+`19d9ee0` on `solver-tree-order-independent`; the measurements against the §3 checklist, and the
+branch head against `main`, are recorded in 20261013-008. No content change.
