@@ -1613,3 +1613,186 @@ void DestroyVillage( void )
 	b3DestroyCompound( g_villageData.compound );
 	memset( &g_villageData, 0, sizeof( g_villageData ) );
 }
+
+// Post Field: small fast spheres swept through a field of thin posts. Every step puts each sphere
+// back at its start with its velocity restored, so every step is the same set of continuous
+// sweeps and nothing settles. The continuous query box is the box around a sphere's start and end
+// positions, so a sweep that is not axis aligned collects every post in a large rectangle, tens to
+// hundreds of candidates, most of them off the path. The scene exercises the candidate ordering of
+// the continuous stage with many candidates per query. Posts are created in row order, so shape id
+// ascends with x; the travel mode selects whether that order correlates with the sweep.
+#define POST_FIELD_CELL 0.25f
+#define POST_FIELD_JITTER 0.1f
+#define POST_FIELD_POST_HALF_WIDTH 0.01f
+#define POST_FIELD_POST_HALF_HEIGHT 0.5f
+#define POST_FIELD_SPHERE_RADIUS 0.03f
+#define POST_FIELD_SPEED 300.0f
+#define POST_FIELD_START_MARGIN 6.0f
+#if BENCHMARK_DEBUG
+#define POST_FIELD_HALF_SIZE 10.0f
+#define POST_FIELD_SPHERE_COUNT 50
+#else
+#define POST_FIELD_HALF_SIZE 20.0f
+#define POST_FIELD_SPHERE_COUNT 500
+#endif
+
+typedef struct PostFieldData
+{
+	b3BodyId* spheres;
+	b3Vec3* starts;
+	b3Vec3* velocities;
+	int sphereCount;
+} PostFieldData;
+
+static PostFieldData g_postFieldData;
+static int g_postFieldTravel = 0;
+static int g_postFieldSphereCount = POST_FIELD_SPHERE_COUNT;
+
+static uint32_t NextPostFieldRandom( uint32_t* seed )
+{
+	uint32_t x = *seed;
+	x ^= x << 13;
+	x ^= x >> 17;
+	x ^= x << 5;
+	*seed = x;
+	return x;
+}
+
+static float PostFieldRandomFloat( uint32_t* seed, float lo, float hi )
+{
+	return lo + ( hi - lo ) * (float)( NextPostFieldRandom( seed ) >> 8 ) / 16777216.0f;
+}
+
+static int GetPostFieldPostCount( void )
+{
+	int side = (int)( 2.0f * POST_FIELD_HALF_SIZE / POST_FIELD_CELL );
+	return side * side;
+}
+
+void SetPostFieldTravel( int travel )
+{
+	g_postFieldTravel = travel;
+}
+
+void SetPostFieldSphereCount( int sphereCount )
+{
+	g_postFieldSphereCount = sphereCount > 0 ? sphereCount : POST_FIELD_SPHERE_COUNT;
+}
+
+void GetPostFieldCapacity( b3Capacity* capacity )
+{
+	capacity->staticShapeCount = GetPostFieldPostCount();
+	capacity->staticBodyCount = GetPostFieldPostCount();
+	capacity->dynamicShapeCount = g_postFieldSphereCount;
+	capacity->dynamicBodyCount = g_postFieldSphereCount;
+}
+
+void CreatePostField( b3WorldId worldId )
+{
+	memset( &g_postFieldData, 0, sizeof( g_postFieldData ) );
+
+	// The sweeps are horizontal
+	b3World_SetGravity( worldId, b3Vec3_zero );
+
+	uint32_t seed = 0x2545F491u;
+
+	// Every post is its own static body carrying the one shared hull, so the samples app draws
+	// them as one geometry. Rows run along x so shape id ascends with x.
+	b3BoxHull postHull = b3MakeBoxHull( POST_FIELD_POST_HALF_WIDTH, POST_FIELD_POST_HALF_HEIGHT, POST_FIELD_POST_HALF_WIDTH );
+
+	b3BodyDef postBodyDef = b3DefaultBodyDef();
+
+	b3ShapeDef postDef = b3DefaultShapeDef();
+	postDef.enableContactEvents = false;
+
+	int side = (int)( 2.0f * POST_FIELD_HALF_SIZE / POST_FIELD_CELL );
+	for ( int i = 0; i < side; ++i )
+	{
+		float x = -POST_FIELD_HALF_SIZE + ( (float)i + 0.5f ) * POST_FIELD_CELL;
+		for ( int j = 0; j < side; ++j )
+		{
+			float z = -POST_FIELD_HALF_SIZE + ( (float)j + 0.5f ) * POST_FIELD_CELL;
+			postBodyDef.position = (b3Pos){
+				x + PostFieldRandomFloat( &seed, -POST_FIELD_JITTER, POST_FIELD_JITTER ),
+				0.0f,
+				z + PostFieldRandomFloat( &seed, -POST_FIELD_JITTER, POST_FIELD_JITTER ),
+			};
+			b3BodyId postId = b3CreateBody( worldId, &postBodyDef );
+			b3CreateHullShape( postId, &postDef, &postHull.base );
+		}
+	}
+
+	int sphereCount = g_postFieldSphereCount;
+	g_postFieldData.sphereCount = sphereCount;
+	g_postFieldData.spheres = malloc( sphereCount * sizeof( b3BodyId ) );
+	g_postFieldData.starts = malloc( sphereCount * sizeof( b3Vec3 ) );
+	g_postFieldData.velocities = malloc( sphereCount * sizeof( b3Vec3 ) );
+
+	// Starts stay far enough inside the field that a full step of travel ends inside it
+	float startRange = POST_FIELD_HALF_SIZE - POST_FIELD_START_MARGIN;
+
+	b3BodyDef bodyDef = b3DefaultBodyDef();
+	bodyDef.type = b3_dynamicBody;
+
+	b3ShapeDef sphereDef = b3DefaultShapeDef();
+	sphereDef.enableContactEvents = false;
+
+	b3Sphere sphere = { b3Vec3_zero, POST_FIELD_SPHERE_RADIUS };
+
+	for ( int i = 0; i < sphereCount; ++i )
+	{
+		b3Vec3 start = {
+			PostFieldRandomFloat( &seed, -startRange, startRange ),
+			PostFieldRandomFloat( &seed, -0.3f, 0.3f ),
+			PostFieldRandomFloat( &seed, -startRange, startRange ),
+		};
+
+		b3Vec3 velocity;
+		if ( g_postFieldTravel > 0 )
+		{
+			velocity = (b3Vec3){ POST_FIELD_SPEED, 0.0f, 0.0f };
+		}
+		else if ( g_postFieldTravel < 0 )
+		{
+			velocity = (b3Vec3){ -POST_FIELD_SPEED, 0.0f, 0.0f };
+		}
+		else
+		{
+			float angle = PostFieldRandomFloat( &seed, -B3_PI, B3_PI );
+			velocity = (b3Vec3){ POST_FIELD_SPEED * cosf( angle ), 0.0f, POST_FIELD_SPEED * sinf( angle ) };
+		}
+
+		g_postFieldData.starts[i] = start;
+		g_postFieldData.velocities[i] = velocity;
+
+		bodyDef.position = b3ToPos( start );
+		bodyDef.linearVelocity = velocity;
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+		b3CreateSphereShape( bodyId, &sphereDef, &sphere );
+		g_postFieldData.spheres[i] = bodyId;
+	}
+}
+
+void StepPostField( b3WorldId worldId, int stepCount )
+{
+	(void)worldId;
+	(void)stepCount;
+
+	// Every step is the same set of sweeps: put every sphere back at its start, moving as it did
+	int sphereCount = g_postFieldData.sphereCount;
+	for ( int i = 0; i < sphereCount; ++i )
+	{
+		b3BodyId bodyId = g_postFieldData.spheres[i];
+		b3Body_SetTransform( bodyId, b3ToPos( g_postFieldData.starts[i] ), b3Quat_identity );
+		b3Body_SetLinearVelocity( bodyId, g_postFieldData.velocities[i] );
+		b3Body_SetAngularVelocity( bodyId, b3Vec3_zero );
+	}
+}
+
+void DestroyPostField( void )
+{
+	free( g_postFieldData.spheres );
+	free( g_postFieldData.starts );
+	free( g_postFieldData.velocities );
+	memset( &g_postFieldData, 0, sizeof( g_postFieldData ) );
+}
