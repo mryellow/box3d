@@ -214,3 +214,38 @@ The implementation lives in two lineages, as the sorted-candidate set did.
   witness; its evaluation is the sweep head's evaluation of the same single candidate.
 - The microbenchmark's one-candidate queries are 2,000 of 225,400, so it measures the
   multi-candidate path's cost (one extra shape load per candidate), not the common path's saving.
+
+## 9. Project benchmarks against `main`, interleaved pairs
+
+The owner asked for the branch head against `main` in the form of the sweep-order record's §6: ten
+pairs per scenario and worker count, each pair one run (`-r=1`) of each build back to back, the
+build order alternating pair by pair, every scenario in `benchmark/main.c`. `main` is `5d83df8`;
+the branch is `78397ad`, the PR head as it would land, so the delta is the whole branch's cost over
+`main`. Chart: `E:\src\lazy-keyed-vs-main-interleaved.png`, beside
+`sweep-order-cost-interleaved.png`; raw pairs in `lazy-keyed-vs-main-interleaved.txt` in the same
+directory. Machine idle for the run.
+
+| Scenario | 1 worker median | 1 worker range | 4 workers median | 4 workers range |
+|---|---|---|---|---|
+| convex_pile | +0.6% | -2.4 to +2.9 | -0.5% | -4.7 to +5.3 |
+| joint_grid | -1.3% | -5.4 to +1.0 | +0.9% | -4.5 to +7.8 |
+| junkyard | -0.2% | -2.3 to +4.3 | +0.5% | -3.8 to +5.7 |
+| large_pyramid | +0.3% | -0.4 to +4.9 | +0.1% | -5.7 to +6.7 |
+| large_world | +1.9% | -8.3 to +5.1 | -1.9% | -5.1 to +53.2 |
+| many_pyramids | -0.0% | -5.1 to +5.8 | +0.1% | -6.9 to +9.2 |
+| mesh_drop | +0.8% | -5.1 to +4.4 | -1.3% | -2.6 to +3.9 |
+| rain | -0.4% | -3.3 to +0.3 | -0.5% | -3.5 to +2.8 |
+| sleep | -0.7% | -5.2 to +2.9 | +2.5% | -4.9 to +8.5 |
+| spinner | -0.0% | -3.5 to +5.8 | -0.1% | -1.9 to +3.0 |
+| trees100 | -0.6% | -4.2 to +4.7 | -1.5% | -4.6 to +4.6 |
+| trees50 | -0.1% | -4.6 to +10.5 | +2.7% | -4.9 to +4.3 |
+| trees25 | -0.4% | -4.2 to +5.0 | +0.8% | -8.2 to +3.1 |
+| village | +0.1% | -3.2 to +2.0 | -0.2% | -2.7 to +3.3 |
+| washer | -0.8% | -3.3 to +2.2 | -1.1% | -4.8 to +3.6 |
+
+Mean of the scenario medians: -0.1 percent at one worker, +0.0 percent at four. The sweep-order head
+measured +0.5 and +0.8 percent the same way (20261013-001 §6). Every median is inside 2 percent
+except sleep and trees50 at four workers (+2.5 and +2.7 percent, ranges spanning -4.9 to +8.5 and
+-4.9 to +4.3); the one outlying pair is large_world at four workers, +53.2 percent in a single pair
+whose other nine span -5.1 to +6.7. The branch as it would land costs nothing the project
+benchmarks can see over `main`.
