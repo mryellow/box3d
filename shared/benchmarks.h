@@ -53,6 +53,16 @@ void GetSleepCapacity( b3Capacity* capacity );
 void CreateSleep( b3WorldId worldId );
 void StepSleep( b3WorldId worldId, int stepCount );
 
+// Post Field: fast spheres swept through a field of thin posts, many continuous candidates per query.
+// Travel: 0 random horizontal directions (default), +1 along +x, -1 along -x. Set before Create.
+// Sphere count: 0 restores the benchmark's default (500). Set before Create.
+void SetPostFieldTravel( int travel );
+void SetPostFieldSphereCount( int sphereCount );
+void GetPostFieldCapacity( b3Capacity* capacity );
+void CreatePostField( b3WorldId worldId );
+void StepPostField( b3WorldId worldId, int stepCount );
+void DestroyPostField( void );
+
 #define VILLAGE_STEP_COUNT 600
 
 typedef struct VillageCast

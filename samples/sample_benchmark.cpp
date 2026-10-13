@@ -1110,6 +1110,46 @@ public:
 
 static int benchmarkWasher = RegisterSample( "Benchmark", "Washer", BenchmarkWasher::Create );
 
+class BenchmarkPostField : public Sample
+{
+public:
+	explicit BenchmarkPostField( SampleContext* context )
+		: Sample( context )
+	{
+		if ( m_context->restart == false )
+		{
+			m_camera->SetView( 0.0f, 12.0f, 30.0f, b3Pos_zero );
+		}
+
+		// The benchmark's 500 sweeps cost tens of milliseconds a step; a tenth of them shows the scene
+		SetPostFieldSphereCount( 50 );
+
+		b3Capacity capacity = {};
+		GetPostFieldCapacity( &capacity );
+		CreateWorld( &capacity );
+
+		CreatePostField( m_worldId );
+	}
+
+	~BenchmarkPostField() override
+	{
+		DestroyPostField();
+	}
+
+	void Step() override
+	{
+		StepPostField( m_worldId, m_stepCount );
+		Sample::Step();
+	}
+
+	static Sample* Create( SampleContext* context )
+	{
+		return new BenchmarkPostField( context );
+	}
+};
+
+static int benchmarkPostField = RegisterSample( "Benchmark", "Post Field", BenchmarkPostField::Create );
+
 class BenchmarkLargeWorld : public Sample
 {
 public:
