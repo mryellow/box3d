@@ -1,6 +1,6 @@
 ---
 title: Preflight - lazily keyed continuous candidates
-status: Draft
+status: Canonical
 date: 2026-10-13
 follows: 20261012-005 (sweep-ordered candidates), 20261013-002 (distance key, Closed), 20261013-004 (measurement)
 ---

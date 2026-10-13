@@ -20,3 +20,9 @@ Stated why a collected candidate's box is stable between the query and the evalu
 queries see only static shapes and bullet queries drop bullet candidates in the callback, so no
 worker writes a collected candidate's box. Counted the one-candidate figure over non-empty queries,
 which is what the measurement counts.
+
+## Revision 4 (2026-10-13)
+
+Marked Canonical after the confirming clean round. Gates re-run against the four acceptance
+criteria: the change deletes work on the common path and adds no structure, check or
+reconciliation. No rule's cost in this series exceeded what it caught.
