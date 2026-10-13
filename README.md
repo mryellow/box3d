@@ -155,37 +155,6 @@ On x86, AVX2 kernels are selected at runtime when the CPU supports them. Configu
 
 The user manual lives in [`docs/`](docs/) and is built with Doxygen. Enable the `BOX3D_DOCS` CMake option and build the `doc` target.
 
-## Community
-
-- [Discord](https://discord.gg/NKYgCBP)
-
-## Contributing
-
-Pull requests are currently disabled. Instead, please file an issue for bugs or feature requests. For support, please visit the Discord server.
-
-## Giving feedback
-
-Please file an issue or start a chat on discord. You can also use [GitHub Discussions](https://github.com/erincatto/box3d/discussions).
-
 ## License
 
 Box3D is developed by Erin Catto and uses the [MIT license](https://en.wikipedia.org/wiki/MIT_License).
-
-## Sponsorship
-
-Support development of Box3D through [Github Sponsors](https://github.com/sponsors/erincatto).
-
-Please consider starring this repository and subscribing to my [YouTube channel](https://www.youtube.com/@erin_catto).
-
-## LLM Usage
-
-LLMs are used in the following areas:
-
-- unit tests
-- samples app
-- migrating code between Box2D and Box3D
-- build configuration
-- code reviews
-- benchmarking
-
-Elsewhere all code is developed and written by me. I take responsibility for every line of code in Box2D/3D.
