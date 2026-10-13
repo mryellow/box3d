@@ -16,10 +16,11 @@ the query collected two or more candidates. A query with one candidate evaluates
 ## 1. Why this change
 
 The order of a query's candidates only matters when there are at least two of them. On every
-project scenario each continuous query collects one candidate (20261013-004 §1), so on those scenes
+project scenario but junkyard each non-empty continuous query collects one candidate, and junkyard
+averages 1.09 candidates per non-empty query (20261013-003 §3), so on those queries
 the sweep-ordered PR computes a bounding radius per fast shape, and a relative box, an inflate and a
 slab test per candidate, for an order that is never consulted. The measured cost is inside the
-run-to-run spread (20261013-001 §4 and §6); this change makes it zero by construction rather than
+run-to-run spread (20261013-001 §4 and §6); this change makes it zero by construction for every query with fewer than two candidates rather than
 small by measurement, and leaves the gain of the order where it exists, in queries with several
 candidates. It is a deletion of work on the common path, not a new mechanism.
 
@@ -28,7 +29,8 @@ candidates. It is a deletion of work on the common path, not a new mechanism.
 None. For a query with one candidate the sorted order and the evaluation order are the same thing.
 For a query with two or more, the keys are the same values computed from the same inputs
 (`shape->aabb`, the fast shape's start box and centroid segment, all unchanged between the end of the
-query and the start of evaluation, since the stage mutates only `fastShape->aabb` before the query),
+query and the start of evaluation: a non-bullet query sees only static shapes, and a bullet query
+drops bullet candidates in the callback, so no worker writes a collected candidate's box),
 so the order is the sweep-ordered PR's order. Results are **bit-identical** to the sweep-ordered PR.
 The rollback guarantee is unchanged.
 
@@ -61,8 +63,9 @@ evidence is the measurement in §3.
 
 ## 3. Review checklist
 
-- [ ] Counting build shows zero keys computed and zero sorts on every project scenario, and the
-      same keys and order as the sweep-ordered PR head on `ccdbench.c`.
+- [ ] Counting build shows zero keys computed and zero sorts for every query collecting fewer than
+      two candidates, and the same keys and order as the sweep-ordered PR head on every query
+      collecting two or more, including `ccdbench.c` and junkyard.
 - [ ] Project benchmarks against the sweep-ordered PR head, interleaved pairs, single worker: within
       the run's spread everywhere. The change claims no gain; it claims no cost.
 - [ ] `ccdbench.c` in both travel directions against the sweep-ordered PR head: within the spread,
@@ -88,5 +91,5 @@ None.
 - **Keys are computed in a pass after the query, not in the callback with a flag to skip the sort.**
   Keying in the callback is the cost this change removes; a flag would keep it.
 - **The bounding radius moves to first need rather than staying before the first query.** It exists
-  only for the key; on a fast shape whose queries hold one candidate each it was computed for
+  only for the key; on a fast shape whose non-empty queries hold one candidate each it was computed for
   nothing.
