@@ -2,21 +2,20 @@
 title: Preflight - tree-order-independent solver changes
 status: Draft
 date: 2026-10-11
-parent: 20260929-002-rewind-only-history-ring.md (§7.4)
 ---
 
 # Preflight: tree-order-independent solver changes
 
 Two small PRs to Box3D, carrying four changes (A0-A3). Together they make the step, and
 `b3World_Explode`, give the same answer whatever the internal layout of the broad-phase trees is.
-Each PR is a determinism hardening that upstream can accept on its own merits, with no mention of
-rewind, history rings or journals.
+Each PR is a determinism hardening that upstream can accept on its own merits.
 
 ## 1. Why these changes, and only these
 
-Rewind-only design §7.4 needs the answer not to depend on tree layout, because restore rebuilds
-the trees in its own way and never images the static tree. The audit in that section finds three
-places where a result depends on the order a tree hands back candidates:
+Tree layout depends on how a world was built and maintained: creation order, incremental rebuilds,
+`b3World_RebuildStaticTree`. Two worlds with identical bodies, shapes and state can therefore have
+different layouts. An audit of what the step reads from the trees finds three places where a result
+depends on the order a tree hands back candidates:
 
 1. **CCD solid minimum.** `b3ContinuousQueryCallback` (`src/solver.c`) passes the running best
    fraction into the next candidate's time-of-impact query.
@@ -28,20 +27,14 @@ places where a result depends on the order a tree hands back candidates:
 
 Everything else the step reads from a tree is already order-independent: pair discovery is sorted
 by shape-pair key (`src/broad_phase.c`), end-of-step sensor hits are sorted and deduplicated
-(`src/sensor.c`), ray and shape casts take a min.
-
-### What is not needed
-
-- **No solver change is needed to rewind from a full world image.** `b3SerializeWorld` writes all
-  three trees verbatim (`src/world_snapshot.c`), so a restored world has the original layout.
-- These PRs are needed once restore stops imaging trees: the static tree first (it is world-sized),
-  the kinematic and dynamic trees later. They are the prerequisite for that work.
+(`src/sensor.c`).
 
 ### Behaviour change, stated up front
 
-Results stay physically equivalent but are **not bit-identical to today's** in the affected cases:
+Results stay physically comparable but are **not bit-identical to today's** in the affected cases:
 rare CCD sweeps with several competing candidates (ulp-level differences), CCD sweeps with more
-than 8 sensor candidates, and explosions touching a multi-shape body. Any recording (`.b3rec`) or
+than 8 sensor candidates (the reported sensor events can change: the eight kept are the eight lowest
+ids, not the eight nearest), and explosions touching a multi-shape body. Any recording (`.b3rec`) or
 golden hash captured before these PRs may stop validating in those cases. Each PR description must
 say so.
 
@@ -57,7 +50,7 @@ real dependency (A2 evaluates sensors against A1's final solid fraction). A3 sha
 them, but its test uses the A0 helper, so PR 2 merges after PR 1. A0 has no behaviour change and is
 the first commit of PR 1.
 
-Both PRs fork from `main`, never from a feature branch, so they carry none of the rewind work.
+Both PRs fork from `main`, never from a feature branch, so each stands alone.
 
 ### A0. Test helper: perturb tree layout
 
@@ -95,8 +88,9 @@ no CCD, sensor or explosion unchanged.
   prunes. Report the benchmark delta (`benchmark/`, CCD-heavy scenes) in the PR.
 - `preSolve` is now called for every candidate nearer than `limit`, not only those nearer than the
   running best. Its return value still affects only that candidate, so the result is
-  order-independent, but a *stateful* callback sees more calls, in tree order. State this in the
-  PR and in `docs/simulation.md` next to the pre-solve description.
+  order-independent for a `preSolve` or custom filter that depends only on its arguments. A
+  *stateful* callback sees more calls, in tree order, and its result stays layout-dependent. State
+  this in the PR and in `docs/simulation.md` next to the pre-solve description.
 - Alternative if reviewers dislike the extra calls: collect candidates, sort by shape id, evaluate
   in that order with the running clamp. Same determinism, no extra TOIs, deterministic `preSolve`
   call order, at the price of a per-worker scratch array. Not chosen because it adds allocation to
@@ -125,10 +119,11 @@ still justified by the argument above.
 **Implementation hazard.** The first loop overwrites `fastShape->aabb` with `box2`, losing `box1`,
 which pass 2 needs for the swept box. Defer the overwrite until after pass 2 (the callback never
 reads the fast shape's own `aabb`), or recompute `box1`; the former is smaller. The no-hit branch
-relies on `shape->aabb` holding `box2`, so the write must still precede it.
+relies on `shape->aabb` holding `box2` for every shape of the body, including mesh, height and
+sensor shapes that the first loop skips, so the deferred write must cover them and still precede it.
 
-**Cost.** A second tree traversal per sweeping body, only for bodies whose shapes can overlap any
-sensor. Skip pass 2 when `world->sensors.count == 0`. Report the benchmark delta.
+**Cost.** One extra tree traversal per eligible fast shape whenever the world has any sensor. Skip
+pass 2 when `world->sensors.count == 0`. Report the benchmark delta.
 
 **Tests.** More than 8 sensors along a bullet's path (deterministic repro, fails before), plus a
 sensor and a solid hit at exactly equal fractions, under A0 perturbation. Assert the same eight
@@ -158,18 +153,25 @@ bit and equal awake-set order. Fails before the change.
 - [ ] Existing `test` target passes, including `test_determinism.c`.
 - [ ] Benchmark delta quoted for A1 and A2 separately, one per commit of PR 1.
 - [ ] PR text states the not-bit-identical-to-before consequence in one line.
-- [ ] No mention of rewind, ring, journal or history in code, comments or PR text.
 
 ## 4. Out of scope
 
-- The six larger solver changes that would make each island's result independent of the rest of
-  the world (incremental replay, rewind-only design §11.2 item 4). Not needed for rewind.
-- Proxy-identity journaling, moving tree writers into `broad_phase.c`, the restore-time tree pass
-  (rewind-only §7.4). Those belong to the history-ring work, not to the solver.
+- Making each island's result independent of the rest of the world.
+- Public query results (ray casts, shape casts, overlaps): their callback order and tied-hit results
+  stay layout-dependent.
+- Callbacks that depend on call order (A1 caveats).
 
 ## 5. Open decisions for the owner
 
 1. A1 variant: evaluate against the initial fraction (recommended, smaller diff) or sort by shape
-   id (cheaper, needs scratch).
-2. Whether to land A2 and A3 at all before a consumer exists. Each is justified by determinism alone
+   id (cheaper, needs scratch, and also fixes `preSolve` call order for stateful callbacks).
+2. Whether to land A2 and A3 at all. Each is justified by determinism alone
    and is small; the risk is review appetite for changes with no visible feature.
+
+## 6. Provenance
+
+- **Public ray and shape casts are outside the guarantee.** The step never casts, so their callback
+  order and tied-hit results are not part of what these PRs make layout-independent.
+- **Initial-fraction evaluation is chosen over sorting.** Sorting would also fix `preSolve` call
+  order, but it adds a per-worker scratch array to a hot, parallel path. The cost is that the
+  guarantee holds only for callbacks that depend on their arguments alone (A1 caveats).

@@ -28,3 +28,56 @@
   source and removed; question 3 (churn) replaced by a measured table from a scratch harness that
   scans every non-static body per step through the public API on the benchmark scenes; noted that
   the section 7 journal figure is a `junkyard` estimate with no sleep churn in it.
+
+## Revision 4 (after round 1)
+
+- §10: two bullets added. Pair discovery today seeds dynamic self and dynamic-against-static and
+  kinematic passes gated on moved bits, so a split needs an awake-against-non-awake cross pass and
+  a moved non-awake proxy meets other non-awake proxies only through a non-awake self pass.
+  Membership readers (sensors, world queries, bounds, draw) walk the trees by index and include the
+  fourth.
+- §10.2: layout independence qualified by the stateful-callback exception the cited designs carry;
+  the explicit-rebuild entry carries `nodes`, `parents`, `proxies` and the scalars, since the
+  rebuild rewrites all of them; the operation-log remove payload gains the parent index and the
+  proxy slot, the free-list-or-bump bit moves to the insert payload, estimate 64 B plus 8 B per
+  rotation.
+- §10.3: moved bits named as state; their set and clear writes (`b3DynamicTree_ClearMoved` in the
+  pair update) added to the writer list, all inside `broad_phase.c`.
+- §10.5: the churn sentence states that move counts are shapes and gives shapes per flipped body
+  (`rain` 1.2, `trees100` 22) instead of claiming one shape per body.
+
+## Revision 5 (after round 2)
+
+- §10 pair-discovery bullet: states that today a moved sleeping proxy is found against every kind
+  of neighbour and a sleeping-sleeping contact goes to the disabled set, and lists every pass a
+  split needs to reproduce that (awake self; awake against non-awake, static, kinematic; non-awake
+  self and against static, kinematic when its root is marked moved). Waking on `SetTransform` named
+  as the engine's alternative.
+- §10 membership bullet: counters, capacity tracking, memory report and validation address trees
+  by fixed index.
+- §10.2 physical journal: growth of the `proxies` array is an entry undone by reallocating to the
+  old capacity; proxy capacity is state (free list built from it, `b3Free` size goes to a user
+  allocator), node capacity is not (no index changes, `nodeEnd` journaled).
+
+## Revision 6 (after round 3)
+
+- §10 pair-discovery bullet: non-awake cross passes run when either root is marked moved
+  (`b3TestPair` accepts a moved node on either side); the self pass when the non-awake root is.
+- §10: bullet added. The dynamic and kinematic rebuild is a task joined inside the solve, after
+  begin-touch processing wakes sets, so under a split the engine joins it before contact state
+  changes or defers the proxy moves past the join.
+- §10 membership bullet: the step's reads add no order dependence beyond §5; public query
+  callbacks and tied closest-hit casts see layout order.
+- §10.2, without the order changes: Explode wakes inside its traversal, so this branch still
+  defers the wakes until the query returns, without A3's sort.
+- Series paused after round 3 (U-S1: three consecutive rounds with an H; U-S4: findings in §10
+  three rounds running). Reported to the owner before any further round.
+- Owner: continue the series to convergence despite U-S1 and U-S4 (U-S5). Round 4 sent at the
+  same scope.
+
+## Revision 7
+
+- Owner: the split-tree analysis is a different subject from this collation. §10 moved to its own
+  preflight, `20261013-001-preflight-awake-tree-split.md`, with its history (revisions 2 to 6 and
+  rounds 1 to 3 here) as its starting point; §10 keeps a pointer and a three-line summary. This
+  doc's series ends here; rounds 1 to 3 stand as records of the moved text.
