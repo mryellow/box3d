@@ -33,9 +33,16 @@ extern int BroadPhaseTest( void );
 extern int CollisionTest( void );
 extern int CompoundTest( void );
 extern int ContainerTest( void );
+extern int ContinuousCallbackOrderTest( void );
+extern int ContinuousCandidateOrderTest( void );
+extern int ContinuousLayoutImpactTest( void );
+extern int ContinuousLayoutPreSolveTest( void );
+extern int ContinuousLayoutSensorTest( void );
+extern int ContinuousSensorSelectionTest( void );
 extern int DeterminismTest( void );
 extern int DistanceTest( void );
 extern int DynamicTreeTest( void );
+extern int ExplodeOrderTest( void );
 extern int HashTest( void );
 extern int HeightFieldTest( void );
 extern int HullTest( void );
@@ -52,6 +59,7 @@ extern int RestitutionTest( void );
 extern int SeparatingAxisTest( void );
 extern int ShapeTest( void );
 extern int TableTest( void );
+extern int TreeOrderHelperTest( void );
 extern int WorldTest( void );
 
 // Filter-aware test runner: skips tests that don't match the filter
@@ -111,9 +119,16 @@ int main( int argc, char** argv )
 	MAYBE_RUN_TEST( CollisionTest );
 	MAYBE_RUN_TEST( CompoundTest );
 	MAYBE_RUN_TEST( ContainerTest );
+	MAYBE_RUN_TEST( ContinuousCallbackOrderTest );
+	MAYBE_RUN_TEST( ContinuousCandidateOrderTest );
+	MAYBE_RUN_TEST( ContinuousLayoutImpactTest );
+	MAYBE_RUN_TEST( ContinuousLayoutPreSolveTest );
+	MAYBE_RUN_TEST( ContinuousLayoutSensorTest );
+	MAYBE_RUN_TEST( ContinuousSensorSelectionTest );
 	MAYBE_RUN_TEST( DeterminismTest );
 	MAYBE_RUN_TEST( DistanceTest );
 	MAYBE_RUN_TEST( DynamicTreeTest );
+	MAYBE_RUN_TEST( ExplodeOrderTest );
 	MAYBE_RUN_TEST( HashTest );
 	MAYBE_RUN_TEST( HeightFieldTest );
 	MAYBE_RUN_TEST( HullTest );
@@ -130,6 +145,7 @@ int main( int argc, char** argv )
 	MAYBE_RUN_TEST( SeparatingAxisTest );
 	MAYBE_RUN_TEST( ShapeTest );
 	MAYBE_RUN_TEST( TableTest );
+	MAYBE_RUN_TEST( TreeOrderHelperTest );
 	MAYBE_RUN_TEST( WorldTest );
 
 	printf( "======================================\n" );
