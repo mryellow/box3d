@@ -127,7 +127,10 @@ that load is not measurable against the time-of-impact calls.
 
 Total step time, project benchmark binary, `-w=1 -r=1`, six interleaved pairs per scenario (eight
 for washer), alternating which build runs first. Medians of the per-pair deltas; the range is the
-spread of those deltas.
+spread of those deltas. Chart of both tables in this section:
+`E:\src\lazy-keyed-cost-interleaved.png`, beside the sweep head's
+`sweep-order-cost-interleaved.png`; raw pairs in `lazy-keyed-cost-interleaved.txt` in the same
+directory.
 
 | Scenario | Pairs | Sweep head median ms | Branch median ms | Delta median | Delta range |
 |---|---|---|---|---|---|
