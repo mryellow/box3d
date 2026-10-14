@@ -7,6 +7,7 @@
 
 #include "body.h"
 #include "broad_phase.h"
+#include "contact.h"
 #include "physics_world.h"
 #include "shape.h"
 #include "test_macros.h"
@@ -87,6 +88,147 @@ static int SleepingTreeCountersCase( void )
 	counters = b3World_GetCounters( worldId );
 	ENSURE( counters.sleepingTreeHeight == 0 );
 	ENSURE( counters.sleepingTreeRebuildCount == 0 );
+
+	b3DestroyWorld( worldId );
+	return 0;
+}
+
+// Find the contact between two bodies through the first body's contact list, or NULL
+static b3Contact* FindContact( b3World* world, b3BodyId bodyIdA, b3BodyId bodyIdB )
+{
+	b3Body* bodyA = b3GetBodyFullId( world, bodyIdA );
+	int otherId = bodyIdB.index1 - 1;
+
+	int contactKey = bodyA->headContactKey;
+	while ( contactKey != B3_NULL_INDEX )
+	{
+		int contactId = contactKey >> 1;
+		int edgeIndex = contactKey & 1;
+		b3Contact* contact = b3Array_Get( world->contacts, contactId );
+		if ( contact->edges[edgeIndex ^ 1].bodyId == otherId )
+		{
+			return contact;
+		}
+
+		contactKey = contact->edges[edgeIndex].nextKey;
+	}
+
+	return NULL;
+}
+
+static b3BodyId CreateBox( b3WorldId worldId, b3BodyType type, b3Pos position, float extent, bool isAwake )
+{
+	b3BodyDef bodyDef = b3DefaultBodyDef();
+	bodyDef.type = type;
+	bodyDef.position = position;
+	bodyDef.isAwake = isAwake;
+	b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	b3BoxHull box = b3MakeBoxHull( extent, extent, extent );
+	b3CreateHullShape( bodyId, &shapeDef, &box.base );
+	return bodyId;
+}
+
+// The proxy code the body's type and set imply, read from its first shape
+static b3BodyType GetProxyType( b3World* world, b3BodyId bodyId )
+{
+	b3Body* body = b3GetBodyFullId( world, bodyId );
+	b3Shape* shape = b3Array_Get( world->shapes, body->headShapeId );
+	return B3_PROXY_TYPE( shape->proxyKey );
+}
+
+// Until sleep moves proxies on its own, place a sleeping body's proxies in the fourth tree from
+// the old leaves' boxes, bits and marks. Called between world calls only.
+static void PlaceInSleepingTree( b3World* world, b3BodyId bodyId )
+{
+	b3Body* body = b3GetBodyFullId( world, bodyId );
+	int shapeId = body->headShapeId;
+	while ( shapeId != B3_NULL_INDEX )
+	{
+		b3Shape* shape = b3Array_Get( world->shapes, shapeId );
+		shapeId = shape->nextShapeId;
+
+		int oldKey = shape->proxyKey;
+		b3DynamicTree* tree = world->broadPhase.trees + B3_PROXY_TYPE( oldKey );
+		int proxyId = B3_PROXY_ID( oldKey );
+		b3AABB box = b3DynamicTree_GetAABB( tree, proxyId );
+		uint64_t categoryBits = b3DynamicTree_GetCategoryBits( tree, proxyId );
+		bool moved = b3IsNodeMoved( tree->nodes + tree->proxies[proxyId].node );
+
+		b3BroadPhase_DestroyProxy( &world->broadPhase, oldKey );
+		shape->proxyKey =
+			b3BroadPhase_CreateProxy( &world->broadPhase, B3_SLEEPING_PROXY_TYPE, box, categoryBits, shape->id, moved );
+	}
+}
+
+// A sleeping box moved by b3Body_SetTransform into a static box, another sleeping box and an awake
+// kinematic box finds all three through the sleeping tree's passes, with the contacts in the sets
+// the single tree gave: disabled for the two sleeping pairs, awake for the kinematic pair, whose
+// begin touch wakes the box.
+int SleepingTreePairTest( void )
+{
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	worldDef.workerCount = 1;
+	worldDef.enableSleep = true;
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+	b3World* world = b3GetWorldFromId( worldId );
+
+	float extent = 0.5f;
+	b3BodyId staticId = CreateBox( worldId, b3_staticBody, (b3Pos){ 0.0, 0.0, 0.0 }, extent, true );
+	b3BodyId kinematicId = CreateBox( worldId, b3_kinematicBody, (b3Pos){ 20.0, 0.0, 0.0 }, extent, true );
+	b3BodyId sleeper1 = CreateBox( worldId, b3_dynamicBody, (b3Pos){ -40.0, 0.0, 0.0 }, extent, false );
+	b3BodyId sleeper2 = CreateBox( worldId, b3_dynamicBody, (b3Pos){ -60.0, 0.0, 0.0 }, extent, false );
+	b3BodyId sleeper3 = CreateBox( worldId, b3_dynamicBody, (b3Pos){ -80.0, 0.0, 0.0 }, extent, false );
+	b3BodyId sleeper4 = CreateBox( worldId, b3_dynamicBody, (b3Pos){ 40.0, 0.0, 0.0 }, extent, false );
+
+	ENSURE( b3Body_IsAwake( kinematicId ) );
+	ENSURE( b3Body_IsAwake( sleeper1 ) == false );
+	ENSURE( b3Body_IsAwake( sleeper2 ) == false );
+	ENSURE( b3Body_IsAwake( sleeper3 ) == false );
+	ENSURE( b3Body_IsAwake( sleeper4 ) == false );
+
+	PlaceInSleepingTree( world, sleeper1 );
+	PlaceInSleepingTree( world, sleeper2 );
+	PlaceInSleepingTree( world, sleeper3 );
+	PlaceInSleepingTree( world, sleeper4 );
+	ENSURE( GetProxyType( world, sleeper1 ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( GetProxyType( world, sleeper4 ) == B3_SLEEPING_PROXY_TYPE );
+
+	float timeStep = 1.0f / 60.0f;
+	b3World_Step( worldId, timeStep, 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+	ENSURE( b3World_GetAwakeBodyCount( worldId ) == 1 );
+
+	// Overlap each target by a fifth of the extent along y
+	float lift = 1.8f * extent;
+	b3Body_SetTransform( sleeper1, (b3Pos){ 0.0, lift, 0.0 }, b3Quat_identity );
+	b3Body_SetTransform( sleeper2, (b3Pos){ 40.0, lift, 0.0 }, b3Quat_identity );
+	b3Body_SetTransform( sleeper3, (b3Pos){ 20.0, lift, 0.0 }, b3Quat_identity );
+
+	b3World_Step( worldId, timeStep, 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3Contact* contact1 = FindContact( world, sleeper1, staticId );
+	ENSURE( contact1 != NULL );
+	ENSURE( contact1->setIndex == b3_disabledSet );
+	ENSURE( b3GetBodyFullId( world, sleeper1 )->contactCount == 1 );
+
+	b3Contact* contact2 = FindContact( world, sleeper2, sleeper4 );
+	ENSURE( contact2 != NULL );
+	ENSURE( contact2->setIndex == b3_disabledSet );
+	ENSURE( b3GetBodyFullId( world, sleeper2 )->contactCount == 1 );
+	ENSURE( b3GetBodyFullId( world, sleeper4 )->contactCount == 1 );
+
+	b3Contact* contact3 = FindContact( world, sleeper3, kinematicId );
+	ENSURE( contact3 != NULL );
+	ENSURE( contact3->setIndex == b3_awakeSet );
+	ENSURE( b3GetBodyFullId( world, sleeper3 )->contactCount == 1 );
+
+	ENSURE( b3Body_IsAwake( sleeper3 ) );
+	ENSURE( b3Body_IsAwake( sleeper1 ) == false );
+	ENSURE( b3Body_IsAwake( sleeper2 ) == false );
+	ENSURE( b3Body_IsAwake( sleeper4 ) == false );
 
 	b3DestroyWorld( worldId );
 	return 0;

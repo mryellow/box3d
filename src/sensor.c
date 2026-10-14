@@ -233,6 +233,8 @@ static void b3SensorTask( int startIndex, int endIndex, int workerIndex, void* c
 		b3DynamicTree_Query( trees + 0, queryBounds, sensorShape->filter.maskBits, false, b3SensorQueryCallback, &queryContext );
 		b3DynamicTree_Query( trees + 1, queryBounds, sensorShape->filter.maskBits, false, b3SensorQueryCallback, &queryContext );
 		b3DynamicTree_Query( trees + 2, queryBounds, sensorShape->filter.maskBits, false, b3SensorQueryCallback, &queryContext );
+		b3DynamicTree_Query( trees + B3_SLEEPING_PROXY_TYPE, queryBounds, sensorShape->filter.maskBits, false,
+							 b3SensorQueryCallback, &queryContext );
 
 		// Sort the overlaps to enable finding begin and end events.
 		qsort( sensor->overlaps2.data, sensor->overlaps2.count, sizeof( b3Visitor ), b3CompareVisitors );

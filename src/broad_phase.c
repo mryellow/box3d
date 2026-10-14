@@ -87,6 +87,7 @@ void b3BroadPhase_MoveProxy( b3BroadPhase* bp, int proxyKey, b3AABB aabb )
 }
 
 // Gather the sibling pairs with a moved node. This is done serially, it is cache friendly.
+// This scans every pair below nodeEnd, which the step's rebuild keeps compact for the awake tree.
 static int b3GatherMovedSiblings( const b3DynamicTree* tree, int* pairIndices )
 {
 	const b3TreeNode* nodes = tree->nodes;
@@ -101,6 +102,55 @@ static int b3GatherMovedSiblings( const b3DynamicTree* tree, int* pairIndices )
 		if ( ( nodes[pair].flagIndex | nodes[pair + 1].flagIndex ) & B3_MOVED_NODE )
 		{
 			pairIndices[count++] = pair;
+		}
+	}
+
+	return count;
+}
+
+// Gather the sibling pairs with a moved node by descending from the root through marked internal
+// nodes, as b3DynamicTree_ClearMoved does. The sleeping tree is not compacted by the step, so after
+// a large wake its nodeEnd stays at its high-water mark while its population is small. This walk
+// costs the marked nodes, not the array, and nothing when the root is unmoved.
+static int b3GatherMarkedSiblings( const b3DynamicTree* tree, int* pairIndices )
+{
+	const b3TreeNode* nodes = tree->nodes;
+	const b3TreeNode* root = nodes + B3_ROOT_NODE;
+	if ( b3IsNodeMoved( root ) == false || b3IsLeaf( root ) )
+	{
+		return 0;
+	}
+
+	int count = 0;
+	int stack[B3_TREE_STACK_SIZE];
+	int stackCount = 0;
+	stack[stackCount++] = b3GetLeftChild( root );
+
+	while ( stackCount > 0 )
+	{
+		int pair = stack[--stackCount];
+
+		// Push when either sibling moved. The parent is marked only when one is, so every pair
+		// reached from a marked parent qualifies.
+		if ( ( nodes[pair].flagIndex | nodes[pair + 1].flagIndex ) & B3_MOVED_NODE )
+		{
+			pairIndices[count++] = pair;
+		}
+
+		for ( int i = 0; i < 2; ++i )
+		{
+			const b3TreeNode* node = nodes + pair + i;
+			if ( b3IsNodeMoved( node ) && b3IsLeaf( node ) == false )
+			{
+				if ( stackCount < B3_TREE_STACK_SIZE )
+				{
+					stack[stackCount++] = b3GetLeftChild( node );
+				}
+				else
+				{
+					B3_ASSERT( stackCount < B3_TREE_STACK_SIZE );
+				}
+			}
 		}
 	}
 
@@ -486,16 +536,23 @@ static void b3CollideCrossPairs( const b3TreeNode* arrayA, const b3TreeNode* arr
 	}
 }
 
+// One dynamic tree's self pass: its node array and the sibling pairs gathered from it.
+typedef struct b3SelfContext
+{
+	b3World* world;
+	const b3TreeNode* nodes;
+	const int* siblingIndices;
+} b3SelfContext;
+
 // This takes moved internal nodes and collides their sub-trees against each other.
 static void b3SelfPairsTask( int startIndex, int endIndex, int workerIndex, void* context )
 {
 	b3TracyCZoneNC( self_pairs, "Self", b3_colorCoral, true );
 
-	b3World* world = context;
-	b3BroadPhase* bp = &world->broadPhase;
-	const b3DynamicTree* tree = bp->trees + b3_dynamicBody;
-	const b3TreeNode* nodes = tree->nodes;
-	const int* siblingIndices = bp->movedSiblings;
+	b3SelfContext* selfContext = context;
+	b3World* world = selfContext->world;
+	const b3TreeNode* nodes = selfContext->nodes;
+	const int* siblingIndices = selfContext->siblingIndices;
 
 	b3PairContext pairContext = {
 		.world = world,
@@ -577,12 +634,26 @@ static int b3GatherCrossSeeds( const b3DynamicTree* treeA, const b3DynamicTree* 
 	return seedCount;
 }
 
+// One cross pass between two trees: their node arrays and a contiguous range of the seed array.
+typedef struct b3CrossPass
+{
+	const b3TreeNode* nodesA;
+	const b3TreeNode* nodesB;
+	int seedBegin;
+	int seedEnd;
+
+	// Compound shapes are static only, so only a pass against the static tree can meet one
+	bool checkCompounds;
+} b3CrossPass;
+
+// Awake against static, kinematic and sleeping, then sleeping against static and kinematic
+#define B3_CROSS_PASS_COUNT 5
+
 typedef struct b3CrossContext
 {
 	b3World* world;
 	const b3NodePair* seeds;
-	int staticSeedCount;
-	bool checkCompounds;
+	b3CrossPass passes[B3_CROSS_PASS_COUNT];
 } b3CrossContext;
 
 static void b3CrossPairsTask( int startIndex, int endIndex, int workerIndex, void* context )
@@ -591,37 +662,52 @@ static void b3CrossPairsTask( int startIndex, int endIndex, int workerIndex, voi
 
 	b3CrossContext* crossContext = context;
 	b3World* world = crossContext->world;
-	b3BroadPhase* bp = &world->broadPhase;
-	const b3TreeNode* staticNodes = bp->trees[b3_staticBody].nodes;
-	const b3TreeNode* kinematicNodes = bp->trees[b3_kinematicBody].nodes;
-	const b3TreeNode* dynamicNodes = bp->trees[b3_dynamicBody].nodes;
 
 	b3PairContext pairContext = {
 		.world = world,
 		.pairKeys = &world->taskContexts.data[workerIndex].pairKeys,
 	};
 
-	// Static seeds come first, so the two passes are contiguous sub-ranges. The batch is drained
-	// between them because only the static pass can meet a compound.
-	int staticEnd = b3MinInt( endIndex, crossContext->staticSeedCount );
-
-	pairContext.checkCompounds = crossContext->checkCompounds;
-	for ( int i = startIndex; i < staticEnd; ++i )
+	// The passes own contiguous sub-ranges of the seeds. The batch is drained between them so a
+	// pass that can meet a compound never shares a batch with one that cannot.
+	for ( int passIndex = 0; passIndex < B3_CROSS_PASS_COUNT; ++passIndex )
 	{
-		b3NodePair seed = crossContext->seeds[i];
-		b3CollideCrossPairs( dynamicNodes, staticNodes, &seed.a, &seed.b, &pairContext );
-	}
-	b3FlushCandidatePairs( &pairContext );
+		const b3CrossPass* pass = crossContext->passes + passIndex;
+		int begin = b3MaxInt( startIndex, pass->seedBegin );
+		int end = b3MinInt( endIndex, pass->seedEnd );
+		if ( begin >= end )
+		{
+			continue;
+		}
 
-	pairContext.checkCompounds = false;
-	for ( int i = b3MaxInt( startIndex, crossContext->staticSeedCount ); i < endIndex; ++i )
-	{
-		b3NodePair seed = crossContext->seeds[i];
-		b3CollideCrossPairs( dynamicNodes, kinematicNodes, &seed.a, &seed.b, &pairContext );
+		pairContext.checkCompounds = pass->checkCompounds;
+		for ( int i = begin; i < end; ++i )
+		{
+			b3NodePair seed = crossContext->seeds[i];
+			b3CollideCrossPairs( pass->nodesA, pass->nodesB, &seed.a, &seed.b, &pairContext );
+		}
+		b3FlushCandidatePairs( &pairContext );
 	}
-	b3FlushCandidatePairs( &pairContext );
 
 	b3TracyCZoneEnd( cross_pairs );
+}
+
+// Gather one cross pass's seeds onto the end of the seed array and describe the pass
+static void b3GatherCrossPass( b3CrossContext* crossContext, int passIndex, const b3DynamicTree* treeA,
+							   const b3DynamicTree* treeB, b3NodePair* seeds, int* seedCount, bool checkCompounds )
+{
+	int count = b3GatherCrossSeeds( treeA, treeB, seeds + *seedCount );
+	B3_ASSERT( count <= B3_CROSS_SEED_COUNT );
+
+	crossContext->passes[passIndex] = B3_LITERAL( b3CrossPass ){
+		.nodesA = treeA->nodes,
+		.nodesB = treeB->nodes,
+		.seedBegin = *seedCount,
+		.seedEnd = *seedCount + count,
+		.checkCompounds = checkCompounds,
+	};
+
+	*seedCount += count;
 }
 
 static void b3UpdateTreesTask( void* context )
@@ -631,6 +717,9 @@ static void b3UpdateTreesTask( void* context )
 	b3World* world = (b3World*)context;
 	b3DynamicTree_Rebuild( world->broadPhase.trees + b3_dynamicBody, false );
 	b3DynamicTree_Rebuild( world->broadPhase.trees + b3_kinematicBody, false );
+
+	// Until the sleeping tree is kept by its own height trigger, the step rebuilds it on order too
+	b3DynamicTree_Rebuild( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE, false );
 
 	b3TracyCZoneEnd( tree_task );
 }
@@ -659,6 +748,7 @@ void b3UpdateBroadPhasePairs( b3World* world )
 	bool needUpdate = b3HasTreeMoved( bp->trees + b3_staticBody );
 	needUpdate = needUpdate || b3NeedsRebuild( bp->trees + b3_kinematicBody );
 	needUpdate = needUpdate || b3NeedsRebuild( bp->trees + b3_dynamicBody );
+	needUpdate = needUpdate || b3NeedsRebuild( bp->trees + B3_SLEEPING_PROXY_TYPE );
 
 	if ( needUpdate == false )
 	{
@@ -674,37 +764,68 @@ void b3UpdateBroadPhasePairs( b3World* world )
 		b3Array_Clear( world->taskContexts.data[i].pairKeys );
 	}
 
-	// Generate pairs by querying the dynamic body tree against itself and against
-	// the kinematic and static trees.
+	// Generate pairs by querying the awake dynamic tree against itself and against the sleeping,
+	// kinematic and static trees, and the sleeping tree against itself and against the static and
+	// kinematic trees. Every pass is gated at the roots by the moved bits, so a pass between two
+	// unmoved trees costs one test.
+	int* sleepingSiblings = NULL;
 	{
-		// Get the sibling pairs of the dynamic body tree that have moved.
+		// Get the sibling pairs of the awake dynamic tree that have moved.
 		const b3DynamicTree* dynamicTree = bp->trees + b3_dynamicBody;
 		int pairCapacity = b3MaxInt( dynamicTree->nodeEnd / 2, 1 );
 		bp->movedSiblings = b3StackAlloc( alloc, pairCapacity * sizeof( int ), "moved pairs" );
 		int dynamicMoveCount = b3GatherMovedSiblings( dynamicTree, bp->movedSiblings );
 
-		// Get seeds for colliding against the static and kinematic trees.
-		b3NodePair crossSeeds[2 * B3_CROSS_SEED_COUNT];
-		int staticSeedCount = b3GatherCrossSeeds( dynamicTree, bp->trees + b3_staticBody, crossSeeds );
-		B3_ASSERT( staticSeedCount <= B3_CROSS_SEED_COUNT );
-		int kinematicSeedCount = b3GatherCrossSeeds( dynamicTree, bp->trees + b3_kinematicBody, crossSeeds + staticSeedCount );
-		B3_ASSERT( kinematicSeedCount <= B3_CROSS_SEED_COUNT );
-		int crossMoveCount = staticSeedCount + kinematicSeedCount;
+		// Get the sibling pairs of the sleeping dynamic tree that have moved. A tree of n leaves has
+		// n - 1 internal nodes, so the proxy count bounds the pairs.
+		const b3DynamicTree* sleepingTree = bp->trees + B3_SLEEPING_PROXY_TYPE;
+		int sleepingPairCapacity = b3MaxInt( sleepingTree->proxyCount, 1 );
+		sleepingSiblings = b3StackAlloc( alloc, sleepingPairCapacity * sizeof( int ), "sleeping moved pairs" );
+		int sleepingMoveCount = b3GatherMarkedSiblings( sleepingTree, sleepingSiblings );
 
-		// Collide the dynamic body tree against the static and kinematic trees.
+		// Get seeds for the cross passes. The passes against the static tree expand compounds.
+		b3NodePair crossSeeds[B3_CROSS_PASS_COUNT * B3_CROSS_SEED_COUNT];
+		int seedCount = 0;
+		bool checkCompounds = world->compoundShapeCount > 0;
 		b3CrossContext crossContext = {
 			.world = world,
 			.seeds = crossSeeds,
-			.staticSeedCount = staticSeedCount,
-			.checkCompounds = world->compoundShapeCount > 0,
 		};
-		b3ParallelFor( world, &b3CrossPairsTask, crossMoveCount, 1, &crossContext, "cross pairs" );
+		b3GatherCrossPass( &crossContext, 0, dynamicTree, bp->trees + b3_staticBody, crossSeeds, &seedCount, checkCompounds );
+		b3GatherCrossPass( &crossContext, 1, dynamicTree, bp->trees + b3_kinematicBody, crossSeeds, &seedCount, false );
+		b3GatherCrossPass( &crossContext, 2, dynamicTree, sleepingTree, crossSeeds, &seedCount, false );
+		b3GatherCrossPass( &crossContext, 3, sleepingTree, bp->trees + b3_staticBody, crossSeeds, &seedCount, checkCompounds );
+		b3GatherCrossPass( &crossContext, 4, sleepingTree, bp->trees + b3_kinematicBody, crossSeeds, &seedCount, false );
 
-		// Collide the dynamic body tree against itself.
-		b3ParallelFor( world, &b3SelfPairsTask, dynamicMoveCount, 64, world, "self pairs" );
+		// Collide the trees against each other.
+		b3ParallelFor( world, &b3CrossPairsTask, seedCount, 1, &crossContext, "cross pairs" );
+
+		// Collide each dynamic tree against itself.
+		if ( dynamicMoveCount > 0 )
+		{
+			b3SelfContext selfContext = {
+				.world = world,
+				.nodes = dynamicTree->nodes,
+				.siblingIndices = bp->movedSiblings,
+			};
+			b3ParallelFor( world, &b3SelfPairsTask, dynamicMoveCount, 64, &selfContext, "self pairs" );
+		}
+
+		if ( sleepingMoveCount > 0 )
+		{
+			b3SelfContext selfContext = {
+				.world = world,
+				.nodes = sleepingTree->nodes,
+				.siblingIndices = sleepingSiblings,
+			};
+			b3ParallelFor( world, &b3SelfPairsTask, sleepingMoveCount, 64, &selfContext, "sleeping self pairs" );
+		}
 	}
 
+	// A moved sleeping or static proxy is searched once. Without this the passes would repeat
+	// every step and the no-moved validation would fail.
 	b3DynamicTree_ClearMoved( bp->trees + b3_staticBody );
+	b3DynamicTree_ClearMoved( bp->trees + B3_SLEEPING_PROXY_TYPE );
 
 	b3TracyCZoneEnd( update_pairs );
 
@@ -779,6 +900,7 @@ void b3UpdateBroadPhasePairs( b3World* world )
 
 	b3StackFree( alloc, pairKeys );
 
+	b3StackFree( alloc, sleepingSiblings );
 	b3StackFree( alloc, bp->movedSiblings );
 	bp->movedSiblings = NULL;
 

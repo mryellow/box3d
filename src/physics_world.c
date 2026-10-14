@@ -1414,7 +1414,7 @@ void b3World_Draw( b3WorldId worldId, b3DebugDraw* draw, uint64_t maskBits )
 
 	struct DrawContext drawContext = { world, draw };
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3DynamicTree_Query( world->broadPhase.trees + i, draw->drawingBounds, maskBits, false, DrawQueryCallback, &drawContext );
 	}
@@ -2729,7 +2729,7 @@ b3TreeStats b3World_OverlapAABB( b3WorldId worldId, b3AABB aabb, b3QueryFilter f
 
 	WorldQueryContext worldContext = { world, fcn, filter, context };
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult =
 			b3DynamicTree_Query( world->broadPhase.trees + i, aabb, filter.maskBits, false, TreeQueryCallback, &worldContext );
@@ -2824,7 +2824,7 @@ b3TreeStats b3World_OverlapShape( b3WorldId worldId, b3Pos origin, const b3Shape
 		world, fcn, filter, *proxy, origin, context,
 	};
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult = b3DynamicTree_Query( world->broadPhase.trees + i, aabb, filter.maskBits, false,
 													  b3TreeOverlapCallback, &worldContext );
@@ -2926,7 +2926,7 @@ void b3World_CollideMover( b3WorldId worldId, b3Pos origin, const b3Capsule* mov
 		world, fcn, filter, *mover, origin, context,
 	};
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3DynamicTree_Query( world->broadPhase.trees + i, aabb, filter.maskBits, false, TreeCollideCallback, &worldContext );
 	}
@@ -3033,7 +3033,7 @@ b3TreeStats b3World_CastRay( b3WorldId worldId, b3Pos origin, b3Vec3 translation
 
 	WorldRayCastContext worldContext = { world, fcn, filter, 1.0f, origin, context };
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult =
 			b3DynamicTree_RayCast( world->broadPhase.trees + i, &input, filter.maskBits, false, RayCastCallback, &worldContext );
@@ -3105,7 +3105,7 @@ b3RayResult b3World_CastRayClosest( b3WorldId worldId, b3Pos origin, b3Vec3 tran
 		.userContext = &result,
 	};
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult =
 			b3DynamicTree_RayCast( world->broadPhase.trees + i, &input, filter.maskBits, false, RayCastCallback, &worldContext );
@@ -3246,7 +3246,7 @@ b3TreeStats b3World_CastShape( b3WorldId worldId, b3Pos origin, const b3ShapePro
 	b3AABB localBox = b3MakeAABB( proxy->points, proxy->count, proxy->radius );
 	b3BoxCastInput treeInput = { b3OffsetAABB( localBox, origin ), translation, 1.0f };
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult = b3DynamicTree_BoxCast( world->broadPhase.trees + i, &treeInput, filter.maskBits, false,
 														b3ShapeCastCallback, &worldContext );
@@ -3376,7 +3376,7 @@ float b3World_CastMover( b3WorldId worldId, b3Pos origin, const b3Capsule* mover
 	b3Vec3 centers[2] = { mover->center1, mover->center2 };
 	b3BoxCastInput treeInput = { b3OffsetAABB( b3MakeAABB( centers, 2, mover->radius ), origin ), translation, 1.0f };
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3DynamicTree_BoxCast( world->broadPhase.trees + i, &treeInput, filter.maskBits, false, MoverCastCallback,
 							   &worldContext );
@@ -3578,7 +3578,10 @@ void b3World_Explode( b3WorldId worldId, const b3ExplosionDef* explosionDef )
 	b3AABB localBox = { { -extent, -extent, -extent }, { extent, extent, extent } };
 	b3AABB aabb = b3OffsetAABB( localBox, position );
 
+	// Both dynamic trees feed one candidate list, so a sleeping body is pushed as an awake one is
 	b3DynamicTree_Query( world->broadPhase.trees + b3_dynamicBody, aabb, maskBits, false, ExplosionCallback, &explosionContext );
+	b3DynamicTree_Query( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE, aabb, maskBits, false, ExplosionCallback,
+						 &explosionContext );
 
 	// Sort the candidates so bodies wake and sum impulses in shape id order whatever the tree layout
 	{
