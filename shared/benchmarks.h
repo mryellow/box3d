@@ -52,6 +52,9 @@ float GetSpinnerAngle( void );
 void GetSleepCapacity( b3Capacity* capacity );
 void CreateSleep( b3WorldId worldId );
 void StepSleep( b3WorldId worldId, int stepCount );
+void GetSleepingGridCapacity( b3Capacity* capacity );
+void CreateSleepingGrid( b3WorldId worldId );
+void StepSleepingGrid( b3WorldId worldId, int stepCount );
 
 // Post Field: fast spheres swept through a field of thin posts, many continuous candidates per query.
 // Travel: 0 random horizontal directions (default), +1 along +x, -1 along -x. Set before Create.

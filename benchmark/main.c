@@ -232,6 +232,7 @@ int main( int argc, char** argv )
 		{ "post_field", GetPostFieldCapacity, CreatePostField, DestroyPostField, StepPostField, 100 },
 		{ "rain", GetRainCapacity, CreateRain, DestroyRain, StepRain, 400 },
 		{ "sleep", GetSleepCapacity, CreateSleep, NULL, StepSleep, 300 },
+		{ "sleeping_grid", GetSleepingGridCapacity, CreateSleepingGrid, NULL, StepSleepingGrid, 500 },
 		{ "spinner", GetSpinnerCapacity, CreateSpinner, DestroySpinner, NULL, 800 },
 		{ "trees100", NULL, CreateTrees100, DestroyTrees, NULL, 500 },
 		{ "trees50", NULL, CreateTrees50, DestroyTrees, NULL, 500 },

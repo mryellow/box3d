@@ -1341,6 +1341,137 @@ void StepSleep( b3WorldId worldId, int stepCount )
 	}
 }
 
+// A large sleeping population beside ongoing motion. A grid of boxes rests asleep on the ground
+// while a lane of spheres rolls past it, a few sleeping boxes are lifted each step so the sleeping
+// proxies are written without a wake, and a sphere is dropped onto the grid now and then to wake
+// one island. The broad-phase work of the step should follow the awake bodies, not the grid.
+
+#if BENCHMARK_DEBUG
+#define SLEEPING_GRID_SIDE 10
+#else
+#define SLEEPING_GRID_SIDE 100
+#endif
+
+#define SLEEPING_GRID_COUNT ( SLEEPING_GRID_SIDE * SLEEPING_GRID_SIDE )
+#define SLEEPING_GRID_SPACING 2.0f
+#define SLEEPING_GRID_ROLLER_COUNT 32
+#define SLEEPING_GRID_LIFTS_PER_STEP 4
+#define SLEEPING_GRID_DROP_INTERVAL 50
+
+typedef struct SleepingGridData
+{
+	b3BodyId boxes[SLEEPING_GRID_COUNT];
+	int dropCount;
+} SleepingGridData;
+
+static SleepingGridData g_sleepingGridData;
+
+void GetSleepingGridCapacity( b3Capacity* capacity )
+{
+	int dynamicCount = SLEEPING_GRID_COUNT + SLEEPING_GRID_ROLLER_COUNT + 64;
+	capacity->staticShapeCount = 1;
+	capacity->staticBodyCount = 1;
+	capacity->dynamicShapeCount = dynamicCount;
+	capacity->dynamicBodyCount = dynamicCount;
+	capacity->contactCount = 2 * dynamicCount;
+}
+
+void CreateSleepingGrid( b3WorldId worldId )
+{
+	g_sleepingGridData = (SleepingGridData){ 0 };
+
+	float extent = 0.5f;
+	float halfSpan = 0.5f * SLEEPING_GRID_SPACING * SLEEPING_GRID_SIDE;
+
+	// Ground under the grid and the lane beside it
+	{
+		b3BodyDef bodyDef = b3DefaultBodyDef();
+		bodyDef.position = (b3Pos){ 0.0, -0.5, 0.0 };
+		b3BodyId groundId = b3CreateBody( worldId, &bodyDef );
+
+		b3BoxHull box = b3MakeBoxHull( halfSpan + 20.0f, 0.5f, halfSpan + 20.0f );
+		b3ShapeDef shapeDef = b3DefaultShapeDef();
+		g_groundShapeId = b3CreateHullShape( groundId, &shapeDef, &box.base );
+	}
+
+	// The grid, created asleep and resting on the ground, boxes a gap apart so nothing touches
+	{
+		b3BodyDef bodyDef = b3DefaultBodyDef();
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.isAwake = false;
+
+		b3ShapeDef shapeDef = b3DefaultShapeDef();
+		b3BoxHull box = b3MakeBoxHull( extent, extent, extent );
+
+		for ( int i = 0; i < SLEEPING_GRID_SIDE; ++i )
+		{
+			float x = -halfSpan + ( i + 0.5f ) * SLEEPING_GRID_SPACING;
+			for ( int j = 0; j < SLEEPING_GRID_SIDE; ++j )
+			{
+				float z = -halfSpan + ( j + 0.5f ) * SLEEPING_GRID_SPACING;
+				bodyDef.position = (b3Pos){ x, extent, z };
+				b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+				b3CreateHullShape( bodyId, &shapeDef, &box.base );
+				g_sleepingGridData.boxes[i * SLEEPING_GRID_SIDE + j] = bodyId;
+			}
+		}
+	}
+
+	// A lane of spheres rolling along z beside the grid. Rolling on a flat ground keeps them
+	// moving for the whole run, so the awake tree churns every step.
+	{
+		b3BodyDef bodyDef = b3DefaultBodyDef();
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.linearVelocity = (b3Vec3){ 0.0f, 0.0f, 4.0f };
+
+		b3ShapeDef shapeDef = b3DefaultShapeDef();
+		b3Sphere sphere = { b3Vec3_zero, 0.5f };
+
+		float laneX = halfSpan + 5.0f;
+		for ( int i = 0; i < SLEEPING_GRID_ROLLER_COUNT; ++i )
+		{
+			bodyDef.position = (b3Pos){ laneX, 0.5, -halfSpan + 2.0f * i };
+			b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+			b3CreateSphereShape( bodyId, &shapeDef, &sphere );
+		}
+	}
+}
+
+void StepSleepingGrid( b3WorldId worldId, int stepCount )
+{
+	// Lift a few sleeping boxes in turn. The new box leaves the fat box, so the proxy is written,
+	// and the box stays asleep where it is put.
+	for ( int k = 0; k < SLEEPING_GRID_LIFTS_PER_STEP; ++k )
+	{
+		int index = ( stepCount * SLEEPING_GRID_LIFTS_PER_STEP + k ) % SLEEPING_GRID_COUNT;
+		b3BodyId bodyId = g_sleepingGridData.boxes[index];
+		if ( b3Body_IsAwake( bodyId ) == false )
+		{
+			b3Pos position = b3Body_GetPosition( bodyId );
+			position.y += 1.0;
+			b3Body_SetTransform( bodyId, position, b3Body_GetRotation( bodyId ) );
+		}
+	}
+
+	// Drop a sphere onto a box now and then. The begin touch wakes that box.
+	if ( stepCount % SLEEPING_GRID_DROP_INTERVAL == 0 )
+	{
+		int index = ( g_sleepingGridData.dropCount * 997 ) % SLEEPING_GRID_COUNT;
+		g_sleepingGridData.dropCount += 1;
+
+		b3Pos target = b3Body_GetPosition( g_sleepingGridData.boxes[index] );
+
+		b3BodyDef bodyDef = b3DefaultBodyDef();
+		bodyDef.type = b3_dynamicBody;
+		bodyDef.position = (b3Pos){ target.x, target.y + 3.0, target.z };
+		b3BodyId bodyId = b3CreateBody( worldId, &bodyDef );
+
+		b3ShapeDef shapeDef = b3DefaultShapeDef();
+		b3Sphere sphere = { b3Vec3_zero, 0.25f };
+		b3CreateSphereShape( bodyId, &shapeDef, &sphere );
+	}
+}
+
 #define VILLAGE_TILE_WIDTH 4
 #define VILLAGE_CAST_RADIUS 0.05f
 #define VILLAGE_CAST_HEIGHT 10.0f
