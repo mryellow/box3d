@@ -325,8 +325,10 @@ base did nothing. Whole-step time there is within noise.
 The one clear win is a scene built to show it, the harness's grid of ten thousand sleeping boxes
 with a hundred teleported every step: the pair phase drops from 0.92 to 0.23 ms per step, about
 four times faster, because the base rebuilt the ten-thousand-leaf tree on every step that touched
-it and the branch leaves the sleeping tree alone. No benchmark scene has that shape, a large
-sleeping population beside ongoing motion. Every scene's results are bit-identical on every step.
+it and the branch leaves the sleeping tree alone. No benchmark scene had that shape, a large
+sleeping population beside ongoing motion, until the `sleeping_grid` scene was added after the
+merge (§11.7); there the whole step is about three times faster at one thread. Every scene's
+results are bit-identical on every step.
 
 ### 11.1 Suite benchmark, total milliseconds per thread count
 
@@ -558,6 +560,34 @@ worker, for the scene's benchmark length.
 | washer | 1000 | yes | - |
 
 Every scene equal at every step: the §9 stop condition of the prompt was not met.
+
+### 11.7 The `sleeping_grid` benchmark scene, added after the merge
+
+Commit `a8d5f03` on `master` adds a scene with the shape the design targets: ten thousand boxes
+asleep in a grid on the ground, thirty-two spheres rolling along a lane beside it every step, four
+sleeping boxes lifted by `b3Body_SetTransform` each step, and a sphere dropped onto the grid every
+fifty steps to wake one box. Five hundred steps. The same commit cherry-picked onto the base
+`c6c6ead` builds unchanged, since the scene uses the public API only.
+
+Whole-step totals from `benchmark -t=8 -r=4 -b=sleeping_grid`, two rounds alternating base and
+master on the idle machine (milliseconds for the run):
+
+| Side | Round | t1 | t2 | t3 | t4 | t5 | t6 | t7 | t8 |
+|---|---|---|---|---|---|---|---|---|---|
+| base | 1 | 58.8 | 76.5 | 91.4 | 96.3 | 105.9 | 115.5 | 119.0 | 125.7 |
+| master | 1 | 18.7 | 33.7 | 57.5 | 79.3 | 107.0 | 114.9 | 120.2 | 124.7 |
+| base | 2 | 63.0 | 79.5 | 94.0 | 101.8 | 113.2 | 118.4 | 122.7 | 130.6 |
+| master | 2 | 19.0 | 34.9 | 60.6 | 83.5 | 109.6 | 118.8 | 123.3 | 129.0 |
+
+At one thread the step is about three times faster on master; the lead narrows through four
+threads and is gone from five up, where the per-step cost of waking the worker threads dominates
+a step whose awake work is thirty-odd bodies on both sides. The phases, from the scratch harness
+at one worker, summed over the run: `pairs` 43.4 ms on the base against 3.8 ms on master, `refit`
+5.0 against 0.1. The base rebuilds and refits the ten-thousand-leaf tree on every step that
+lifted a box; master writes the sleeping tree and rebuilds nothing. The sleeping tree's height
+rose from 14 to 27 over the run, under the threshold, with no rebuild. The per-step state hash
+over the live bodies is equal to the base on every step, and equal between one and eight
+workers.
 
 ## 12. Design §3 checklist
 
