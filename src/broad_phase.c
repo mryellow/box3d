@@ -647,6 +647,14 @@ typedef struct b3CrossPass
 // Awake against static, kinematic and sleeping, then sleeping against static and kinematic
 #define B3_CROSS_PASS_COUNT 5
 
+// A step whose moved proxies are few has pair work of a few microseconds, and a task costs more
+// than that to dispatch and join at high worker counts. Below this much work, counting each cross
+// seed and each moved sibling pair as one unit, the passes run on the calling thread. The pair keys
+// are sorted before contacts are created, so the contacts are the same either way.
+#ifndef B3_INLINE_PAIR_WORK
+#define B3_INLINE_PAIR_WORK 64
+#endif
+
 typedef struct b3CrossContext
 {
 	b3World* world;
@@ -789,8 +797,17 @@ void b3UpdateBroadPhasePairs( b3World* world )
 		b3GatherCrossPass( &crossContext, 3, sleepingTree, bp->trees + b3_staticBody, crossSeeds, &seedCount, checkCompounds );
 		b3GatherCrossPass( &crossContext, 4, sleepingTree, bp->trees + b3_kinematicBody, crossSeeds, &seedCount, false );
 
+		bool runInline = seedCount + dynamicMoveCount <= B3_INLINE_PAIR_WORK;
+
 		// Collide the trees against each other.
-		b3ParallelFor( world, &b3CrossPairsTask, seedCount, 1, &crossContext, "cross pairs" );
+		if ( runInline )
+		{
+			b3CrossPairsTask( 0, seedCount, 0, &crossContext );
+		}
+		else
+		{
+			b3ParallelFor( world, &b3CrossPairsTask, seedCount, 1, &crossContext, "cross pairs" );
+		}
 
 		// Collide the awake dynamic tree against itself.
 		if ( dynamicMoveCount > 0 )
@@ -800,7 +817,15 @@ void b3UpdateBroadPhasePairs( b3World* world )
 				.nodes = dynamicTree->nodes,
 				.siblingIndices = bp->movedSiblings,
 			};
-			b3ParallelFor( world, &b3SelfPairsTask, dynamicMoveCount, 64, &selfContext, "self pairs" );
+
+			if ( runInline )
+			{
+				b3SelfPairsTask( 0, dynamicMoveCount, 0, &selfContext );
+			}
+			else
+			{
+				b3ParallelFor( world, &b3SelfPairsTask, dynamicMoveCount, 64, &selfContext, "self pairs" );
+			}
 		}
 	}
 

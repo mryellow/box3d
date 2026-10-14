@@ -144,6 +144,29 @@ wake little, and `rain`, whose islands are small, are unchanged within the run-t
 recovers most of what the tree split gave up to `main` on `sleep` at high thread counts (§4 of
 `20261014-003-benchmark-main-vs-master-linux.md` has the earlier comparison).
 
+### Pair passes inline when the work is small
+
+At eight workers on `sleeping_grid` the pair update did 1.2 ms of traversal over a run and cost
+42 ms, against 25 ms on `main`: every cross seed is a task of its own, and the split gathers five
+passes and the parked leaves double the seeds, so a step whose pair work is a few microseconds
+woke worker threads for a handful of tasks. `b3UpdateBroadPhasePairs` now runs the cross passes
+and the self pass on the calling thread when the seed count plus the moved sibling pair count is
+at or below `B3_INLINE_PAIR_WORK` (64). The pair keys are sorted before contacts are created, so
+the contacts are the same either way.
+
+Measured against `main` (`8128d74` with the scene cherry-picked), three rotated rounds of
+`benchmark -t=8 -r=4`, best of four, ms per run:
+
+| Threads | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| main | 57.5 | 75.3 | 91.0 | 96.0 | 105.9 | 111.9 | 117.0 | 122.0 |
+| branch | 19.0 | 39.8 | 51.4 | 64.4 | 83.9 | 89.9 | 96.0 | 100.7 |
+| change | -67% | -47% | -44% | -33% | -21% | -20% | -18% | -17% |
+
+Every round agreed within a point. `sleep` and `rain` have pair work above the threshold on most
+steps and are unchanged within the drift. A threshold of 16 leaves this scene's forty-odd units
+parallel and loses the gain; 256 measures the same as 64 on both scenes, so the lower value stays.
+
 ## 6. Provenance
 
 - **Why the parked leaf and not a wake on every write.** Waking on shape creation would defeat
