@@ -54,6 +54,26 @@ static int b3AllocateSiblingPair( b3DynamicTree* tree )
 	return pair;
 }
 
+// Grow the node array so this many pairs can be bump allocated without another growth
+static void b3ReserveSiblingPairs( b3DynamicTree* tree, int pairCount )
+{
+	int needed = tree->nodeEnd + 2 * pairCount;
+	if ( needed <= tree->nodeCapacity )
+	{
+		return;
+	}
+
+	int oldCapacity = tree->nodeCapacity;
+	int newCapacity = b3MaxInt( needed, oldCapacity + ( oldCapacity >> 1 ) );
+	newCapacity += newCapacity & 1;
+	tree->nodes = B3_GROW_ZERO( tree->nodes, oldCapacity, newCapacity );
+	tree->parents = B3_GROW_ZERO( tree->parents, oldCapacity, newCapacity );
+	tree->nodeCapacity = newCapacity;
+
+	b3Free( tree->swapNodes, oldCapacity * sizeof( b3TreeNode ) );
+	tree->swapNodes = NULL;
+}
+
 static void b3FreePair( b3DynamicTree* tree, int pair )
 {
 	B3_ASSERT( ( pair & 1 ) == 0 && 2 <= pair && pair < tree->nodeEnd );
@@ -1978,6 +1998,193 @@ static void b3BuildTree( b3DynamicTree* tree, int leafCount )
 // Rebuild the stale parts of the tree. The entire tree is put into DFS order. This makes
 // refitting much faster. This is done async with threading, so the cost is hidden.
 // Not safe to access tree during this operation.
+// The build scratch holds this many build leaves
+static void b3EnsureRebuildCapacity( b3DynamicTree* tree, int leafCount )
+{
+	if ( leafCount > tree->rebuildCapacity )
+	{
+		int oldCapacity = tree->rebuildCapacity;
+		int newCapacity = leafCount + leafCount / 2;
+
+		b3Free( tree->leafIndices, oldCapacity * sizeof( int32_t ) );
+		tree->leafIndices = (int32_t*)b3Alloc( newCapacity * sizeof( int32_t ) );
+
+		b3Free( tree->leafNodes, oldCapacity * sizeof( b3TreeNode ) );
+		tree->leafNodes = (b3TreeNode*)b3Alloc( newCapacity * sizeof( b3TreeNode ) );
+
+#if B3_TREE_HEURISTIC == 0
+		b3Free( tree->leafCenters, oldCapacity * sizeof( b3Vec3 ) );
+		tree->leafCenters = (b3Vec3*)b3Alloc( newCapacity * sizeof( b3Vec3 ) );
+#else
+		b3Free( tree->leafBoxes, oldCapacity * sizeof( b3AABB ) );
+		tree->leafBoxes = (b3AABB*)b3Alloc( newCapacity * sizeof( b3AABB ) );
+		b3Free( tree->binIndices, oldCapacity * sizeof( int32_t ) );
+		tree->binIndices = (int32_t*)b3Alloc( newCapacity * sizeof( int32_t ) );
+#endif
+		tree->rebuildCapacity = newCapacity;
+	}
+}
+
+// Build the leaves of the build scratch into a subtree rooted at the given live node slot. Pairs
+// come from the live allocator, so the free list is used and the array is left out of DFS order.
+// The caller reserved the pairs, so the node array does not move during the build.
+static void b3BuildSubtree( b3DynamicTree* tree, int leafCount, int rootIndex )
+{
+	const b3TreeNode* leaves = tree->leafNodes;
+	int* leafIndices = tree->leafIndices;
+#if B3_TREE_HEURISTIC == 0
+	b3Vec3* leafCenters = tree->leafCenters;
+#else
+	b3AABB* leafBoxes = tree->leafBoxes;
+	int* binIndices = tree->binIndices;
+#endif
+
+	b3TreeNode* nodes = tree->nodes;
+	int32_t* parents = tree->parents;
+
+	if ( leafCount == 1 )
+	{
+		b3TreeNode leaf = leaves[leafIndices[0]];
+		nodes[rootIndex] = leaf;
+		tree->proxies[b3GetProxyId( &leaf )].node = rootIndex;
+		return;
+	}
+
+	b3RebuildItem stack[B3_TREE_STACK_SIZE];
+	int top = 0;
+
+	stack[0].nodeIndex = rootIndex;
+	stack[0].pair = b3AllocateSiblingPair( tree );
+	stack[0].childCount = -1;
+	stack[0].startIndex = 0;
+	stack[0].endIndex = leafCount;
+#if B3_TREE_HEURISTIC == 0
+	stack[0].splitIndex = b3PartitionMid( leafIndices, leafCenters, leafCount );
+#else
+	stack[0].splitIndex = b3PartitionSAH( leafIndices, binIndices, leafBoxes, leafCount );
+#endif
+	B3_ASSERT( nodes == tree->nodes );
+	parents[stack[0].pair] = rootIndex;
+	parents[stack[0].pair + 1] = rootIndex;
+
+	while ( true )
+	{
+		b3RebuildItem* item = stack + top;
+		item->childCount += 1;
+
+		if ( item->childCount == 2 )
+		{
+			nodes[item->nodeIndex] = b3MakeInternalNode( nodes, item->pair );
+			if ( top == 0 )
+			{
+				break;
+			}
+
+			top -= 1;
+			continue;
+		}
+
+		int slot = item->childCount;
+		int startIndex = slot == 0 ? item->startIndex : item->splitIndex;
+		int endIndex = slot == 0 ? item->splitIndex : item->endIndex;
+		int count = endIndex - startIndex;
+		B3_ASSERT( count > 0 );
+
+		int nodeIndex = item->pair + slot;
+		if ( count == 1 )
+		{
+			b3TreeNode leaf = leaves[leafIndices[startIndex]];
+			nodes[nodeIndex] = leaf;
+			tree->proxies[b3GetProxyId( &leaf )].node = nodeIndex;
+			continue;
+		}
+
+		B3_ASSERT( top < B3_TREE_STACK_SIZE - 1 );
+
+		top += 1;
+		b3RebuildItem* newItem = stack + top;
+		newItem->nodeIndex = nodeIndex;
+		newItem->pair = b3AllocateSiblingPair( tree );
+		B3_ASSERT( nodes == tree->nodes );
+		parents[newItem->pair] = nodeIndex;
+		parents[newItem->pair + 1] = nodeIndex;
+		newItem->childCount = -1;
+		newItem->startIndex = startIndex;
+		newItem->endIndex = endIndex;
+		newItem->splitIndex = startIndex;
+#if B3_TREE_HEURISTIC == 0
+		newItem->splitIndex += b3PartitionMid( leafIndices + startIndex, leafCenters + startIndex, count );
+#else
+		newItem->splitIndex += b3PartitionSAH( leafIndices + startIndex, binIndices + startIndex, leafBoxes + startIndex, count );
+#endif
+	}
+}
+
+void b3DynamicTree_CreateProxies( b3DynamicTree* tree, const b3TreeProxyDef* defs, int count, int* proxyIds )
+{
+	B3_ASSERT( count > 0 );
+
+	if ( count == 1 )
+	{
+		bool shouldRotate = true;
+		proxyIds[0] = b3CreateTreeProxyInternal( tree, defs[0].aabb, defs[0].categoryBits, defs[0].userData, defs[0].markMoved,
+												 shouldRotate );
+		return;
+	}
+
+	b3EnsureRebuildCapacity( tree, count );
+
+	// The subtree has count - 1 internal nodes, each above one pair, and the join adds one pair
+	b3ReserveSiblingPairs( tree, count );
+
+	b3TreeNode* leaves = tree->leafNodes;
+	int* leafIndices = tree->leafIndices;
+	for ( int i = 0; i < count; ++i )
+	{
+		const b3TreeProxyDef* def = defs + i;
+		B3_VALIDATE( b3IsValidAABB( def->aabb ) );
+
+		int proxyId = b3AllocateProxy( tree );
+		b3TreeProxy* proxy = tree->proxies + proxyId;
+		proxy->categoryBits = def->categoryBits;
+		proxy->userData = def->userData;
+		proxyIds[i] = proxyId;
+
+		leaves[i] = b3MakeLeafNode( def->aabb, proxyId, def->userData, def->markMoved );
+		leafIndices[i] = i;
+#if B3_TREE_HEURISTIC == 0
+		tree->leafCenters[i] = b3AABB_Center( def->aabb );
+#else
+		tree->leafBoxes[i] = def->aabb;
+#endif
+	}
+
+	// The subtree takes the root slot of an empty tree. Otherwise the old root moves down into a
+	// new pair beside the subtree, as an insert moves its sibling, and the root is made over both.
+	int rootIndex = B3_ROOT_NODE;
+	int joinPair = B3_NULL_INDEX;
+	if ( b3IsEmptyNode( tree->nodes + B3_ROOT_NODE ) == false )
+	{
+		joinPair = b3AllocateSiblingPair( tree );
+		tree->nodes[joinPair] = tree->nodes[B3_ROOT_NODE];
+		tree->parents[joinPair] = B3_ROOT_NODE;
+		tree->parents[joinPair + 1] = B3_ROOT_NODE;
+		b3LinkChildren( tree, joinPair );
+		rootIndex = joinPair + 1;
+	}
+
+	b3BuildSubtree( tree, count, rootIndex );
+
+	if ( joinPair != B3_NULL_INDEX )
+	{
+		tree->nodes[B3_ROOT_NODE] = b3MakeInternalNode( tree->nodes, joinPair );
+	}
+
+	tree->dfsOrdered = false;
+
+	b3DynamicTree_Validate( tree );
+}
+
 int b3DynamicTree_Rebuild( b3DynamicTree* tree, bool fullBuild )
 {
 	int proxyCount = tree->proxyCount;
@@ -1999,28 +2206,7 @@ int b3DynamicTree_Rebuild( b3DynamicTree* tree, bool fullBuild )
 		tree->swapNodes = b3AllocZero( tree->nodeCapacity * sizeof( b3TreeNode ) );
 	}
 
-	if ( proxyCount > tree->rebuildCapacity )
-	{
-		int oldCapacity = tree->rebuildCapacity;
-		int newCapacity = proxyCount + proxyCount / 2;
-
-		b3Free( tree->leafIndices, oldCapacity * sizeof( int32_t ) );
-		tree->leafIndices = (int32_t*)b3Alloc( newCapacity * sizeof( int32_t ) );
-
-		b3Free( tree->leafNodes, oldCapacity * sizeof( b3TreeNode ) );
-		tree->leafNodes = (b3TreeNode*)b3Alloc( newCapacity * sizeof( b3TreeNode ) );
-
-#if B3_TREE_HEURISTIC == 0
-		b3Free( tree->leafCenters, oldCapacity * sizeof( b3Vec3 ) );
-		tree->leafCenters = (b3Vec3*)b3Alloc( newCapacity * sizeof( b3Vec3 ) );
-#else
-		b3Free( tree->leafBoxes, oldCapacity * sizeof( b3AABB ) );
-		tree->leafBoxes = (b3AABB*)b3Alloc( newCapacity * sizeof( b3AABB ) );
-		b3Free( tree->binIndices, oldCapacity * sizeof( int32_t ) );
-		tree->binIndices = (int32_t*)b3Alloc( newCapacity * sizeof( int32_t ) );
-#endif
-		tree->rebuildCapacity = newCapacity;
-	}
+	b3EnsureRebuildCapacity( tree, proxyCount );
 
 	int* leafIndices = tree->leafIndices;
 	b3TreeNode* leaves = tree->leafNodes;

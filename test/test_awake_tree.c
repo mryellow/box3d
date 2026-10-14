@@ -1261,3 +1261,184 @@ int SleepingTreeHeightTest( void )
 	RUN_SUBTEST( SleepingTreeHeightWorldCase );
 	return 0;
 }
+
+// A drain that moves at least B3_BULK_INSERT_COUNT proxies into one tree builds them as one subtree
+// joined beside the root. An island of forty touching boxes sleeps and wakes through that path, its
+// parked leaves return through it with their marks consumed, and the joins' growth of the root
+// height is bounded in both trees by their full rebuilds.
+
+#define BULK_ROW_COUNT 40
+
+// A wide static box whose top face is at y = 0
+static b3BodyId CreateWideGround( b3WorldId worldId, float halfWidth )
+{
+	b3BodyDef bodyDef = b3DefaultBodyDef();
+	bodyDef.position = (b3Pos){ 0.0, -0.5, 0.0 };
+	b3BodyId groundId = b3CreateBody( worldId, &bodyDef );
+
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	b3BoxHull box = b3MakeBoxHull( halfWidth, 0.5f, halfWidth );
+	b3CreateHullShape( groundId, &shapeDef, &box.base );
+	return groundId;
+}
+
+// A row of touching boxes resting on the ground along x, centred on x = 0, at the given z, awake
+static void CreateRow( b3WorldId worldId, int count, float z, b3BodyId* bodies )
+{
+	float extent = 0.5f;
+	for ( int i = 0; i < count; ++i )
+	{
+		double x = 2.0 * extent * ( i - 0.5 * ( count - 1 ) );
+		bodies[i] = CreateBox( worldId, b3_dynamicBody, (b3Pos){ x, extent, z }, extent, true );
+	}
+}
+
+static int BulkIslandCase( void )
+{
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	worldDef.workerCount = 1;
+	worldDef.enableSleep = true;
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+	b3World* world = b3GetWorldFromId( worldId );
+	b3DynamicTree* sleepingTree = world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE;
+	b3DynamicTree* awakeTree = world->broadPhase.trees + b3_dynamicBody;
+
+	b3BodyId groundId = CreateWideGround( worldId, 40.0f );
+	b3BodyId bodies[BULK_ROW_COUNT];
+	CreateRow( worldId, BULK_ROW_COUNT, 0.0f, bodies );
+
+	// Two steps link the row into one island through its touching contacts
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	ENSURE( b3GetBodyFullId( world, bodies[0] )->islandId == b3GetBodyFullId( world, bodies[BULK_ROW_COUNT - 1] )->islandId );
+
+	// The island sleeps: forty proxies built into the sleeping tree as one subtree
+	b3Body_SetAwake( bodies[0], false );
+	ENSURE( b3World_GetAwakeBodyCount( worldId ) == 0 );
+	ENSURE( sleepingTree->proxyCount == BULK_ROW_COUNT );
+	ENSURE( awakeTree->proxyCount == 0 );
+	ENSURE( b3HasTreeMoved( sleepingTree ) == false );
+	for ( int i = 0; i < BULK_ROW_COUNT; ++i )
+	{
+		ENSURE( GetProxyType( world, bodies[i] ) == B3_SLEEPING_PROXY_TYPE );
+	}
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	// Lifted enough to leave the fat box but still over the ground's. The first move wakes the
+	// island, forty proxies built into the awake tree; every move marks its leaf.
+	float lift = 0.15f;
+	for ( int i = 0; i < BULK_ROW_COUNT; ++i )
+	{
+		b3Pos position = b3Body_GetPosition( bodies[i] );
+		position.y += lift;
+		b3Body_SetTransform( bodies[i], position, b3Quat_identity );
+	}
+	ENSURE( b3World_GetAwakeBodyCount( worldId ) == BULK_ROW_COUNT );
+	ENSURE( awakeTree->proxyCount == BULK_ROW_COUNT );
+	ENSURE( sleepingTree->proxyCount == 0 );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	// Asleep again at once with every leaf marked: all forty park in the awake tree
+	b3Body_SetAwake( bodies[0], false );
+	ENSURE( b3World_GetAwakeBodyCount( worldId ) == 0 );
+	ENSURE( awakeTree->proxyCount == BULK_ROW_COUNT );
+	ENSURE( world->broadPhase.migrationQueue.count == BULK_ROW_COUNT );
+	for ( int i = 0; i < BULK_ROW_COUNT; ++i )
+	{
+		ENSURE( GetProxyType( world, bodies[i] ) == b3_dynamicBody );
+		ENSURE( IsProxyMarked( world, bodies[i] ) );
+	}
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	// The step searches them, clears the marks and moves them asleep as one subtree. The ground
+	// contacts survived the sleep in the island's set, touching from before the lift, and the
+	// search found nothing new.
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	ENSURE( b3World_GetAwakeBodyCount( worldId ) == 0 );
+	ENSURE( world->broadPhase.migrationQueue.count == 0 );
+	ENSURE( sleepingTree->proxyCount == BULK_ROW_COUNT );
+	ENSURE( b3HasTreeMoved( sleepingTree ) == false );
+	for ( int i = 0; i < BULK_ROW_COUNT; ++i )
+	{
+		ENSURE( GetProxyType( world, bodies[i] ) == B3_SLEEPING_PROXY_TYPE );
+		ENSURE( IsProxyMarked( world, bodies[i] ) == false );
+		b3Contact* contact = FindContact( world, bodies[i], groundId );
+		ENSURE( contact != NULL );
+		ENSURE( contact->setIndex != b3_awakeSet );
+	}
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3DestroyWorld( worldId );
+	return 0;
+}
+
+#define BULK_CHAIN_ROWS ( B3_SLEEPING_TREE_MAX_HEIGHT + 16 )
+#define BULK_CHAIN_ROW_LENGTH 16
+
+// Eighty islands of sixteen boxes sleep one after another with no step between, so each join
+// stacks on the last and the sleeping tree's height trigger fires; then they wake the same way and
+// the awake tree's guard fires.
+static int BulkChainCase( void )
+{
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	worldDef.workerCount = 1;
+	worldDef.enableSleep = true;
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+	b3World* world = b3GetWorldFromId( worldId );
+	b3DynamicTree* sleepingTree = world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE;
+	b3DynamicTree* awakeTree = world->broadPhase.trees + b3_dynamicBody;
+
+	// Rows a box apart along z, so each is its own island
+	CreateWideGround( worldId, 2.0f * BULK_CHAIN_ROWS );
+	static b3BodyId rows[BULK_CHAIN_ROWS][BULK_CHAIN_ROW_LENGTH];
+	for ( int j = 0; j < BULK_CHAIN_ROWS; ++j )
+	{
+		CreateRow( worldId, BULK_CHAIN_ROW_LENGTH, 2.0f * ( j - 0.5f * ( BULK_CHAIN_ROWS - 1 ) ), rows[j] );
+	}
+
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+
+	int maxSleepingHeight = 0;
+	for ( int j = 0; j < BULK_CHAIN_ROWS; ++j )
+	{
+		b3Body_SetAwake( rows[j][0], false );
+		ENSURE( b3Body_IsAwake( rows[j][BULK_CHAIN_ROW_LENGTH - 1] ) == false );
+		ENSURE( sleepingTree->proxyCount == ( j + 1 ) * BULK_CHAIN_ROW_LENGTH );
+		int height = b3DynamicTree_GetHeight( sleepingTree );
+		maxSleepingHeight = b3MaxInt( maxSleepingHeight, height );
+		ENSURE( height <= B3_SLEEPING_TREE_MAX_HEIGHT );
+	}
+	b3Counters counters = b3World_GetCounters( worldId );
+	printf( "  sleeping tree: %d rebuilds, max height %d\n", counters.sleepingTreeRebuildCount, maxSleepingHeight );
+	ENSURE( counters.sleepingTreeRebuildCount > 0 );
+	ENSURE( b3World_GetAwakeBodyCount( worldId ) == 0 );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	int maxAwakeHeight = 0;
+	for ( int j = 0; j < BULK_CHAIN_ROWS; ++j )
+	{
+		b3Body_SetAwake( rows[j][0], true );
+		ENSURE( awakeTree->proxyCount == ( j + 1 ) * BULK_CHAIN_ROW_LENGTH );
+		int height = b3DynamicTree_GetHeight( awakeTree );
+		maxAwakeHeight = b3MaxInt( maxAwakeHeight, height );
+		ENSURE( height <= B3_SLEEPING_TREE_MAX_HEIGHT );
+	}
+	printf( "  awake tree: max height %d\n", maxAwakeHeight );
+	ENSURE( sleepingTree->proxyCount == 0 );
+	ENSURE( b3World_GetAwakeBodyCount( worldId ) == BULK_CHAIN_ROWS * BULK_CHAIN_ROW_LENGTH );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3DestroyWorld( worldId );
+	return 0;
+}
+
+int BulkMigrationTest( void )
+{
+	RUN_SUBTEST( BulkIslandCase );
+	RUN_SUBTEST( BulkChainCase );
+	return 0;
+}

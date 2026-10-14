@@ -3908,8 +3908,7 @@ void b3ValidateSolverSets( b3World* world )
 					B3_ASSERT( body->setIndex == setIndex );
 					B3_ASSERT( body->localIndex == i );
 
-					// The parked flag lives on the body only
-					uint32_t syncedFlags = body->flags & ~( b3_isFast | b3_bodyTransientFlags | b3_proxyParked );
+					uint32_t syncedFlags = body->flags & ~( b3_isFast | b3_bodyTransientFlags | b3_bodyOnlyFlags );
 					B3_ASSERT( ( bodySim->flags & syncedFlags ) == syncedFlags );
 
 					b3BodyState* bodyState = b3GetBodyState( world, body );

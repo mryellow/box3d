@@ -42,6 +42,9 @@ void b3WakeSolverSet( b3World* world, int setIndex )
 
 	b3Body* bodies = world->bodies.data;
 
+	// The set's proxies are placed together, as one subtree when the set is large
+	b3BroadPhase_BeginMigrationBatch( &world->broadPhase );
+
 	int bodyCount = set->bodySims.count;
 	for ( int i = 0; i < bodyCount; ++i )
 	{
@@ -63,7 +66,7 @@ void b3WakeSolverSet( b3World* world, int setIndex )
 
 		b3BodyState* state = b3Array_Emplace( awakeSet->bodyStates );
 		*state = b3_identityBodyState;
-		state->flags = body->flags & ~b3_proxyParked;
+		state->flags = body->flags & ~b3_bodyOnlyFlags;
 
 		// Move non-touching contacts from disabled set to awake set.
 		int encodedBodySimIndex = body->localIndex;
@@ -128,6 +131,8 @@ void b3WakeSolverSet( b3World* world, int setIndex )
 			}
 		}
 	}
+
+	b3BroadPhase_EndMigrationBatch( world );
 
 	// Transfer touching contacts from sleeping set to constraint graph.
 	{
@@ -218,6 +223,8 @@ void b3TrySleepIsland( b3World* world, int islandId )
 
 	// move awake bodies to sleeping set
 	// this shuffles around bodies in the awake set
+	// The island's proxies are placed together, as one subtree when the island is large
+	b3BroadPhase_BeginMigrationBatch( &world->broadPhase );
 	{
 		for ( int i = 0; i < island->bodies.count; ++i )
 		{
@@ -336,6 +343,8 @@ void b3TrySleepIsland( b3World* world, int islandId )
 			}
 		}
 	}
+
+	b3BroadPhase_EndMigrationBatch( world );
 
 	// move touching contacts to sleeping set
 	// this shuffles contacts in the awake set
@@ -611,7 +620,7 @@ void b3TransferBody( b3World* world, b3SolverSet* targetSet, b3SolverSet* source
 	{
 		b3BodyState* state = b3Array_Emplace( targetSet->bodyStates );
 		*state = b3_identityBodyState;
-		state->flags = body->flags & ~b3_proxyParked;
+		state->flags = body->flags & ~b3_bodyOnlyFlags;
 	}
 
 	body->setIndex = targetSet->setIndex;

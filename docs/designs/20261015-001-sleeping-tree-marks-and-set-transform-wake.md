@@ -103,7 +103,48 @@ had moved, and a gather over the marked nodes otherwise. The win the preflight's
 expected, two passes removed, does not appear in the step time: the passes stay as cross passes,
 gated by the other side, and the per-step saving is the self pass's root test.
 
-## 5. Provenance
+## 5. Migration cost: no rotation, bulk inserts
+
+Measured after the change above, the `sleep` scene (ten pyramids of 210 bodies that sleep and are
+woken one per step) spent 42 ms of a 340 ms eight-worker run moving 37,800 proxies between the
+trees, 34 ms of it in inserts. The inserts within one tree cannot be spread across threads, since
+each one mutates the structure the next one descends, so the serial work is made smaller instead:
+
+- **An insert into the awake tree never rotates.** A migration's remove leaves that tree
+  unordered, so the next step rebuilds it in full from its leaves on the tree task and any rotation
+  made by the insert is discarded. A sleep's insert into the sleeping tree still rotates, since
+  nothing rebuilds that tree on a schedule. Measured 1.5% to 3.4% on `sleep` across the thread
+  counts; inserts fell from 34 ms to 26 ms.
+- **A drain that inserts sixteen or more proxies into one tree builds them as one subtree.**
+  `b3DynamicTree_CreateProxies` (`dynamic_tree.c`) builds the batch with the rebuild's partition
+  into the live node array and joins the subtree beside the old root by one new node, O(n log n)
+  in the batch and independent of the tree, with no sibling search per leaf. Sleep and wake open a
+  migration batch around their body loops (`b3BroadPhase_BeginMigrationBatch`, `solver_set.c`), so
+  a whole set is placed by one drain; the drain gathers every move, removes every leaf, then
+  inserts per destination tree (`b3PlaceBodies`, `broad_phase.c`). Each join raises the root by
+  one. The sleeping tree's height trigger bounds that as it bounds every other insert; the awake
+  tree's step rebuild keeps unmarked subtrees whole, so joins made while nothing below them moves
+  would stack up, and a full build at the same threshold bounds it there, keeping every mark.
+  `BulkMigrationTest` drives both trees past the threshold and checks the parked leaves of a
+  forty-box island return through the bulk path with their marks consumed.
+
+Measured against master (`4d46738`, which has neither change), four rounds of
+`benchmark -t=8 -r=4 -b=sleep` with the side order alternated each round, best of four per thread
+count, ms per 300-step run:
+
+| Threads | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+|---|---|---|---|---|---|---|---|---|
+| master | 941 | 566 | 435 | 374 | 340 | 329 | 331 | 334 |
+| both changes | 943 | 542 | 408 | 343 | 308 | 295 | 298 | 306 |
+| change | +0.2% | -4.3% | -6.2% | -8.3% | -9.6% | -10.3% | -9.9% | -8.4% |
+
+The migration total on `sleep` at eight workers fell from 42 ms to 11 ms, every one of the 37,800
+proxies going through the bulk path. `sleeping_grid`, whose lifts move four proxies per step and
+wake little, and `rain`, whose islands are small, are unchanged within the run-to-run noise. This
+recovers most of what the tree split gave up to `main` on `sleep` at high thread counts (§4 of
+`20261014-003-benchmark-main-vs-master-linux.md` has the earlier comparison).
+
+## 6. Provenance
 
 - **Why the parked leaf and not a wake on every write.** Waking on shape creation would defeat
   `isAwake = false`; waking on a filter change on a body no contact touches is a behaviour change
@@ -116,3 +157,11 @@ gated by the other side, and the per-step saving is the self pass's root test.
 - **Why the parked return insert does not rotate.** Measured: the rotating insert into the
   ten-thousand-leaf sleeping tree cost about 8 µs each, four per step in the grid scene, against
   about 1 µs unrotated; the base's move did not rotate either.
+- **Why the bulk path joins beside the root rather than rebuilding.** A full rebuild of the
+  destination is O(n log n) in the whole tree, ten thousand leaves for the sleeping tree, where
+  the batch is two hundred; the partial rebuild copies every retained subtree and is no cheaper.
+  The join is O(1) after the batch's own build, and the height triggers pay for a full build only
+  when the joins have stacked up.
+- **Why not parallel inserts.** Each insert reads the node array, the parent array and the free
+  lists the previous insert changed; a lock per insert serialises them again, and a tree built
+  for concurrent inserts is another data structure.

@@ -109,6 +109,22 @@ static inline bool b3NeedsRebuild( const b3DynamicTree* tree )
 
 int b3CreateTreeProxyInternal( b3DynamicTree* tree, b3AABB aabb, uint64_t categoryBits, uint64_t userData, bool markMoved,
 							   bool shouldRotate );
+
+// One leaf of a bulk create
+typedef struct b3TreeProxyDef
+{
+	b3AABB aabb;
+	uint64_t categoryBits;
+	uint64_t userData;
+	bool markMoved;
+} b3TreeProxyDef;
+
+// Create many proxies at once. The leaves are built into one subtree with the rebuild's partition
+// and the subtree is joined beside the old root by one new node, so the cost is O(n log n) in the
+// count and does not grow with the tree, and the root height rises by at most one over the larger
+// of the old tree and the new subtree. The array is left out of DFS order. The ids are written in
+// order of the defs.
+void b3DynamicTree_CreateProxies( b3DynamicTree* tree, const b3TreeProxyDef* defs, int count, int* proxyIds );
 void b3DynamicTree_MoveProxyInternal( b3DynamicTree* tree, int proxyId, b3AABB aabb, bool markMoved );
 
 void b3DynamicTree_MarkProxyMovedSerial( b3DynamicTree* tree, int proxyId );

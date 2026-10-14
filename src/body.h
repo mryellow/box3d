@@ -65,8 +65,15 @@ enum b3BodyFlags
 	b3_dirtyMass = 0x00008000,
 
 	// This sleeping dynamic body has a marked proxy waiting in the awake tree for the next pair
-	// update. Set and cleared by b3PlaceBodyProxies. Only lives on b3Body.
+	// update. Set and cleared by the broad-phase placement. Only lives on b3Body.
 	b3_proxyParked = 0x00010000,
+
+	// This body's proxies are in flight within one broad-phase placement call, so a second entry
+	// for it in the same batch is skipped. Only lives on b3Body, and only during that call.
+	b3_proxyMoving = 0x00020000,
+
+	// The flags that live on b3Body only and are never synced to b3BodySim or b3BodyState
+	b3_bodyOnlyFlags = b3_proxyParked | b3_proxyMoving,
 
 	// All lock flags
 	b3_allLocks = b3_lockLinearX | b3_lockLinearY | b3_lockLinearZ | b3_lockAngularX | b3_lockAngularY | b3_lockAngularZ,

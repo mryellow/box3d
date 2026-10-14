@@ -49,6 +49,10 @@ typedef struct b3BroadPhase
 	// so a body replaced, destroyed or reused meanwhile is placed by what it is then.
 	b3Array( int ) migrationQueue;
 
+	// Count of the open migration batches. Sleep and wake open one around their body loops so the
+	// whole set is placed by one drain, which inserts a large set as one built subtree.
+	int migrationBatchDepth;
+
 	// Tracks shape pairs that have a b3Contact
 	// todo pairSet can grow quite large on the first time step and remain large
 	b3HashSet pairSet;
@@ -77,6 +81,11 @@ void b3BroadPhase_MigrateBody( b3World* world, int bodyId );
 // Place every queued body's proxies by its live set, type and marks, keep the bodies still waiting
 // and test the sleeping tree's height
 void b3BroadPhase_DrainMigrations( b3World* world );
+
+// Between these, b3BroadPhase_MigrateBody queues. The outermost end drains when no traversal is
+// open, so a set's bodies are placed together and a large set's inserts are built as one subtree.
+void b3BroadPhase_BeginMigrationBatch( b3BroadPhase* bp );
+void b3BroadPhase_EndMigrationBatch( b3World* world );
 
 // One entry and exit pair wraps every call that walks the trees and can wake a body inside the
 // walk, around all of the call's walks. The outermost exit drains the queued migrations.
