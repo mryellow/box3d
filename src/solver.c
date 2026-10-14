@@ -2125,6 +2125,11 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 
 		b3ValidateNoMoved( &world->broadPhase );
 
+		// Bodies woken by the collide's begin touch events have their proxies placed now, with the
+		// rebuild joined and before finalize runs continuous collision, so a bullet finds them in
+		// the awake tree. The step's traversal is still open, so this is the one mid-step drain.
+		b3BroadPhase_DrainMigrations( world );
+
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
 		b3ParallelFor( world, &b3FinalizeBodiesTask, awakeBodyCount, 8, stepContext, "ccd" );
 

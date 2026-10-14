@@ -26,6 +26,7 @@
 #endif
 
 extern int AllocatorTest( void );
+extern int AwakeTreeMigrationTest( void );
 extern int BitTest( void );
 extern int BodyTest( void );
 extern int BodyQueryTest( void );
@@ -58,10 +59,14 @@ extern int RecordingTest( void );
 extern int RestitutionTest( void );
 extern int SeparatingAxisTest( void );
 extern int ShapeTest( void );
+extern int SleepingExplodeTest( void );
 extern int SleepingProxyTreeTest( void );
 extern int SleepingTreePairTest( void );
+extern int SleepingWriterTest( void );
 extern int TableTest( void );
 extern int TreeOrderHelperTest( void );
+extern int WakeFromCallbackTest( void );
+extern int WakeUnderRebuildTest( void );
 extern int WorldTest( void );
 
 // Filter-aware test runner: skips tests that don't match the filter
@@ -114,6 +119,7 @@ int main( int argc, char** argv )
 	printf( "======================================\n" );
 
 	MAYBE_RUN_TEST( AllocatorTest );
+	MAYBE_RUN_TEST( AwakeTreeMigrationTest );
 	MAYBE_RUN_TEST( BitTest );
 	MAYBE_RUN_TEST( BodyTest );
 	MAYBE_RUN_TEST( BodyQueryTest );
@@ -146,10 +152,14 @@ int main( int argc, char** argv )
 	MAYBE_RUN_TEST( RestitutionTest );
 	MAYBE_RUN_TEST( SeparatingAxisTest );
 	MAYBE_RUN_TEST( ShapeTest );
+	MAYBE_RUN_TEST( SleepingExplodeTest );
 	MAYBE_RUN_TEST( SleepingProxyTreeTest );
 	MAYBE_RUN_TEST( SleepingTreePairTest );
+	MAYBE_RUN_TEST( SleepingWriterTest );
 	MAYBE_RUN_TEST( TableTest );
 	MAYBE_RUN_TEST( TreeOrderHelperTest );
+	MAYBE_RUN_TEST( WakeFromCallbackTest );
+	MAYBE_RUN_TEST( WakeUnderRebuildTest );
 	MAYBE_RUN_TEST( WorldTest );
 
 	printf( "======================================\n" );

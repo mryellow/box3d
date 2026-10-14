@@ -42,6 +42,8 @@ void b3CreateBroadPhase( b3BroadPhase* bp, const b3Capacity* capacity )
 
 	bp->movedSiblings = NULL;
 	bp->sleepingTreeRebuildCount = 0;
+	bp->traversalDepth = 0;
+	b3Array_Create( bp->migrationQueue );
 }
 
 void b3DestroyBroadPhase( b3BroadPhase* bp )
@@ -52,18 +54,19 @@ void b3DestroyBroadPhase( b3BroadPhase* bp )
 	}
 
 	b3DestroySet( &bp->pairSet );
+	b3Array_Destroy( bp->migrationQueue );
 
 	memset( bp, 0, sizeof( b3BroadPhase ) );
 }
 
+// The caller decides the mark: an ordinary create marks every non-static leaf so its pairs are
+// found, and a migration carries the old leaf's bit so sleep and wake have no pair effect.
 int b3BroadPhase_CreateProxy( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aabb, uint64_t categoryBits, int shapeIndex,
-							  bool forcePairCreation )
+							  bool markMoved )
 {
 	B3_ASSERT( 0 <= proxyType && proxyType < B3_PROXY_TREE_COUNT );
 
-	bool mark = ( proxyType != b3_staticBody || forcePairCreation );
-
-	int proxyId = b3CreateTreeProxyInternal( bp->trees + proxyType, aabb, categoryBits, shapeIndex, mark );
+	int proxyId = b3CreateTreeProxyInternal( bp->trees + proxyType, aabb, categoryBits, shapeIndex, markMoved );
 	int proxyKey = B3_PROXY_KEY( proxyId, proxyType );
 	return proxyKey;
 }
@@ -927,6 +930,132 @@ int b3BroadPhase_GetShapeIndex( b3BroadPhase* bp, int proxyKey )
 	int proxyId = B3_PROXY_ID( proxyKey );
 
 	return (int)b3DynamicTree_GetUserData( bp->trees + typeIndex, proxyId );
+}
+
+b3BodyType b3BroadPhase_GetBodyProxyType( const b3Body* body )
+{
+	if ( body->type == b3_dynamicBody && body->setIndex >= b3_firstSleepingSet )
+	{
+		return B3_SLEEPING_PROXY_TYPE;
+	}
+
+	return body->type;
+}
+
+// A migration's remove changed a dynamic tree. The rebuild returns at once for an empty tree, so an
+// emptied tree has its node state reset here: root empty, bump index at 2, pair free list empty,
+// ordered. Its proxy slots, capacity and free list are kept. A remove keeps the order and marks
+// nothing, so when the awake tree stays non-empty its order flag is cleared and the step's rebuild
+// compacts the node array the sibling gather scans.
+static void b3SettleTreeAfterRemove( b3DynamicTree* tree, b3BodyType treeType )
+{
+	B3_ASSERT( treeType == b3_dynamicBody || treeType == B3_SLEEPING_PROXY_TYPE );
+
+	if ( tree->proxyCount == 0 )
+	{
+		tree->nodes[B3_ROOT_NODE] = b3MakeEmptyNode();
+		tree->nodes[B3_ROOT_NODE + 1] = b3MakeEmptyNode();
+		tree->parents[B3_ROOT_NODE] = B3_NULL_INDEX;
+		tree->parents[B3_ROOT_NODE + 1] = B3_NULL_INDEX;
+		tree->nodeEnd = 2;
+		tree->pairFreeList = B3_NULL_INDEX;
+		tree->dfsOrdered = true;
+	}
+	else if ( treeType == b3_dynamicBody )
+	{
+		tree->dfsOrdered = false;
+	}
+}
+
+// Place every proxy of a body in the tree its type and set imply. A proxy already there is left
+// alone, so a body replaced, destroyed or reused before a queued migration ran needs nothing
+// special: it is placed by what it is now. The migration carries each leaf's box, bits and moved
+// bit, so it changes which tree a proxy is in and nothing else. The box is the leaf's, not the
+// shape's fat AABB entry, which a bullet enlarge can leave smaller than the leaf.
+static void b3PlaceBodyProxies( b3World* world, b3Body* body )
+{
+	// The rebuild task reads the trees until it is joined, so no tree is written while it is out
+	B3_ASSERT( world->userTreeTask == NULL );
+
+	if ( body->setIndex == B3_NULL_INDEX || body->setIndex == b3_disabledSet )
+	{
+		return;
+	}
+
+	b3BroadPhase* bp = &world->broadPhase;
+	b3BodyType targetType = b3BroadPhase_GetBodyProxyType( body );
+
+	int shapeId = body->headShapeId;
+	while ( shapeId != B3_NULL_INDEX )
+	{
+		b3Shape* shape = b3Array_Get( world->shapes, shapeId );
+		shapeId = shape->nextShapeId;
+
+		int oldKey = shape->proxyKey;
+		B3_ASSERT( oldKey != B3_NULL_INDEX );
+		b3BodyType oldType = B3_PROXY_TYPE( oldKey );
+		if ( oldType == targetType )
+		{
+			continue;
+		}
+
+		b3DynamicTree* oldTree = bp->trees + oldType;
+		int oldProxyId = B3_PROXY_ID( oldKey );
+		b3AABB aabb = b3DynamicTree_GetAABB( oldTree, oldProxyId );
+		uint64_t categoryBits = b3DynamicTree_GetCategoryBits( oldTree, oldProxyId );
+		bool moved = b3IsNodeMoved( oldTree->nodes + oldTree->proxies[oldProxyId].node );
+
+		b3BroadPhase_DestroyProxy( bp, oldKey );
+		b3SettleTreeAfterRemove( oldTree, oldType );
+
+		shape->proxyKey = b3BroadPhase_CreateProxy( bp, targetType, aabb, categoryBits, shape->id, moved );
+	}
+}
+
+void b3BroadPhase_MigrateBody( b3World* world, int bodyId )
+{
+	b3BroadPhase* bp = &world->broadPhase;
+	if ( bp->traversalDepth == 0 )
+	{
+		b3PlaceBodyProxies( world, b3Array_Get( world->bodies, bodyId ) );
+	}
+	else
+	{
+		b3Array_Push( bp->migrationQueue, bodyId );
+	}
+}
+
+void b3BroadPhase_DrainMigrations( b3World* world )
+{
+	b3BroadPhase* bp = &world->broadPhase;
+
+	// A body queued twice is placed once and found in place the second time
+	int count = bp->migrationQueue.count;
+	for ( int i = 0; i < count; ++i )
+	{
+		int bodyId = bp->migrationQueue.data[i];
+		b3PlaceBodyProxies( world, b3Array_Get( world->bodies, bodyId ) );
+	}
+
+	b3Array_Clear( bp->migrationQueue );
+}
+
+void b3BroadPhase_BeginTraversal( b3BroadPhase* bp )
+{
+	bp->traversalDepth += 1;
+}
+
+void b3BroadPhase_EndTraversal( b3World* world )
+{
+	b3BroadPhase* bp = &world->broadPhase;
+	B3_ASSERT( bp->traversalDepth > 0 );
+	bp->traversalDepth -= 1;
+
+	// A query issued from another query's callback nests, so only the outermost exit drains
+	if ( bp->traversalDepth == 0 )
+	{
+		b3BroadPhase_DrainMigrations( world );
+	}
 }
 
 void b3ValidateBroadPhase( const b3BroadPhase* bp )

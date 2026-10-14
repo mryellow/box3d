@@ -1037,6 +1037,55 @@ static void b3Collide( b3StepContext* context )
 	b3TracyCZoneEnd( collide );
 }
 
+#if B3_ENABLE_VALIDATION
+
+// Every body's shapes carry the proxy code its type and set imply. This is exact only after the
+// step's exit drain, which is where it runs; b3ValidateSolverSets runs before queued migrations.
+static void b3ValidateProxyTrees( b3World* world )
+{
+	int setCount = world->solverSets.count;
+	for ( int setIndex = 0; setIndex < setCount; ++setIndex )
+	{
+		b3SolverSet* set = world->solverSets.data + setIndex;
+		if ( set->setIndex == B3_NULL_INDEX )
+		{
+			continue;
+		}
+
+		int bodyCount = set->bodySims.count;
+		for ( int i = 0; i < bodyCount; ++i )
+		{
+			b3Body* body = b3Array_Get( world->bodies, set->bodySims.data[i].bodyId );
+			B3_ASSERT( body->setIndex == setIndex );
+
+			int shapeId = body->headShapeId;
+			while ( shapeId != B3_NULL_INDEX )
+			{
+				b3Shape* shape = b3Array_Get( world->shapes, shapeId );
+				if ( setIndex == b3_disabledSet )
+				{
+					B3_ASSERT( shape->proxyKey == B3_NULL_INDEX );
+				}
+				else
+				{
+					B3_ASSERT( B3_PROXY_TYPE( shape->proxyKey ) == b3BroadPhase_GetBodyProxyType( body ) );
+				}
+
+				shapeId = shape->nextShapeId;
+			}
+		}
+	}
+}
+
+#else
+
+static void b3ValidateProxyTrees( b3World* world )
+{
+	B3_UNUSED( world );
+}
+
+#endif
+
 void b3World_Step( b3WorldId worldId, float timeStep, int subStepCount )
 {
 	b3World* world = b3GetUnlockedWorldFromId( worldId );
@@ -1048,6 +1097,9 @@ void b3World_Step( b3WorldId worldId, float timeStep, int subStepCount )
 	B3_REC( world, Step, worldId, timeStep, subStepCount );
 
 	world->locked = true;
+
+	// The step is one tree traversal: a wake inside it queues its proxy migration
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
 
 	b3TracyCZoneNC( world_step, "Step", b3_colorBox2DGreen, true );
 
@@ -1181,6 +1233,12 @@ void b3World_Step( b3WorldId worldId, float timeStep, int subStepCount )
 	world->endEventArrayIndex = 1 - world->endEventArrayIndex;
 	b3Array_Clear( world->sensorEndEvents[world->endEventArrayIndex] );
 	b3Array_Clear( world->contactEndEvents[world->endEventArrayIndex] );
+
+	// The sleep pass was the last thing the solve did, so its migrations drain here, before the
+	// step returns. Every dynamic proxy is then in the tree its body's set implies.
+	b3BroadPhase_EndTraversal( world );
+	b3ValidateProxyTrees( world );
+
 	world->locked = false;
 
 	if ( world->recording != NULL )
@@ -1414,10 +1472,14 @@ void b3World_Draw( b3WorldId worldId, b3DebugDraw* draw, uint64_t maskBits )
 
 	struct DrawContext drawContext = { world, draw };
 
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3DynamicTree_Query( world->broadPhase.trees + i, draw->drawingBounds, maskBits, false, DrawQueryCallback, &drawContext );
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	uint32_t wordCount = world->debugBodySet.blockCount;
 	uint64_t* bits = world->debugBodySet.bits;
@@ -2428,9 +2490,11 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	int kinematicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_kinematicBody );
 	int dynamicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_dynamicBody );
 	int sleepingTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE );
+	int migrationQueueBytes = b3Array_ByteCount( world->broadPhase.migrationQueue );
 	b3HashSet* pairSet = &world->broadPhase.pairSet;
 	int pairSetBytes = b3GetHashSetBytes( pairSet );
-	total += (uint64_t)staticTreeBytes + kinematicTreeBytes + dynamicTreeBytes + sleepingTreeBytes + pairSetBytes;
+	total += (uint64_t)staticTreeBytes + kinematicTreeBytes + dynamicTreeBytes + sleepingTreeBytes + migrationQueueBytes +
+			 pairSetBytes;
 
 	if ( log )
 	{
@@ -2439,6 +2503,7 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 		b3Log( "kinematic tree: %d", kinematicTreeBytes );
 		b3Log( "dynamic tree: %d", dynamicTreeBytes );
 		b3Log( "sleeping tree: %d", sleepingTreeBytes );
+		b3Log( "migration queue: %d", migrationQueueBytes );
 		b3Log( "pairSet: %d (%d, %d)", pairSetBytes, pairSet->count, pairSet->capacity );
 	}
 
@@ -2729,6 +2794,8 @@ b3TreeStats b3World_OverlapAABB( b3WorldId worldId, b3AABB aabb, b3QueryFilter f
 
 	WorldQueryContext worldContext = { world, fcn, filter, context };
 
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult =
@@ -2737,6 +2804,8 @@ b3TreeStats b3World_OverlapAABB( b3WorldId worldId, b3AABB aabb, b3QueryFilter f
 		treeStats.nodeVisits += treeResult.nodeVisits;
 		treeStats.leafVisits += treeResult.leafVisits;
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	if ( world->recording != NULL )
 	{
@@ -2824,6 +2893,8 @@ b3TreeStats b3World_OverlapShape( b3WorldId worldId, b3Pos origin, const b3Shape
 		world, fcn, filter, *proxy, origin, context,
 	};
 
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult = b3DynamicTree_Query( world->broadPhase.trees + i, aabb, filter.maskBits, false,
@@ -2832,6 +2903,8 @@ b3TreeStats b3World_OverlapShape( b3WorldId worldId, b3Pos origin, const b3Shape
 		treeStats.nodeVisits += treeResult.nodeVisits;
 		treeStats.leafVisits += treeResult.leafVisits;
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	if ( world->recording != NULL )
 	{
@@ -2926,10 +2999,14 @@ void b3World_CollideMover( b3WorldId worldId, b3Pos origin, const b3Capsule* mov
 		world, fcn, filter, *mover, origin, context,
 	};
 
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3DynamicTree_Query( world->broadPhase.trees + i, aabb, filter.maskBits, false, TreeCollideCallback, &worldContext );
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	if ( world->recording != NULL )
 	{
@@ -3033,6 +3110,8 @@ b3TreeStats b3World_CastRay( b3WorldId worldId, b3Pos origin, b3Vec3 translation
 
 	WorldRayCastContext worldContext = { world, fcn, filter, 1.0f, origin, context };
 
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult =
@@ -3047,6 +3126,8 @@ b3TreeStats b3World_CastRay( b3WorldId worldId, b3Pos origin, b3Vec3 translation
 
 		input.maxFraction = worldContext.fraction;
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	if ( world->recording != NULL )
 	{
@@ -3105,6 +3186,8 @@ b3RayResult b3World_CastRayClosest( b3WorldId worldId, b3Pos origin, b3Vec3 tran
 		.userContext = &result,
 	};
 
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult =
@@ -3119,6 +3202,8 @@ b3RayResult b3World_CastRayClosest( b3WorldId worldId, b3Pos origin, b3Vec3 tran
 
 		input.maxFraction = worldContext.fraction;
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	// Closed query, no user callback: record the inputs and the single result for the replay compare.
 	if ( world->recording != NULL )
@@ -3246,6 +3331,8 @@ b3TreeStats b3World_CastShape( b3WorldId worldId, b3Pos origin, const b3ShapePro
 	b3AABB localBox = b3MakeAABB( proxy->points, proxy->count, proxy->radius );
 	b3BoxCastInput treeInput = { b3OffsetAABB( localBox, origin ), translation, 1.0f };
 
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3TreeStats treeResult = b3DynamicTree_BoxCast( world->broadPhase.trees + i, &treeInput, filter.maskBits, false,
@@ -3260,6 +3347,8 @@ b3TreeStats b3World_CastShape( b3WorldId worldId, b3Pos origin, const b3ShapePro
 
 		treeInput.maxFraction = worldContext.fraction;
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	if ( world->recording != NULL )
 	{
@@ -3376,6 +3465,8 @@ float b3World_CastMover( b3WorldId worldId, b3Pos origin, const b3Capsule* mover
 	b3Vec3 centers[2] = { mover->center1, mover->center2 };
 	b3BoxCastInput treeInput = { b3OffsetAABB( b3MakeAABB( centers, 2, mover->radius ), origin ), translation, 1.0f };
 
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3DynamicTree_BoxCast( world->broadPhase.trees + i, &treeInput, filter.maskBits, false, MoverCastCallback,
@@ -3388,6 +3479,8 @@ float b3World_CastMover( b3WorldId worldId, b3Pos origin, const b3Capsule* mover
 
 		treeInput.maxFraction = worldContext.fraction;
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	if ( world->recording != NULL )
 	{
@@ -3578,6 +3671,9 @@ void b3World_Explode( b3WorldId worldId, const b3ExplosionDef* explosionDef )
 	b3AABB localBox = { { -extent, -extent, -extent }, { extent, extent, extent } };
 	b3AABB aabb = b3OffsetAABB( localBox, position );
 
+	// The wakes below queue their migrations until the exit, after both traversals returned
+	b3BroadPhase_BeginTraversal( &world->broadPhase );
+
 	// Both dynamic trees feed one candidate list, so a sleeping body is pushed as an awake one is
 	b3DynamicTree_Query( world->broadPhase.trees + b3_dynamicBody, aabb, maskBits, false, ExplosionCallback, &explosionContext );
 	b3DynamicTree_Query( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE, aabb, maskBits, false, ExplosionCallback,
@@ -3607,6 +3703,8 @@ void b3World_Explode( b3WorldId worldId, const b3ExplosionDef* explosionDef )
 	{
 		ApplyExplosion( &explosionContext, explosionContext.shapeIds.data[i] );
 	}
+
+	b3BroadPhase_EndTraversal( world );
 
 	b3Array_Destroy( explosionContext.shapeIds );
 
