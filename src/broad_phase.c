@@ -1010,11 +1010,14 @@ static bool b3PlaceBodyProxies( b3World* world, b3Body* body )
 		b3BroadPhase_DestroyProxy( bp, oldKey );
 		b3SettleTreeAfterRemove( oldTree, oldType );
 
-		// A parked leaf returning to the sleeping tree is inserted as the single tree moved a
-		// sleeping proxy: without rotation, which walks the whole path of a large, cold tree and
-		// costs several times the insert; the height test bounds the tree without it. Every other
-		// insert rotates as a create does, so a sleep builds the tree it built before.
-		bool shouldRotate = !( wasParked && targetType == B3_SLEEPING_PROXY_TYPE );
+		// A rotation walks back up the whole path and costs several times the insert. An insert
+		// into the awake tree never rotates: the remove above left that tree unordered, so the next
+		// step rebuilds it in full from its leaves and any rotation made here is discarded. A
+		// parked leaf returning to the sleeping tree does not rotate either, as the single tree
+		// moved a sleeping proxy; the height test bounds that tree without it. A sleep's insert
+		// into the sleeping tree rotates as a create does, since nothing rebuilds that tree on a
+		// schedule, so a sleep builds the tree it built before.
+		bool shouldRotate = targetType == B3_SLEEPING_PROXY_TYPE && wasParked == false;
 		shape->proxyKey = b3CreateProxyInternal( bp, targetType, aabb, categoryBits, shape->id, moved, shouldRotate );
 	}
 
