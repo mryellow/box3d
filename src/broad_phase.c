@@ -59,18 +59,10 @@ void b3DestroyBroadPhase( b3BroadPhase* bp )
 	memset( bp, 0, sizeof( b3BroadPhase ) );
 }
 
-// The sleeping tree is never rebuilt by the step, and a move inserts without rotation, so its
-// height is bounded only here. After an insert its root height is tested against the threshold
-// and the tree is rebuilt in full when it is exceeded. The full build keeps every leaf's moved
-// bit, so a pending search survives it. Nothing is tested while a traversal is open; the outermost
-// exit runs the test after its drain instead.
-static void b3CheckSleepingTreeHeight( b3BroadPhase* bp )
+// The sleeping tree is never rebuilt by the step, so its height is bounded only here: its root
+// height is tested against the threshold and the tree is rebuilt in full when it is exceeded.
+static void b3RebuildSleepingTreeIfTall( b3BroadPhase* bp )
 {
-	if ( bp->traversalDepth != 0 )
-	{
-		return;
-	}
-
 	b3DynamicTree* tree = bp->trees + B3_SLEEPING_PROXY_TYPE;
 	if ( b3DynamicTree_GetHeight( tree ) > B3_SLEEPING_TREE_MAX_HEIGHT )
 	{
@@ -79,14 +71,28 @@ static void b3CheckSleepingTreeHeight( b3BroadPhase* bp )
 	}
 }
 
+// Tested after every insert into the sleeping tree. Nothing is tested while a traversal is open;
+// the drain, which runs at the outermost exit and once mid-step with no walk open, tests instead.
+static void b3CheckSleepingTreeHeight( b3BroadPhase* bp )
+{
+	if ( bp->traversalDepth != 0 )
+	{
+		return;
+	}
+
+	b3RebuildSleepingTreeIfTall( bp );
+}
+
 // The caller decides the mark: an ordinary create marks every non-static leaf so its pairs are
-// found, and a migration carries the old leaf's bit so sleep and wake have no pair effect.
-int b3BroadPhase_CreateProxy( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aabb, uint64_t categoryBits, int shapeIndex,
-							  bool markMoved )
+// found, and a migration carries the old leaf's bit so sleep and wake have no pair effect. A marked
+// leaf never goes to the sleeping tree, which is not searched for its own marks; b3PlaceBodyProxies
+// keeps such a leaf in the awake tree until the next pair update has searched it.
+static int b3CreateProxyInternal( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aabb, uint64_t categoryBits, int shapeIndex,
+								  bool markMoved, bool shouldRotate )
 {
 	B3_ASSERT( 0 <= proxyType && proxyType < B3_PROXY_TREE_COUNT );
 
-	int proxyId = b3CreateTreeProxyInternal( bp->trees + proxyType, aabb, categoryBits, shapeIndex, markMoved );
+	int proxyId = b3CreateTreeProxyInternal( bp->trees + proxyType, aabb, categoryBits, shapeIndex, markMoved, shouldRotate );
 	int proxyKey = B3_PROXY_KEY( proxyId, proxyType );
 
 	if ( proxyType == B3_SLEEPING_PROXY_TYPE )
@@ -95,6 +101,13 @@ int b3BroadPhase_CreateProxy( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aab
 	}
 
 	return proxyKey;
+}
+
+int b3BroadPhase_CreateProxy( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aabb, uint64_t categoryBits, int shapeIndex,
+							  bool markMoved )
+{
+	bool shouldRotate = true;
+	return b3CreateProxyInternal( bp, proxyType, aabb, categoryBits, shapeIndex, markMoved, shouldRotate );
 }
 
 void b3BroadPhase_DestroyProxy( b3BroadPhase* bp, int proxyKey )
@@ -136,55 +149,6 @@ static int b3GatherMovedSiblings( const b3DynamicTree* tree, int* pairIndices )
 		if ( ( nodes[pair].flagIndex | nodes[pair + 1].flagIndex ) & B3_MOVED_NODE )
 		{
 			pairIndices[count++] = pair;
-		}
-	}
-
-	return count;
-}
-
-// Gather the sibling pairs with a moved node by descending from the root through marked internal
-// nodes, as b3DynamicTree_ClearMoved does. The sleeping tree is not compacted by the step, so after
-// a large wake its nodeEnd stays at its high-water mark while its population is small. This walk
-// costs the marked nodes, not the array, and nothing when the root is unmoved.
-static int b3GatherMarkedSiblings( const b3DynamicTree* tree, int* pairIndices )
-{
-	const b3TreeNode* nodes = tree->nodes;
-	const b3TreeNode* root = nodes + B3_ROOT_NODE;
-	if ( b3IsNodeMoved( root ) == false || b3IsLeaf( root ) )
-	{
-		return 0;
-	}
-
-	int count = 0;
-	int stack[B3_TREE_STACK_SIZE];
-	int stackCount = 0;
-	stack[stackCount++] = b3GetLeftChild( root );
-
-	while ( stackCount > 0 )
-	{
-		int pair = stack[--stackCount];
-
-		// Push when either sibling moved. The parent is marked only when one is, so every pair
-		// reached from a marked parent qualifies.
-		if ( ( nodes[pair].flagIndex | nodes[pair + 1].flagIndex ) & B3_MOVED_NODE )
-		{
-			pairIndices[count++] = pair;
-		}
-
-		for ( int i = 0; i < 2; ++i )
-		{
-			const b3TreeNode* node = nodes + pair + i;
-			if ( b3IsNodeMoved( node ) && b3IsLeaf( node ) == false )
-			{
-				if ( stackCount < B3_TREE_STACK_SIZE )
-				{
-					stack[stackCount++] = b3GetLeftChild( node );
-				}
-				else
-				{
-					B3_ASSERT( stackCount < B3_TREE_STACK_SIZE );
-				}
-			}
 		}
 	}
 
@@ -776,12 +740,11 @@ void b3UpdateBroadPhasePairs( b3World* world )
 {
 	b3BroadPhase* bp = &world->broadPhase;
 
+	// The sleeping tree never holds a marked leaf, so it never asks for an update on its own: a
+	// sleeping proxy with a pending pair search waits in the awake tree (b3PlaceBodyProxies).
 	bool needUpdate = b3HasTreeMoved( bp->trees + b3_staticBody );
 	needUpdate = needUpdate || b3NeedsRebuild( bp->trees + b3_kinematicBody );
 	needUpdate = needUpdate || b3NeedsRebuild( bp->trees + b3_dynamicBody );
-
-	// The sleeping tree is rebuilt on height by its writers, not on order by the step
-	needUpdate = needUpdate || b3HasTreeMoved( bp->trees + B3_SLEEPING_PROXY_TYPE );
 
 	if ( needUpdate == false )
 	{
@@ -798,10 +761,11 @@ void b3UpdateBroadPhasePairs( b3World* world )
 	}
 
 	// Generate pairs by querying the awake dynamic tree against itself and against the sleeping,
-	// kinematic and static trees, and the sleeping tree against itself and against the static and
-	// kinematic trees. Every pass is gated at the roots by the moved bits, so a pass between two
-	// unmoved trees costs one test.
-	int* sleepingSiblings = NULL;
+	// kinematic and static trees, and the sleeping tree against the static and kinematic trees.
+	// Every pass is gated at the roots by the moved bits, so a pass between two unmoved trees costs
+	// one test. The sleeping tree has no marks of its own, so it is only ever the unmoved side: its
+	// passes find a moved static or kinematic proxy over a sleeping one, and the awake pass against
+	// it finds a moved awake proxy over one. It runs no self pass.
 	{
 		// Get the sibling pairs of the awake dynamic tree that have moved.
 		const b3DynamicTree* dynamicTree = bp->trees + b3_dynamicBody;
@@ -809,12 +773,7 @@ void b3UpdateBroadPhasePairs( b3World* world )
 		bp->movedSiblings = b3StackAlloc( alloc, pairCapacity * sizeof( int ), "moved pairs" );
 		int dynamicMoveCount = b3GatherMovedSiblings( dynamicTree, bp->movedSiblings );
 
-		// Get the sibling pairs of the sleeping dynamic tree that have moved. A tree of n leaves has
-		// n - 1 internal nodes, so the proxy count bounds the pairs.
 		const b3DynamicTree* sleepingTree = bp->trees + B3_SLEEPING_PROXY_TYPE;
-		int sleepingPairCapacity = b3MaxInt( sleepingTree->proxyCount, 1 );
-		sleepingSiblings = b3StackAlloc( alloc, sleepingPairCapacity * sizeof( int ), "sleeping moved pairs" );
-		int sleepingMoveCount = b3GatherMarkedSiblings( sleepingTree, sleepingSiblings );
 
 		// Get seeds for the cross passes. The passes against the static tree expand compounds.
 		b3NodePair crossSeeds[B3_CROSS_PASS_COUNT * B3_CROSS_SEED_COUNT];
@@ -833,7 +792,7 @@ void b3UpdateBroadPhasePairs( b3World* world )
 		// Collide the trees against each other.
 		b3ParallelFor( world, &b3CrossPairsTask, seedCount, 1, &crossContext, "cross pairs" );
 
-		// Collide each dynamic tree against itself.
+		// Collide the awake dynamic tree against itself.
 		if ( dynamicMoveCount > 0 )
 		{
 			b3SelfContext selfContext = {
@@ -843,22 +802,11 @@ void b3UpdateBroadPhasePairs( b3World* world )
 			};
 			b3ParallelFor( world, &b3SelfPairsTask, dynamicMoveCount, 64, &selfContext, "self pairs" );
 		}
-
-		if ( sleepingMoveCount > 0 )
-		{
-			b3SelfContext selfContext = {
-				.world = world,
-				.nodes = sleepingTree->nodes,
-				.siblingIndices = sleepingSiblings,
-			};
-			b3ParallelFor( world, &b3SelfPairsTask, sleepingMoveCount, 64, &selfContext, "sleeping self pairs" );
-		}
 	}
 
-	// A moved sleeping or static proxy is searched once. Without this the passes would repeat
-	// every step and the no-moved validation would fail.
+	// A moved static proxy is searched once. Without this the passes would repeat every step and
+	// the no-moved validation would fail.
 	b3DynamicTree_ClearMoved( bp->trees + b3_staticBody );
-	b3DynamicTree_ClearMoved( bp->trees + B3_SLEEPING_PROXY_TYPE );
 
 	b3TracyCZoneEnd( update_pairs );
 
@@ -933,7 +881,6 @@ void b3UpdateBroadPhasePairs( b3World* world )
 
 	b3StackFree( alloc, pairKeys );
 
-	b3StackFree( alloc, sleepingSiblings );
 	b3StackFree( alloc, bp->movedSiblings );
 	bp->movedSiblings = NULL;
 
@@ -997,23 +944,40 @@ static void b3SettleTreeAfterRemove( b3DynamicTree* tree, b3BodyType treeType )
 	}
 }
 
-// Place every proxy of a body in the tree its type and set imply. A proxy already there is left
-// alone, so a body replaced, destroyed or reused before a queued migration ran needs nothing
-// special: it is placed by what it is now. The migration carries each leaf's box, bits and moved
-// bit, so it changes which tree a proxy is in and nothing else. The box is the leaf's, not the
-// shape's fat AABB entry, which a bullet enlarge can leave smaller than the leaf.
-static void b3PlaceBodyProxies( b3World* world, b3Body* body )
+// Place every proxy of a body in the tree its type, set and moved bit imply. A proxy already there
+// is left alone, so a body replaced, destroyed or reused before a queued migration ran needs
+// nothing special: it is placed by what it is now. The migration carries each leaf's box, bits and
+// moved bit, so it changes which tree a proxy is in and nothing else. The box is the leaf's, not
+// the shape's fat AABB entry, which a bullet enlarge can leave smaller than the leaf.
+//
+// A marked leaf of a sleeping body waits in the awake tree. The sleeping tree is never searched for
+// its own marks, so a sleeping proxy whose pairs are still to be found stays where the next pair
+// update searches it, and the step's drain after the rebuild, which clears the mark, moves it
+// asleep. The marks reach the sleeping tree's door from a sleep that follows an enlarge in the same
+// step or an API write, from a shape created on a sleeping body, from a proxy reset and from a
+// joint's collide-connected change; b3Body_SetTransform wakes the body instead. Returns true while a
+// proxy of the body is waiting, so the caller keeps the body queued.
+static bool b3PlaceBodyProxies( b3World* world, b3Body* body )
 {
 	// The rebuild task reads the trees until it is joined, so no tree is written while it is out
 	B3_ASSERT( world->userTreeTask == NULL );
 
-	if ( body->setIndex == B3_NULL_INDEX || body->setIndex == b3_disabledSet )
+	if ( body->setIndex == B3_NULL_INDEX )
 	{
-		return;
+		return false;
+	}
+
+	if ( body->setIndex == b3_disabledSet )
+	{
+		// A disabled body has no proxies; b3Body_Enable creates them awake
+		body->flags &= ~b3_proxyParked;
+		return false;
 	}
 
 	b3BroadPhase* bp = &world->broadPhase;
-	b3BodyType targetType = b3BroadPhase_GetBodyProxyType( body );
+	b3BodyType homeType = b3BroadPhase_GetBodyProxyType( body );
+	bool wasParked = ( body->flags & b3_proxyParked ) != 0;
+	bool pending = false;
 
 	int shapeId = body->headShapeId;
 	while ( shapeId != B3_NULL_INDEX )
@@ -1024,32 +988,52 @@ static void b3PlaceBodyProxies( b3World* world, b3Body* body )
 		int oldKey = shape->proxyKey;
 		B3_ASSERT( oldKey != B3_NULL_INDEX );
 		b3BodyType oldType = B3_PROXY_TYPE( oldKey );
+		b3DynamicTree* oldTree = bp->trees + oldType;
+		int oldProxyId = B3_PROXY_ID( oldKey );
+		bool moved = b3IsNodeMoved( oldTree->nodes + oldTree->proxies[oldProxyId].node );
+
+		b3BodyType targetType = homeType;
+		if ( homeType == B3_SLEEPING_PROXY_TYPE && moved )
+		{
+			targetType = b3_dynamicBody;
+			pending = true;
+		}
+
 		if ( oldType == targetType )
 		{
 			continue;
 		}
 
-		b3DynamicTree* oldTree = bp->trees + oldType;
-		int oldProxyId = B3_PROXY_ID( oldKey );
 		b3AABB aabb = b3DynamicTree_GetAABB( oldTree, oldProxyId );
 		uint64_t categoryBits = b3DynamicTree_GetCategoryBits( oldTree, oldProxyId );
-		bool moved = b3IsNodeMoved( oldTree->nodes + oldTree->proxies[oldProxyId].node );
 
 		b3BroadPhase_DestroyProxy( bp, oldKey );
 		b3SettleTreeAfterRemove( oldTree, oldType );
 
-		shape->proxyKey = b3BroadPhase_CreateProxy( bp, targetType, aabb, categoryBits, shape->id, moved );
+		// A parked leaf returning to the sleeping tree is inserted as the single tree moved a
+		// sleeping proxy: without rotation, which walks the whole path of a large, cold tree and
+		// costs several times the insert; the height test bounds the tree without it. Every other
+		// insert rotates as a create does, so a sleep builds the tree it built before.
+		bool shouldRotate = !( wasParked && targetType == B3_SLEEPING_PROXY_TYPE );
+		shape->proxyKey = b3CreateProxyInternal( bp, targetType, aabb, categoryBits, shape->id, moved, shouldRotate );
 	}
+
+	if ( pending )
+	{
+		body->flags |= b3_proxyParked;
+	}
+	else
+	{
+		body->flags &= ~b3_proxyParked;
+	}
+
+	return pending;
 }
 
 void b3BroadPhase_MigrateBody( b3World* world, int bodyId )
 {
 	b3BroadPhase* bp = &world->broadPhase;
-	if ( bp->traversalDepth == 0 )
-	{
-		b3PlaceBodyProxies( world, b3Array_Get( world->bodies, bodyId ) );
-	}
-	else
+	if ( bp->traversalDepth != 0 || b3PlaceBodyProxies( world, b3Array_Get( world->bodies, bodyId ) ) )
 	{
 		b3Array_Push( bp->migrationQueue, bodyId );
 	}
@@ -1059,15 +1043,25 @@ void b3BroadPhase_DrainMigrations( b3World* world )
 {
 	b3BroadPhase* bp = &world->broadPhase;
 
-	// A body queued twice is placed once and found in place the second time
+	// A body queued twice is placed once and found in place the second time. A body with a marked
+	// leaf bound for the sleeping tree stays queued for the drain after the next rebuild.
 	int count = bp->migrationQueue.count;
+	int keepCount = 0;
 	for ( int i = 0; i < count; ++i )
 	{
 		int bodyId = bp->migrationQueue.data[i];
-		b3PlaceBodyProxies( world, b3Array_Get( world->bodies, bodyId ) );
+		if ( b3PlaceBodyProxies( world, b3Array_Get( world->bodies, bodyId ) ) )
+		{
+			bp->migrationQueue.data[keepCount++] = bodyId;
+		}
 	}
 
-	b3Array_Clear( bp->migrationQueue );
+	b3Array_Resize( bp->migrationQueue, keepCount );
+
+	// No walk is open at a drain, so the sleeping tree's height is tested here, whether or not
+	// anything was placed. This covers the drain's own inserts, made under the step's traversal,
+	// and an insert made from a query callback, which skipped its own test.
+	b3RebuildSleepingTreeIfTall( bp );
 }
 
 void b3BroadPhase_BeginTraversal( b3BroadPhase* bp )
@@ -1081,12 +1075,10 @@ void b3BroadPhase_EndTraversal( b3World* world )
 	B3_ASSERT( bp->traversalDepth > 0 );
 	bp->traversalDepth -= 1;
 
-	// A query issued from another query's callback nests, so only the outermost exit drains. The
-	// height test after it covers an insert made from a callback, which skipped its own test.
+	// A query issued from another query's callback nests, so only the outermost exit drains
 	if ( bp->traversalDepth == 0 )
 	{
 		b3BroadPhase_DrainMigrations( world );
-		b3CheckSleepingTreeHeight( bp );
 	}
 }
 

@@ -542,6 +542,9 @@ B3_API b3Quat b3Body_GetRotation( b3BodyId bodyId );
 B3_API b3WorldTransform b3Body_GetTransform( b3BodyId bodyId );
 
 /// Set the world transform of a body. This acts as a teleport and is fairly expensive.
+/// A sleeping dynamic or kinematic body is woken, along with the island it is touching, so it
+/// settles again at the new transform. Put it back to sleep with b3Body_SetAwake if it should stay
+/// asleep where it is put.
 /// @note Generally you should create a body with the intended transform.
 /// @see b3BodyDef::position and b3BodyDef::rotation.
 B3_API void b3Body_SetTransform( b3BodyId bodyId, b3Pos position, b3Quat rotation );

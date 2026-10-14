@@ -946,7 +946,8 @@ void b3Joint_SetCollideConnected( b3JointId jointId, bool shouldCollide )
 		int shapeCountA = bodyA->shapeCount;
 		int shapeCountB = bodyB->shapeCount;
 
-		int shapeId = shapeCountA < shapeCountB ? bodyA->headShapeId : bodyB->headShapeId;
+		b3Body* markedBody = shapeCountA < shapeCountB ? bodyA : bodyB;
+		int shapeId = markedBody->headShapeId;
 		while ( shapeId != B3_NULL_INDEX )
 		{
 			b3Shape* shape = b3Array_Get( world->shapes, shapeId );
@@ -957,6 +958,12 @@ void b3Joint_SetCollideConnected( b3JointId jointId, bool shouldCollide )
 			}
 
 			shapeId = shape->nextShapeId;
+		}
+
+		// A sleeping body's marked leaves wait in the awake tree for the search
+		if ( markedBody->type == b3_dynamicBody && markedBody->setIndex != b3_disabledSet )
+		{
+			b3BroadPhase_MigrateBody( world, markedBody->id );
 		}
 	}
 	else

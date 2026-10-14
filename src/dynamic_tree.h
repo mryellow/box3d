@@ -107,7 +107,8 @@ static inline bool b3NeedsRebuild( const b3DynamicTree* tree )
 	return b3IsNodeMoved( tree->nodes + B3_ROOT_NODE ) || tree->dfsOrdered == false;
 }
 
-int b3CreateTreeProxyInternal( b3DynamicTree* tree, b3AABB aabb, uint64_t categoryBits, uint64_t userData, bool markMoved );
+int b3CreateTreeProxyInternal( b3DynamicTree* tree, b3AABB aabb, uint64_t categoryBits, uint64_t userData, bool markMoved,
+							   bool shouldRotate );
 void b3DynamicTree_MoveProxyInternal( b3DynamicTree* tree, int proxyId, b3AABB aabb, bool markMoved );
 
 void b3DynamicTree_MarkProxyMovedSerial( b3DynamicTree* tree, int proxyId );

@@ -212,10 +212,9 @@ static b3Shape* b3CreateShapeInternal( b3World* world, b3Body* body, b3WorldTran
 		shape->materials = NULL;
 	}
 
+	b3BodyType proxyType = b3BroadPhase_GetBodyProxyType( body );
 	if ( body->setIndex != b3_disabledSet )
 	{
-		// A shape created on a sleeping dynamic body goes to the sleeping tree
-		b3BodyType proxyType = b3BroadPhase_GetBodyProxyType( body );
 		bool forcePairCreation = def->invokeContactCreation && shape->type != b3_compoundShape;
 		b3CreateShapeProxy( world, shape, proxyType, bodyTransform, forcePairCreation );
 	}
@@ -231,6 +230,14 @@ static b3Shape* b3CreateShapeInternal( b3World* world, b3Body* body, b3WorldTran
 	shape->nextShapeId = body->headShapeId;
 	body->headShapeId = shapeId;
 	body->shapeCount += 1;
+
+	// A shape created on a sleeping dynamic body has its marked leaf parked in the awake tree. The
+	// body is queued now that the shape is in its list, so the drain after the next pair update
+	// finds the leaf and moves it asleep.
+	if ( proxyType == B3_SLEEPING_PROXY_TYPE )
+	{
+		b3BroadPhase_MigrateBody( world, body->id );
+	}
 
 	if ( def->isSensor )
 	{
@@ -1027,9 +1034,14 @@ void b3CreateShapeProxy( b3World* world, b3Shape* shape, b3BodyType type, b3Worl
 	b3UpdateShapeAABBs( shape, fatAABB, transform, type );
 
 	// Create proxies in the broad-phase. Every non-static create is marked so its pairs are found.
+	// A marked leaf never goes to the sleeping tree, which is not searched for its own marks: a
+	// shape created on a sleeping dynamic body is created in the awake tree, and the caller queues
+	// the body once the shape is in its list, so the next pair update searches it and the drain
+	// after the rebuild moves it asleep.
 	bool markMoved = type != b3_staticBody || forcePairCreation;
+	b3BodyType treeType = type == B3_SLEEPING_PROXY_TYPE ? b3_dynamicBody : type;
 	shape->proxyKey =
-		b3BroadPhase_CreateProxy( &world->broadPhase, type, *fatAABB, shape->filter.categoryBits, shape->id, markMoved );
+		b3BroadPhase_CreateProxy( &world->broadPhase, treeType, *fatAABB, shape->filter.categoryBits, shape->id, markMoved );
 	B3_ASSERT( B3_PROXY_TYPE( shape->proxyKey ) < B3_PROXY_TREE_COUNT );
 }
 
@@ -1384,14 +1396,23 @@ static void b3ResetProxy( b3World* world, b3Shape* shape, bool wakeBodies, bool 
 		{
 			b3BroadPhase_DestroyProxy( &world->broadPhase, shape->proxyKey );
 
+			// The marked leaf of a sleeping body goes to the awake tree, see b3CreateShapeProxy
 			bool forcePairCreation = true;
 			bool markMoved = proxyType != b3_staticBody || forcePairCreation;
-			shape->proxyKey = b3BroadPhase_CreateProxy( &world->broadPhase, proxyType, *fatAABB, shape->filter.categoryBits,
+			b3BodyType treeType = proxyType == B3_SLEEPING_PROXY_TYPE ? b3_dynamicBody : proxyType;
+			shape->proxyKey = b3BroadPhase_CreateProxy( &world->broadPhase, treeType, *fatAABB, shape->filter.categoryBits,
 														shapeId, markMoved );
 		}
 		else
 		{
 			b3BroadPhase_MoveProxy( &world->broadPhase, shape->proxyKey, *fatAABB );
+		}
+
+		// The body may be asleep, with or without a wake queued above: the marked leaf is placed
+		// by what the body is now
+		if ( body->type == b3_dynamicBody )
+		{
+			b3BroadPhase_MigrateBody( world, body->id );
 		}
 	}
 	else

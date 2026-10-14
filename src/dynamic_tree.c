@@ -570,7 +570,8 @@ static void b3RemoveLeaf( b3DynamicTree* tree, int proxyId )
 
 // Create a proxy in the tree as a leaf node. We return the index of the node instead of a pointer so that we can grow
 // the node pool.
-int b3CreateTreeProxyInternal( b3DynamicTree* tree, b3AABB aabb, uint64_t categoryBits, uint64_t userData, bool markMoved )
+int b3CreateTreeProxyInternal( b3DynamicTree* tree, b3AABB aabb, uint64_t categoryBits, uint64_t userData, bool markMoved,
+							   bool shouldRotate )
 {
 	B3_VALIDATE( b3IsValidAABB( aabb ) );
 
@@ -580,7 +581,6 @@ int b3CreateTreeProxyInternal( b3DynamicTree* tree, b3AABB aabb, uint64_t catego
 	proxy->categoryBits = categoryBits;
 	proxy->userData = userData;
 
-	bool shouldRotate = true;
 	b3InsertLeaf( tree, aabb, proxyId, markMoved, shouldRotate );
 
 	return proxyId;
@@ -588,7 +588,7 @@ int b3CreateTreeProxyInternal( b3DynamicTree* tree, b3AABB aabb, uint64_t catego
 
 int b3DynamicTree_CreateProxy( b3DynamicTree* tree, b3AABB aabb, uint64_t categoryBits, uint64_t userData )
 {
-	return b3CreateTreeProxyInternal( tree, aabb, categoryBits, userData, false );
+	return b3CreateTreeProxyInternal( tree, aabb, categoryBits, userData, false, true );
 }
 
 void b3DynamicTree_DestroyProxy( b3DynamicTree* tree, int proxyId )

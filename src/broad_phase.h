@@ -62,14 +62,20 @@ int b3BroadPhase_CreateProxy( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aab
 void b3BroadPhase_DestroyProxy( b3BroadPhase* bp, int proxyKey );
 
 // The proxy code a body's type and solver set imply. A sleeping dynamic body's proxies are in the
-// sleeping tree; every other enabled body's are in its type's tree.
+// sleeping tree; every other enabled body's are in its type's tree. One exception: a marked leaf
+// of a sleeping dynamic body waits in the awake tree until the next pair update has searched it,
+// since the sleeping tree is never searched for its own marks (b3PlaceBodyProxies).
 b3BodyType b3BroadPhase_GetBodyProxyType( const b3Body* body );
 
-// Sleep and wake call this beside their set index write. The body's proxies are placed in the tree
-// its new set implies at once when no traversal is open, and at the next drain otherwise.
+// Sleep and wake call this beside their set index write, and every writer that marks a proxy of a
+// body that may be asleep calls it after the write. The body's proxies are placed in the tree its
+// set, type and marks imply at once when no traversal is open, and at the next drain otherwise; a
+// body with a marked leaf bound for the sleeping tree is queued until the drain after the rebuild
+// that clears the mark.
 void b3BroadPhase_MigrateBody( b3World* world, int bodyId );
 
-// Place every queued body's proxies by its live set and type and empty the queue
+// Place every queued body's proxies by its live set, type and marks, keep the bodies still waiting
+// and test the sleeping tree's height
 void b3BroadPhase_DrainMigrations( b3World* world );
 
 // One entry and exit pair wraps every call that walks the trees and can wake a body inside the

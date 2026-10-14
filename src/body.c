@@ -98,7 +98,8 @@ void b3SyncBodyFlags( b3World* world, b3Body* body )
 	b3BodySim* bodySim = b3GetBodySim( world, body );
 
 	// Preserve the sim only flags: fast for contact recycling, time of impact for debug draw.
-	bodySim->flags = ( bodySim->flags & ( b3_isFast | b3_hadTimeOfImpact ) ) | ( body->flags & ~b3_bodyTransientFlags );
+	bodySim->flags =
+		( bodySim->flags & ( b3_isFast | b3_hadTimeOfImpact ) ) | ( body->flags & ~( b3_bodyTransientFlags | b3_proxyParked ) );
 
 	b3BodyState* bodyState = b3GetBodyState( world, body );
 	if ( bodyState != NULL )
@@ -1120,6 +1121,15 @@ void b3Body_SetTransform( b3BodyId bodyId, b3Pos position, b3Quat rotation )
 	B3_REC( world, BodySetTransform, bodyId, position, rotation );
 
 	b3Body* body = b3GetBodyFullId( world, bodyId );
+
+	// A moved body wakes, so its proxies are searched from the awake tree. This is the one write
+	// that wakes rather than parks a sleeping body's marked leaf in the awake tree: a teleported
+	// body should settle again, and a sleeping tree without marks of its own needs no self pass.
+	if ( body->type != b3_staticBody )
+	{
+		b3WakeBodyWithLock( world, body );
+	}
+
 	b3BodySim* bodySim = b3GetBodySim( world, body );
 
 	bodySim->transform.p = position;

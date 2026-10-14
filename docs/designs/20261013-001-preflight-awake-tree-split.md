@@ -2,9 +2,17 @@
 title: Preflight - awake and non-awake dynamic trees
 status: Canonical
 date: 2026-10-13
+superseded-in-part: 20261015-001
 ---
 
 # Preflight: awake and non-awake dynamic trees
+
+> **Superseded in part (2026-10-15).** The owner decision recorded in B1 and §8, that the
+> non-awake passes run and `b3Body_SetTransform` on a sleeping body is unchanged, is reversed by
+> `20261015-001-sleeping-tree-marks-and-set-transform-wake.md`: `b3Body_SetTransform` wakes the
+> body, the non-awake tree never holds a marked leaf and runs no self pass, and a sleeping body's
+> marked leaf waits in the awake tree for the next pair update. The cross passes of B1 that find a
+> moved static, kinematic or awake proxy over a sleeping one stay. The rest of this document stands.
 
 A Box3D change that splits the dynamic-body broad-phase tree into a tree of awake proxies and a
 tree of sleeping proxies. It is a stand-alone engine change: on a step with no write to or moved

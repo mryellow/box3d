@@ -1342,9 +1342,10 @@ void StepSleep( b3WorldId worldId, int stepCount )
 }
 
 // A large sleeping population beside ongoing motion. A grid of boxes rests asleep on the ground
-// while a lane of spheres rolls past it, a few sleeping boxes are lifted each step so the sleeping
-// proxies are written without a wake, and a sphere is dropped onto the grid now and then to wake
-// one island. The broad-phase work of the step should follow the awake bodies, not the grid.
+// while a lane of spheres rolls past it, a few sleeping boxes are lifted each step and put back to
+// sleep at once so the sleeping proxies are written without a lasting wake, and a sphere is dropped
+// onto the grid now and then to wake one island. The broad-phase work of the step should follow the
+// awake bodies, not the grid.
 
 #if BENCHMARK_DEBUG
 #define SLEEPING_GRID_SIDE 10
@@ -1439,8 +1440,10 @@ void CreateSleepingGrid( b3WorldId worldId )
 
 void StepSleepingGrid( b3WorldId worldId, int stepCount )
 {
-	// Lift a few sleeping boxes in turn. The new box leaves the fat box, so the proxy is written,
-	// and the box stays asleep where it is put.
+	// Lift a few sleeping boxes in turn. The new box leaves the fat box, so the proxy is written.
+	// b3Body_SetTransform wakes the box, and it is put back to sleep at once so it stays where it
+	// is put: its marked proxy waits in the awake tree for the step's pair search and is moved to
+	// the sleeping tree by the step.
 	for ( int k = 0; k < SLEEPING_GRID_LIFTS_PER_STEP; ++k )
 	{
 		int index = ( stepCount * SLEEPING_GRID_LIFTS_PER_STEP + k ) % SLEEPING_GRID_COUNT;
@@ -1450,6 +1453,7 @@ void StepSleepingGrid( b3WorldId worldId, int stepCount )
 			b3Pos position = b3Body_GetPosition( bodyId );
 			position.y += 1.0;
 			b3Body_SetTransform( bodyId, position, b3Body_GetRotation( bodyId ) );
+			b3Body_SetAwake( bodyId, false );
 		}
 	}
 

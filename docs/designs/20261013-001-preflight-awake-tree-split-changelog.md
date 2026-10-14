@@ -350,3 +350,11 @@
   past a compiled-out assert in release builds (`b3DynamicTree_Rebuild`, `b3BuildTree`), a
   primitive this design and today's step both call (round 32); the rewind note
   `20261013-002` has not been reviewed as its own document.
+
+## Superseded in part (2026-10-15, after implementation)
+
+- Owner reversed the decision of revision 12 (round 11, U-S5): `b3Body_SetTransform` now wakes a
+  sleeping dynamic or kinematic body, and the non-awake tree runs no self pass. Recorded in
+  `20261015-001-sleeping-tree-marks-and-set-transform-wake.md` and in `MIGRATION.md`; a note at
+  the top of this document points there. B1's non-awake self pass and the "non-awake passes run"
+  bullet of §8 are the parts reversed; B4's height hooks and the cross passes stand.

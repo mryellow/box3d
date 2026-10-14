@@ -63,7 +63,7 @@ void b3WakeSolverSet( b3World* world, int setIndex )
 
 		b3BodyState* state = b3Array_Emplace( awakeSet->bodyStates );
 		*state = b3_identityBodyState;
-		state->flags = body->flags;
+		state->flags = body->flags & ~b3_proxyParked;
 
 		// Move non-touching contacts from disabled set to awake set.
 		int encodedBodySimIndex = body->localIndex;
@@ -611,7 +611,7 @@ void b3TransferBody( b3World* world, b3SolverSet* targetSet, b3SolverSet* source
 	{
 		b3BodyState* state = b3Array_Emplace( targetSet->bodyStates );
 		*state = b3_identityBodyState;
-		state->flags = body->flags;
+		state->flags = body->flags & ~b3_proxyParked;
 	}
 
 	body->setIndex = targetSet->setIndex;

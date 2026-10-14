@@ -1039,8 +1039,9 @@ static void b3Collide( b3StepContext* context )
 
 #if B3_ENABLE_VALIDATION
 
-// Every body's shapes carry the proxy code its type and set imply. This is exact only after the
-// step's exit drain, which is where it runs; b3ValidateSolverSets runs before queued migrations.
+// Every body's shapes carry the proxy code its type and set imply, except that a sleeping dynamic
+// body's marked leaf waits in the awake tree. This is exact only after the step's exit drain, which
+// is where it runs; b3ValidateSolverSets runs before queued migrations.
 static void b3ValidateProxyTrees( b3World* world )
 {
 	int setCount = world->solverSets.count;
@@ -1068,7 +1069,15 @@ static void b3ValidateProxyTrees( b3World* world )
 				}
 				else
 				{
-					B3_ASSERT( B3_PROXY_TYPE( shape->proxyKey ) == b3BroadPhase_GetBodyProxyType( body ) );
+					b3BodyType homeType = b3BroadPhase_GetBodyProxyType( body );
+					b3BodyType proxyType = B3_PROXY_TYPE( shape->proxyKey );
+					if ( proxyType != homeType )
+					{
+						B3_ASSERT( homeType == B3_SLEEPING_PROXY_TYPE && proxyType == b3_dynamicBody );
+						const b3DynamicTree* tree = world->broadPhase.trees + proxyType;
+						int proxyId = B3_PROXY_ID( shape->proxyKey );
+						B3_ASSERT( b3IsNodeMoved( tree->nodes + tree->proxies[proxyId].node ) );
+					}
 				}
 
 				shapeId = shape->nextShapeId;
@@ -3899,7 +3908,8 @@ void b3ValidateSolverSets( b3World* world )
 					B3_ASSERT( body->setIndex == setIndex );
 					B3_ASSERT( body->localIndex == i );
 
-					uint32_t syncedFlags = body->flags & ~( b3_isFast | b3_bodyTransientFlags );
+					// The parked flag lives on the body only
+					uint32_t syncedFlags = body->flags & ~( b3_isFast | b3_bodyTransientFlags | b3_proxyParked );
 					B3_ASSERT( ( bodySim->flags & syncedFlags ) == syncedFlags );
 
 					b3BodyState* bodyState = b3GetBodyState( world, body );

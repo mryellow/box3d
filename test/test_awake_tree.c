@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: MIT
 
 // Awake and sleeping dynamic tree tests. The broad-phase keeps the proxies of sleeping dynamic
-// bodies in their own tree behind proxy code 3. These tests check the tree exists, is searched,
-// is filled and emptied by sleep and wake, and is kept shallow.
+// bodies in their own tree behind proxy code 3. The sleeping tree never holds a marked leaf and is
+// never searched for its own: b3Body_SetTransform wakes a sleeping body, and every other write that
+// marks a sleeping body's proxy parks the leaf in the awake tree until the next step has searched
+// it. These tests check the tree exists, is searched as the unmoved side, is filled and emptied by
+// sleep and wake, is kept shallow, and that the parked leaves find their pairs and settle.
 
 #include "body.h"
 #include "broad_phase.h"
@@ -184,72 +187,261 @@ static b3BodyType GetProxyType( b3World* world, b3BodyId bodyId )
 	return B3_PROXY_TYPE( shape->proxyKey );
 }
 
-// A sleeping box moved by b3Body_SetTransform into a static box, another sleeping box and an awake
-// kinematic box finds all three through the sleeping tree's passes, with the contacts in the sets
-// the single tree gave: disabled for the two sleeping pairs, awake for the kinematic pair, whose
-// begin touch wakes the box.
-int SleepingTreePairTest( void )
+// Whether the leaf of the body's first shape is marked moved
+static bool IsProxyMarked( b3World* world, b3BodyId bodyId )
+{
+	b3Body* body = b3GetBodyFullId( world, bodyId );
+	b3Shape* shape = b3Array_Get( world->shapes, body->headShapeId );
+	const b3DynamicTree* tree = world->broadPhase.trees + B3_PROXY_TYPE( shape->proxyKey );
+	int proxyId = B3_PROXY_ID( shape->proxyKey );
+	return b3IsNodeMoved( tree->nodes + tree->proxies[proxyId].node );
+}
+
+typedef struct PairScene
+{
+	b3WorldId worldId;
+	b3World* world;
+	b3BodyId staticId;
+	b3BodyId kinematicId;
+	b3BodyId sleeper1;
+	b3BodyId sleeper2;
+	b3BodyId sleeper3;
+	b3BodyId sleeper4;
+} PairScene;
+
+// A static box, an awake kinematic box and four boxes created asleep, stepped once so the sleeping
+// boxes settle into the sleeping tree
+static void CreatePairScene( PairScene* scene )
 {
 	b3WorldDef worldDef = b3DefaultWorldDef();
 	worldDef.workerCount = 1;
 	worldDef.enableSleep = true;
-	b3WorldId worldId = b3CreateWorld( &worldDef );
-	b3World* world = b3GetWorldFromId( worldId );
+	scene->worldId = b3CreateWorld( &worldDef );
+	scene->world = b3GetWorldFromId( scene->worldId );
 
 	float extent = 0.5f;
-	b3BodyId staticId = CreateBox( worldId, b3_staticBody, (b3Pos){ 0.0, 0.0, 0.0 }, extent, true );
-	b3BodyId kinematicId = CreateBox( worldId, b3_kinematicBody, (b3Pos){ 20.0, 0.0, 0.0 }, extent, true );
-	b3BodyId sleeper1 = CreateBox( worldId, b3_dynamicBody, (b3Pos){ -40.0, 0.0, 0.0 }, extent, false );
-	b3BodyId sleeper2 = CreateBox( worldId, b3_dynamicBody, (b3Pos){ -60.0, 0.0, 0.0 }, extent, false );
-	b3BodyId sleeper3 = CreateBox( worldId, b3_dynamicBody, (b3Pos){ -80.0, 0.0, 0.0 }, extent, false );
-	b3BodyId sleeper4 = CreateBox( worldId, b3_dynamicBody, (b3Pos){ 40.0, 0.0, 0.0 }, extent, false );
+	scene->staticId = CreateBox( scene->worldId, b3_staticBody, (b3Pos){ 0.0, 0.0, 0.0 }, extent, true );
+	scene->kinematicId = CreateBox( scene->worldId, b3_kinematicBody, (b3Pos){ 20.0, 0.0, 0.0 }, extent, true );
+	scene->sleeper1 = CreateBox( scene->worldId, b3_dynamicBody, (b3Pos){ -40.0, 0.0, 0.0 }, extent, false );
+	scene->sleeper2 = CreateBox( scene->worldId, b3_dynamicBody, (b3Pos){ -60.0, 0.0, 0.0 }, extent, false );
+	scene->sleeper3 = CreateBox( scene->worldId, b3_dynamicBody, (b3Pos){ -80.0, 0.0, 0.0 }, extent, false );
+	scene->sleeper4 = CreateBox( scene->worldId, b3_dynamicBody, (b3Pos){ 40.0, 0.0, 0.0 }, extent, false );
+}
 
-	ENSURE( b3Body_IsAwake( kinematicId ) );
-	ENSURE( b3Body_IsAwake( sleeper1 ) == false );
-	ENSURE( b3Body_IsAwake( sleeper2 ) == false );
-	ENSURE( b3Body_IsAwake( sleeper3 ) == false );
-	ENSURE( b3Body_IsAwake( sleeper4 ) == false );
+// Overlap each target by a fifth of the extent along y: sleeper 1 over the static box, sleeper 2
+// over sleeper 4, sleeper 3 over the kinematic box
+static void MovePairSleepers( const PairScene* scene )
+{
+	float lift = 1.8f * 0.5f;
+	b3Body_SetTransform( scene->sleeper1, (b3Pos){ 0.0, lift, 0.0 }, b3Quat_identity );
+	b3Body_SetTransform( scene->sleeper2, (b3Pos){ 40.0, lift, 0.0 }, b3Quat_identity );
+	b3Body_SetTransform( scene->sleeper3, (b3Pos){ 20.0, lift, 0.0 }, b3Quat_identity );
+}
 
-	// Created asleep, so created in the sleeping tree
-	ENSURE( GetProxyType( world, sleeper1 ) == B3_SLEEPING_PROXY_TYPE );
-	ENSURE( GetProxyType( world, sleeper4 ) == B3_SLEEPING_PROXY_TYPE );
+// A shape created asleep is parked in the awake tree, marked, with the body asleep and queued; the
+// first step searches it and moves it to the sleeping tree, unmarked
+static int CreatedAsleepCase( void )
+{
+	PairScene scene;
+	CreatePairScene( &scene );
+	b3World* world = scene.world;
 
+	ENSURE( b3Body_IsAwake( scene.kinematicId ) );
+	ENSURE( b3Body_IsAwake( scene.sleeper1 ) == false );
+	ENSURE( b3Body_IsAwake( scene.sleeper4 ) == false );
+	ENSURE( GetProxyType( world, scene.sleeper1 ) == b3_dynamicBody );
+	ENSURE( IsProxyMarked( world, scene.sleeper1 ) );
+	ENSURE( GetProxyType( world, scene.sleeper4 ) == b3_dynamicBody );
+	ENSURE( IsProxyMarked( world, scene.sleeper4 ) );
+	ENSURE( world->broadPhase.migrationQueue.count == 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3World_Step( scene.worldId, 1.0f / 60.0f, 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+	ENSURE( b3World_GetAwakeBodyCount( scene.worldId ) == 1 );
+	ENSURE( world->broadPhase.migrationQueue.count == 0 );
+	ENSURE( GetProxyType( world, scene.sleeper1 ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( IsProxyMarked( world, scene.sleeper1 ) == false );
+	ENSURE( GetProxyType( world, scene.sleeper4 ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( IsProxyMarked( world, scene.sleeper4 ) == false );
+	ENSURE( b3HasTreeMoved( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE ) == false );
+
+	b3DestroyWorld( scene.worldId );
+	return 0;
+}
+
+// b3Body_SetTransform wakes a sleeping box. Moved into a static box, another sleeping box and an
+// awake kinematic box, the three woken boxes find their pairs from the awake tree, every contact in
+// the awake set, and the begin touch of the pair with sleeper 4 wakes it too.
+static int MovedSleeperWakesCase( void )
+{
+	PairScene scene;
+	CreatePairScene( &scene );
+	b3World* world = scene.world;
 	float timeStep = 1.0f / 60.0f;
-	b3World_Step( worldId, timeStep, 4 );
+
+	b3World_Step( scene.worldId, timeStep, 4 );
+	ENSURE( b3World_GetAwakeBodyCount( scene.worldId ) == 1 );
+
+	MovePairSleepers( &scene );
+	ENSURE( b3Body_IsAwake( scene.sleeper1 ) );
+	ENSURE( b3Body_IsAwake( scene.sleeper2 ) );
+	ENSURE( b3Body_IsAwake( scene.sleeper3 ) );
+	ENSURE( b3Body_IsAwake( scene.sleeper4 ) == false );
+	ENSURE( GetProxyType( world, scene.sleeper1 ) == b3_dynamicBody );
+	ENSURE( GetProxyType( world, scene.sleeper2 ) == b3_dynamicBody );
+	ENSURE( GetProxyType( world, scene.sleeper3 ) == b3_dynamicBody );
+	ENSURE( GetProxyType( world, scene.sleeper4 ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( b3HasTreeMoved( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE ) == false );
 	b3ValidateBroadPhase( &world->broadPhase );
-	ENSURE( b3World_GetAwakeBodyCount( worldId ) == 1 );
 
-	// Overlap each target by a fifth of the extent along y
-	float lift = 1.8f * extent;
-	b3Body_SetTransform( sleeper1, (b3Pos){ 0.0, lift, 0.0 }, b3Quat_identity );
-	b3Body_SetTransform( sleeper2, (b3Pos){ 40.0, lift, 0.0 }, b3Quat_identity );
-	b3Body_SetTransform( sleeper3, (b3Pos){ 20.0, lift, 0.0 }, b3Quat_identity );
-
-	b3World_Step( worldId, timeStep, 4 );
+	b3World_Step( scene.worldId, timeStep, 4 );
 	b3ValidateBroadPhase( &world->broadPhase );
 
-	b3Contact* contact1 = FindContact( world, sleeper1, staticId );
+	b3Contact* contact1 = FindContact( world, scene.sleeper1, scene.staticId );
 	ENSURE( contact1 != NULL );
-	ENSURE( contact1->setIndex == b3_disabledSet );
-	ENSURE( b3GetBodyFullId( world, sleeper1 )->contactCount == 1 );
+	ENSURE( contact1->setIndex == b3_awakeSet );
+	ENSURE( b3GetBodyFullId( world, scene.sleeper1 )->contactCount == 1 );
 
-	b3Contact* contact2 = FindContact( world, sleeper2, sleeper4 );
+	b3Contact* contact2 = FindContact( world, scene.sleeper2, scene.sleeper4 );
 	ENSURE( contact2 != NULL );
-	ENSURE( contact2->setIndex == b3_disabledSet );
-	ENSURE( b3GetBodyFullId( world, sleeper2 )->contactCount == 1 );
-	ENSURE( b3GetBodyFullId( world, sleeper4 )->contactCount == 1 );
+	ENSURE( contact2->setIndex == b3_awakeSet );
+	ENSURE( b3GetBodyFullId( world, scene.sleeper2 )->contactCount == 1 );
+	ENSURE( b3GetBodyFullId( world, scene.sleeper4 )->contactCount == 1 );
 
-	b3Contact* contact3 = FindContact( world, sleeper3, kinematicId );
+	b3Contact* contact3 = FindContact( world, scene.sleeper3, scene.kinematicId );
 	ENSURE( contact3 != NULL );
 	ENSURE( contact3->setIndex == b3_awakeSet );
-	ENSURE( b3GetBodyFullId( world, sleeper3 )->contactCount == 1 );
+	ENSURE( b3GetBodyFullId( world, scene.sleeper3 )->contactCount == 1 );
 
-	ENSURE( b3Body_IsAwake( sleeper3 ) );
-	ENSURE( b3Body_IsAwake( sleeper1 ) == false );
-	ENSURE( b3Body_IsAwake( sleeper2 ) == false );
-	ENSURE( b3Body_IsAwake( sleeper4 ) == false );
+	ENSURE( b3Body_IsAwake( scene.sleeper1 ) );
+	ENSURE( b3Body_IsAwake( scene.sleeper2 ) );
+	ENSURE( b3Body_IsAwake( scene.sleeper3 ) );
+	ENSURE( b3Body_IsAwake( scene.sleeper4 ) );
+	ENSURE( GetProxyType( world, scene.sleeper4 ) == b3_dynamicBody );
 
-	b3DestroyWorld( worldId );
+	b3DestroyWorld( scene.worldId );
+	return 0;
+}
+
+// The same moves followed by b3Body_SetAwake( false ) before the step. Each box is asleep again at
+// once, its marked leaf parked in the awake tree. The step finds the same pairs the single tree
+// gave, in the same sets: disabled for the two sleeping pairs, awake for the kinematic pair, whose
+// begin touch wakes sleeper 3. The two boxes that stay asleep are then in the sleeping tree,
+// unmarked.
+static int MovedSleeperParkedCase( void )
+{
+	PairScene scene;
+	CreatePairScene( &scene );
+	b3World* world = scene.world;
+	float timeStep = 1.0f / 60.0f;
+
+	b3World_Step( scene.worldId, timeStep, 4 );
+	ENSURE( b3World_GetAwakeBodyCount( scene.worldId ) == 1 );
+
+	MovePairSleepers( &scene );
+	b3Body_SetAwake( scene.sleeper1, false );
+	b3Body_SetAwake( scene.sleeper2, false );
+	b3Body_SetAwake( scene.sleeper3, false );
+	ENSURE( b3World_GetAwakeBodyCount( scene.worldId ) == 1 );
+	ENSURE( b3Body_IsAwake( scene.sleeper1 ) == false );
+	ENSURE( GetProxyType( world, scene.sleeper1 ) == b3_dynamicBody );
+	ENSURE( IsProxyMarked( world, scene.sleeper1 ) );
+	ENSURE( GetProxyType( world, scene.sleeper2 ) == b3_dynamicBody );
+	ENSURE( GetProxyType( world, scene.sleeper3 ) == b3_dynamicBody );
+	ENSURE( GetProxyType( world, scene.sleeper4 ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( world->broadPhase.migrationQueue.count == 3 );
+	ENSURE( b3HasTreeMoved( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE ) == false );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3World_Step( scene.worldId, timeStep, 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+	ENSURE( world->broadPhase.migrationQueue.count == 0 );
+
+	b3Contact* contact1 = FindContact( world, scene.sleeper1, scene.staticId );
+	ENSURE( contact1 != NULL );
+	ENSURE( contact1->setIndex == b3_disabledSet );
+	ENSURE( b3GetBodyFullId( world, scene.sleeper1 )->contactCount == 1 );
+
+	b3Contact* contact2 = FindContact( world, scene.sleeper2, scene.sleeper4 );
+	ENSURE( contact2 != NULL );
+	ENSURE( contact2->setIndex == b3_disabledSet );
+	ENSURE( b3GetBodyFullId( world, scene.sleeper2 )->contactCount == 1 );
+	ENSURE( b3GetBodyFullId( world, scene.sleeper4 )->contactCount == 1 );
+
+	b3Contact* contact3 = FindContact( world, scene.sleeper3, scene.kinematicId );
+	ENSURE( contact3 != NULL );
+	ENSURE( contact3->setIndex == b3_awakeSet );
+	ENSURE( b3GetBodyFullId( world, scene.sleeper3 )->contactCount == 1 );
+
+	ENSURE( b3Body_IsAwake( scene.sleeper3 ) );
+	ENSURE( b3Body_IsAwake( scene.sleeper1 ) == false );
+	ENSURE( b3Body_IsAwake( scene.sleeper2 ) == false );
+	ENSURE( b3Body_IsAwake( scene.sleeper4 ) == false );
+	ENSURE( GetProxyType( world, scene.sleeper1 ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( IsProxyMarked( world, scene.sleeper1 ) == false );
+	ENSURE( GetProxyType( world, scene.sleeper2 ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( IsProxyMarked( world, scene.sleeper2 ) == false );
+	ENSURE( GetProxyType( world, scene.sleeper3 ) == b3_dynamicBody );
+	ENSURE( b3HasTreeMoved( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE ) == false );
+
+	b3DestroyWorld( scene.worldId );
+	return 0;
+}
+
+// A kinematic box moved by b3Body_SetTransform onto a sleeping box wakes, and the pass of the
+// sleeping tree against the kinematic tree finds the pair from the kinematic side; its begin touch
+// wakes the sleeping box. A static box created over a sleeping box is found from the static side
+// and the contact goes to the disabled set.
+static int MovedNeighbourCase( void )
+{
+	PairScene scene;
+	CreatePairScene( &scene );
+	b3World* world = scene.world;
+	float timeStep = 1.0f / 60.0f;
+
+	b3World_Step( scene.worldId, timeStep, 4 );
+	int sleepSteps = 0;
+	while ( b3Body_IsAwake( scene.kinematicId ) && sleepSteps < 600 )
+	{
+		b3World_Step( scene.worldId, timeStep, 4 );
+		sleepSteps += 1;
+	}
+	ENSURE( b3Body_IsAwake( scene.kinematicId ) == false );
+	ENSURE( b3World_GetAwakeBodyCount( scene.worldId ) == 0 );
+
+	float lift = 1.8f * 0.5f;
+	b3Body_SetTransform( scene.kinematicId, (b3Pos){ 40.0, lift, 0.0 }, b3Quat_identity );
+	ENSURE( b3Body_IsAwake( scene.kinematicId ) );
+	ENSURE( GetProxyType( world, scene.kinematicId ) == b3_kinematicBody );
+	ENSURE( b3Body_IsAwake( scene.sleeper4 ) == false );
+
+	b3BodyId staticOver = CreateBox( scene.worldId, b3_staticBody, (b3Pos){ -40.0, lift, 0.0 }, 0.5f, true );
+
+	b3World_Step( scene.worldId, timeStep, 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3Contact* kinematicContact = FindContact( world, scene.sleeper4, scene.kinematicId );
+	ENSURE( kinematicContact != NULL );
+	ENSURE( kinematicContact->setIndex == b3_awakeSet );
+	ENSURE( b3Body_IsAwake( scene.sleeper4 ) );
+
+	b3Contact* staticContact = FindContact( world, scene.sleeper1, staticOver );
+	ENSURE( staticContact != NULL );
+	ENSURE( staticContact->setIndex == b3_disabledSet );
+	ENSURE( b3Body_IsAwake( scene.sleeper1 ) == false );
+	ENSURE( GetProxyType( world, scene.sleeper1 ) == B3_SLEEPING_PROXY_TYPE );
+
+	b3DestroyWorld( scene.worldId );
+	return 0;
+}
+
+int SleepingTreePairTest( void )
+{
+	RUN_SUBTEST( CreatedAsleepCase );
+	RUN_SUBTEST( MovedSleeperWakesCase );
+	RUN_SUBTEST( MovedSleeperParkedCase );
+	RUN_SUBTEST( MovedNeighbourCase );
 	return 0;
 }
 
@@ -362,9 +554,18 @@ int AwakeTreeMigrationTest( void )
 	return 0;
 }
 
-// The writers of a sleeping body's proxy that sleep and wake leave alone. A shape created on a
-// sleeping body goes to the sleeping tree and wakes nothing; a filter change that recreates the
-// proxy keeps it there when no contact is destroyed, and follows the wake when one is.
+// Whether a shape's leaf is marked moved
+static bool IsShapeMarked( b3World* world, const b3Shape* shape )
+{
+	const b3DynamicTree* tree = world->broadPhase.trees + B3_PROXY_TYPE( shape->proxyKey );
+	int proxyId = B3_PROXY_ID( shape->proxyKey );
+	return b3IsNodeMoved( tree->nodes + tree->proxies[proxyId].node );
+}
+
+// The writers of a sleeping body's proxy that wake nothing. A shape created on a sleeping body is
+// parked in the awake tree, marked, and settles into the sleeping tree at the next step; a filter
+// change that recreates the proxy does the same when no contact is destroyed, and follows the wake
+// when one is.
 int SleepingWriterTest( void )
 {
 	b3WorldDef worldDef = b3DefaultWorldDef();
@@ -387,21 +588,54 @@ int SleepingWriterTest( void )
 	ENSURE( b3Body_IsAwake( dropped ) == false );
 	ENSURE( GetProxyType( world, dropped ) == B3_SLEEPING_PROXY_TYPE );
 	ENSURE( b3GetBodyFullId( world, dropped )->contactCount == 1 );
+	ENSURE( GetProxyType( world, sleeper ) == B3_SLEEPING_PROXY_TYPE );
 
-	// Shape creation on a sleeping body
+	// Shape creation on a sleeping body: parked, then settled by a step
 	b3ShapeDef shapeDef = b3DefaultShapeDef();
 	b3BoxHull box = b3MakeBoxHull( extent, extent, extent );
 	b3ShapeId sleeperShape = b3CreateHullShape( sleeper, &shapeDef, &box.base );
 	b3Shape* shape = b3Array_Get( world->shapes, sleeperShape.index1 - 1 );
-	ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == b3_dynamicBody );
+	ENSURE( IsShapeMarked( world, shape ) );
 	ENSURE( b3Body_IsAwake( sleeper ) == false );
+	ENSURE( world->broadPhase.migrationQueue.count == 1 );
 	b3ValidateBroadPhase( &world->broadPhase );
 
-	// A filter change recreates the proxy. Nothing touches the sleeper, so nothing wakes.
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( IsShapeMarked( world, shape ) == false );
+	ENSURE( b3Body_IsAwake( sleeper ) == false );
+	ENSURE( world->broadPhase.migrationQueue.count == 0 );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	// A filter change recreates the proxy. Nothing touches the sleeper, so nothing wakes; the
+	// marked leaf is parked and settles at the next step.
 	b3Filter filter = b3Shape_GetFilter( sleeperShape );
 	filter.maskBits = filter.maskBits ^ 1;
 	b3Shape_SetFilter( sleeperShape, filter, true );
+	ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == b3_dynamicBody );
+	ENSURE( IsShapeMarked( world, shape ) );
+	ENSURE( b3Body_IsAwake( sleeper ) == false );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
 	ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( IsShapeMarked( world, shape ) == false );
+	ENSURE( b3Body_IsAwake( sleeper ) == false );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	// A category change recreates the proxy through the move path. Same outcome.
+	filter = b3Shape_GetFilter( sleeperShape );
+	filter.categoryBits = filter.categoryBits ^ 2;
+	b3Shape_SetFilter( sleeperShape, filter, true );
+	ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == b3_dynamicBody );
+	ENSURE( IsShapeMarked( world, shape ) );
+	ENSURE( b3Body_IsAwake( sleeper ) == false );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == B3_SLEEPING_PROXY_TYPE );
+	ENSURE( IsShapeMarked( world, shape ) == false );
 	ENSURE( b3Body_IsAwake( sleeper ) == false );
 	b3ValidateBroadPhase( &world->broadPhase );
 
@@ -539,6 +773,9 @@ static void CreateCallbackScene( CallbackScene* scene )
 	scene->bodyB = CreateBox( scene->worldId, b3_dynamicBody, (b3Pos){ 5.0, 0.0, 0.0 }, extent, false );
 	scene->newBody = b3_nullBodyId;
 	scene->callbackCount = 0;
+
+	// One step with nothing awake settles the shapes created asleep into the sleeping tree
+	b3World_Step( scene->worldId, 1.0f / 60.0f, 4 );
 }
 
 static b3AABB CallbackQueryBox( void )
@@ -887,10 +1124,10 @@ int SleepingExplodeTest( void )
 	return 0;
 }
 
-// The sleeping tree is kept shallow. Unrotated moves into a nested sequence of boxes, each
-// enclosing every box before it, deepen one path per insert. At the tree level the full build
-// brings the tall tree under the threshold; at the world level the hooks keep it there after every
-// write, moved bits survive the rebuild and the pairs are still found.
+// The sleeping tree is kept shallow. Moves into a nested sequence of boxes, each enclosing every
+// box before it, deepen one path per insert. At the tree level the full build brings the tall tree
+// under the threshold; at the world level the drain's inserts are tested, so the tree is under the
+// threshold after every step, and the pairs are still found.
 
 #define HEIGHT_PROXY_COUNT ( B3_SLEEPING_TREE_MAX_HEIGHT + 16 )
 
@@ -938,6 +1175,12 @@ static int SleepingTreeHeightTreeCase( void )
 	return 0;
 }
 
+// Every body created asleep, apart along x, so the first step settles each into the sleeping
+// tree; then, one per step, moved to the origin and put back to sleep at once, so its marked leaf
+// waits in the awake tree and the step's drain inserts it into the sleeping tree, where it encloses
+// every box before it. The drain tests the height after its inserts, so the tree is under the
+// threshold after every step. A static box created over the first body, unmarked, is found through
+// the parked leaf's mark before the leaf settles.
 static int SleepingTreeHeightWorldCase( void )
 {
 	b3WorldDef worldDef = b3DefaultWorldDef();
@@ -948,47 +1191,24 @@ static int SleepingTreeHeightWorldCase( void )
 	b3World* world = b3GetWorldFromId( worldId );
 	b3DynamicTree* tree = world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE;
 
-	// Each body carries a box of its nested size, placed apart along x, asleep
+	// Each body carries a box of its nested size, placed apart along x and away from the origin,
+	// asleep, so every move below leaves the fat box and marks the leaf
 	b3BodyId bodies[HEIGHT_PROXY_COUNT];
 	for ( int i = 0; i < HEIGHT_PROXY_COUNT; ++i )
 	{
 		b3AABB nested = NestedBox( i );
 		float extent = nested.upperBound.x;
-		b3Pos position = { 100.0 * i, 0.0, 0.0 };
+		b3Pos position = { 100.0 * ( i + 1 ), 0.0, 0.0 };
 		bodies[i] = CreateBox( worldId, b3_dynamicBody, position, extent, false );
 	}
 
-	int rebuildCount = 0;
-	int maxHeight = 0;
-	for ( int i = 0; i < HEIGHT_PROXY_COUNT; ++i )
-	{
-		b3Body_SetTransform( bodies[i], (b3Pos){ 0.0, 0.0, 0.0 }, b3Quat_identity );
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+	ENSURE( b3World_GetAwakeBodyCount( worldId ) == 0 );
+	ENSURE( tree->proxyCount == HEIGHT_PROXY_COUNT );
 
-		b3Counters counters = b3World_GetCounters( worldId );
-		maxHeight = b3MaxInt( maxHeight, counters.sleepingTreeHeight );
-		ENSURE( counters.sleepingTreeHeight <= B3_SLEEPING_TREE_MAX_HEIGHT );
-		b3ValidateBroadPhase( &world->broadPhase );
-
-		if ( counters.sleepingTreeRebuildCount > rebuildCount )
-		{
-			// The full build keeps every leaf's moved bit
-			rebuildCount = counters.sleepingTreeRebuildCount;
-			for ( int j = 0; j <= i; ++j )
-			{
-				b3Body* body = b3GetBodyFullId( world, bodies[j] );
-				b3Shape* shape = b3Array_Get( world->shapes, body->headShapeId );
-				int proxyId = B3_PROXY_ID( shape->proxyKey );
-				ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == B3_SLEEPING_PROXY_TYPE );
-				ENSURE( b3IsNodeMoved( tree->nodes + tree->proxies[proxyId].node ) );
-			}
-		}
-	}
-
-	printf( "  world level: %d rebuilds, max height %d\n", rebuildCount, maxHeight );
-	ENSURE( rebuildCount > 0 );
-
-	// A static box over the first moved body, unmarked, so the pair is found only through the
-	// sleeping proxies' bits
+	// A static box over the origin, unmarked, so the pair with each moved body is found only
+	// through that body's parked leaf
 	b3BodyDef staticDef = b3DefaultBodyDef();
 	staticDef.position = (b3Pos){ 0.0, 0.0, 0.0 };
 	b3BodyId staticId = b3CreateBody( worldId, &staticDef );
@@ -997,15 +1217,39 @@ static int SleepingTreeHeightWorldCase( void )
 	b3BoxHull box = b3MakeBoxHull( 0.5f, 0.5f, 0.5f );
 	b3CreateHullShape( staticId, &shapeDef, &box.base );
 
-	b3World_Step( worldId, 1.0f / 60.0f, 4 );
-	b3ValidateBroadPhase( &world->broadPhase );
+	int rebuildCount = 0;
+	int maxHeight = 0;
+	for ( int i = 0; i < HEIGHT_PROXY_COUNT; ++i )
+	{
+		b3Body_SetTransform( bodies[i], (b3Pos){ 0.0, 0.0, 0.0 }, b3Quat_identity );
+		ENSURE( b3Body_IsAwake( bodies[i] ) );
+		b3Body_SetAwake( bodies[i], false );
+		ENSURE( b3Body_IsAwake( bodies[i] ) == false );
+		ENSURE( GetProxyType( world, bodies[i] ) == b3_dynamicBody );
+		ENSURE( IsProxyMarked( world, bodies[i] ) );
+		ENSURE( tree->proxyCount == HEIGHT_PROXY_COUNT - 1 );
+		b3ValidateBroadPhase( &world->broadPhase );
 
-	b3Contact* contact = FindContact( world, bodies[0], staticId );
-	ENSURE( contact != NULL );
-	ENSURE( contact->setIndex == b3_disabledSet );
+		b3World_Step( worldId, 1.0f / 60.0f, 4 );
+		b3ValidateBroadPhase( &world->broadPhase );
+		ENSURE( b3Body_IsAwake( bodies[i] ) == false );
+		ENSURE( GetProxyType( world, bodies[i] ) == B3_SLEEPING_PROXY_TYPE );
+		ENSURE( IsProxyMarked( world, bodies[i] ) == false );
+		ENSURE( tree->proxyCount == HEIGHT_PROXY_COUNT );
 
-	b3Counters counters = b3World_GetCounters( worldId );
-	ENSURE( counters.sleepingTreeHeight <= B3_SLEEPING_TREE_MAX_HEIGHT );
+		b3Contact* contact = FindContact( world, bodies[i], staticId );
+		ENSURE( contact != NULL );
+		ENSURE( contact->setIndex == b3_disabledSet );
+
+		b3Counters counters = b3World_GetCounters( worldId );
+		maxHeight = b3MaxInt( maxHeight, counters.sleepingTreeHeight );
+		ENSURE( counters.sleepingTreeHeight <= B3_SLEEPING_TREE_MAX_HEIGHT );
+		rebuildCount = counters.sleepingTreeRebuildCount;
+	}
+
+	printf( "  world level: %d rebuilds, max height %d\n", rebuildCount, maxHeight );
+	ENSURE( rebuildCount > 0 );
+	ENSURE( b3HasTreeMoved( tree ) == false );
 
 	b3DestroyWorld( worldId );
 	return 0;

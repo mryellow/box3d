@@ -7,6 +7,12 @@ implements: 20261014-002
 
 # Closure: awake and non-awake dynamic trees
 
+> **Note (2026-10-15).** After this closure, `20261015-001-sleeping-tree-marks-and-set-transform-wake.md`
+> changed `b3Body_SetTransform` to wake a sleeping body and removed the sleeping tree's self pass.
+> The `sleeping_grid` scene of §11.7 now puts each lifted box back to sleep with
+> `b3Body_SetAwake( false )`, so its timings there are the scene as it was; that document has the
+> timings of the scene as it is.
+
 Closure of `docs/designs/20261014-002-implementation-prompt-awake-tree-split.md` (Canonical),
 which implements `docs/designs/20261013-001-preflight-awake-tree-split.md` (Canonical). This
 document stays outside the four commits; nothing in them was amended for it. The status of the

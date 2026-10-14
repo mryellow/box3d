@@ -1574,8 +1574,10 @@ int ContinuousCallbackOrderTest( void )
 }
 
 // The explosion wakes bodies and applies impulses in ascending shape id, so the awake set order
-// and the summed impulses do not depend on the dynamic tree layout. The world is never stepped
-// and every body sleeps in its own set before the explosion.
+// and the summed impulses do not depend on the dynamic tree layout. Every body sleeps in its own
+// set before the explosion. The world is stepped once after creation, with nothing awake and no
+// gravity, so the shapes created asleep settle from the awake tree into the sleeping tree, which
+// is the witness.
 
 typedef struct ExplodeRun
 {
@@ -1643,12 +1645,15 @@ int ExplodeOrderTest( void )
 		ENSURE( bodyCount == EXPLODE_BODY_COUNT );
 		ENSURE( b3World_GetAwakeBodyCount( worldId ) == 0 );
 
+		b3World_Step( worldId, 1.0f / 60.0f, 4 );
+		ENSURE( b3World_GetAwakeBodyCount( worldId ) == 0 );
+
 		if ( runIndex == 1 )
 		{
 			PerturbTreeLayout( worldId );
 		}
 
-		// Every body was created asleep, so the witness is the sleeping tree
+		// Every body was created asleep and the step settled them, so the witness is the sleeping tree
 		RecordVisitOrder( worldId, B3_SLEEPING_PROXY_TYPE, ExplosionBox( def ), def->maskBits, &run->witness );
 
 		// Each shape mapped to its body, keeping the first visit of each body, witnesses the wake order
