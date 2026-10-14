@@ -309,6 +309,25 @@ in both configurations, so the §5 attribution logging was not needed and was no
 All on this machine (12 cores reported), Release builds as the prompt's §7 says, base in its own
 worktree and directory, branch in the repository, each run with the machine otherwise idle.
 
+### 11.0 Plain summary
+
+The change makes no measurable difference on any standard benchmark scene. The suite table in
+§11.1 shows the branch 1 to 5 percent slower everywhere, but the offset is the same in the scenes
+with no sleep at all, which the split cannot touch, and an alternating re-check on one of them
+puts the two sides within noise; the two fifty-minute runs drifted apart. That table neither shows
+a slowdown attributable to the change nor rules out one under 5 percent. Interleaving the suite
+scene by scene would settle it and was not run.
+
+The `sleep` scene is slightly slower in the pair phase, about 0.01 ms per step, because waking
+and sleeping pyramids now move proxies between trees and the pair update runs on steps where the
+base did nothing. Whole-step time there is within noise.
+
+The one clear win is a scene built to show it, the harness's grid of ten thousand sleeping boxes
+with a hundred teleported every step: the pair phase drops from 0.92 to 0.23 ms per step, about
+four times faster, because the base rebuilt the ten-thousand-leaf tree on every step that touched
+it and the branch leaves the sleeping tree alone. No benchmark scene has that shape, a large
+sleeping population beside ongoing motion. Every scene's results are bit-identical on every step.
+
 ### 11.1 Suite benchmark, total milliseconds per thread count
 
 `benchmark -t=8`, four runs per thread count, minimum kept by the driver.
