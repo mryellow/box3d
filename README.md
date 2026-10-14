@@ -1,13 +1,8 @@
 # Box3D
 
-[![Build Status](https://github.com/erincatto/box3d/actions/workflows/build.yml/badge.svg)](https://github.com/erincatto/box3d/actions)
-[![CLA assistant](https://cla-assistant.io/readme/badge/erincatto/box3d)](https://cla-assistant.io/erincatto/box3d)
-
-![Box3D Logo](https://box2d.org/images/logo.svg)
+![Box3D Logo]([https://box2d.org/images](https://raw.githubusercontent.com/mryellow/box3d/refs/heads/master/logo.svg)
 
 Box3D is a 3D physics engine for games.
-
-[![Introducing Box3D](https://img.youtube.com/vi/jr_Fzl2XwKU/maxresdefault.jpg)](https://www.youtube.com/watch?v=jr_Fzl2XwKU)
 
 ## Features
 
@@ -155,6 +150,3 @@ On x86, AVX2 kernels are selected at runtime when the CPU supports them. Configu
 
 The user manual lives in [`docs/`](docs/) and is built with Doxygen. Enable the `BOX3D_DOCS` CMake option and build the `doc` target.
 
-## License
-
-Box3D is developed by Erin Catto and uses the [MIT license](https://en.wikipedia.org/wiki/MIT_License).
