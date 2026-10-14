@@ -11,3 +11,5 @@ Use these to create a recording.
 ```c
 b3CreateRecording, b3World_StartRecording, b3World_StopRecording, b3SaveRecordingToFile
 ```
+
+Designs for implementation consideration should be created using the workflow in `docs/designs/WORKFLOW.md`, drafts checked for compliance with it's Acceptance Criteria.
