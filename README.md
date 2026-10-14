@@ -1,6 +1,8 @@
-# Box3D
+# Box3D-Evo
 
 Box3D is a 3D physics engine for games.
+
+Box3D-Evo is a fork.
 
 ## Features
 
