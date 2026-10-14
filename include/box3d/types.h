@@ -608,6 +608,12 @@ typedef struct b3Counters
 
 	/// Maximum TOI root solver iterations.
 	int rootIterations;
+
+	/// Height of the broad-phase tree holding sleeping dynamic proxies
+	int sleepingTreeHeight;
+
+	/// Number of full rebuilds of the sleeping dynamic tree since the world was created
+	int sleepingTreeRebuildCount;
 } b3Counters;
 
 /// Joint type enumeration. This is useful because all joint types use b3JointId and sometimes you

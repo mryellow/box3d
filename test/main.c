@@ -58,6 +58,7 @@ extern int RecordingTest( void );
 extern int RestitutionTest( void );
 extern int SeparatingAxisTest( void );
 extern int ShapeTest( void );
+extern int SleepingProxyTreeTest( void );
 extern int TableTest( void );
 extern int TreeOrderHelperTest( void );
 extern int WorldTest( void );
@@ -144,6 +145,7 @@ int main( int argc, char** argv )
 	MAYBE_RUN_TEST( RestitutionTest );
 	MAYBE_RUN_TEST( SeparatingAxisTest );
 	MAYBE_RUN_TEST( ShapeTest );
+	MAYBE_RUN_TEST( SleepingProxyTreeTest );
 	MAYBE_RUN_TEST( TableTest );
 	MAYBE_RUN_TEST( TreeOrderHelperTest );
 	MAYBE_RUN_TEST( WorldTest );

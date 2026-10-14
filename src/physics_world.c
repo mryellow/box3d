@@ -1081,7 +1081,10 @@ void b3World_Step( b3WorldId worldId, float timeStep, int subStepCount )
 	{
 		b3Capacity* c = &world->maxCapacity;
 		c->staticShapeCount = b3MaxInt( c->staticShapeCount, world->broadPhase.trees[b3_staticBody].proxyCount );
-		c->dynamicShapeCount = b3MaxInt( c->dynamicShapeCount, world->broadPhase.trees[b3_dynamicBody].proxyCount );
+		// Both dynamic trees count, since this hint sizes the sleeping tree of the next world
+		int dynamicProxyCount =
+			world->broadPhase.trees[b3_dynamicBody].proxyCount + world->broadPhase.trees[B3_SLEEPING_PROXY_TYPE].proxyCount;
+		c->dynamicShapeCount = b3MaxInt( c->dynamicShapeCount, dynamicProxyCount );
 
 		int staticBodyCount = world->solverSets.data[b3_staticSet].bodySims.count;
 		c->staticBodyCount = b3MaxInt( c->staticBodyCount, staticBodyCount );
@@ -1189,7 +1192,7 @@ void b3World_Step( b3WorldId worldId, float timeStep, int subStepCount )
 		// Fold this step's world bounds into the recording so a viewer can frame the whole motion.
 		b3AABB worldBounds = { 0 };
 		bool haveBounds = false;
-		for ( int i = 0; i < b3_bodyTypeCount; ++i )
+		for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 		{
 			b3DynamicTree* tree = world->broadPhase.trees + i;
 			if ( b3DynamicTree_GetProxyCount( tree ) == 0 )
@@ -1725,7 +1728,7 @@ b3AABB b3World_GetBounds( b3WorldId worldId )
 	b3AABB worldBounds = { 0 };
 	bool haveBounds = false;
 
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3DynamicTree* tree = world->broadPhase.trees + i;
 		if ( b3DynamicTree_GetProxyCount( tree ) == 0 )
@@ -2424,9 +2427,10 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 	int staticTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_staticBody );
 	int kinematicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_kinematicBody );
 	int dynamicTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + b3_dynamicBody );
+	int sleepingTreeBytes = b3DynamicTree_GetByteCount( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE );
 	b3HashSet* pairSet = &world->broadPhase.pairSet;
 	int pairSetBytes = b3GetHashSetBytes( pairSet );
-	total += (uint64_t)staticTreeBytes + kinematicTreeBytes + dynamicTreeBytes + pairSetBytes;
+	total += (uint64_t)staticTreeBytes + kinematicTreeBytes + dynamicTreeBytes + sleepingTreeBytes + pairSetBytes;
 
 	if ( log )
 	{
@@ -2434,6 +2438,7 @@ static uint64_t b3GetWorldByteCount( b3World* world, bool log )
 		b3Log( "static tree: %d", staticTreeBytes );
 		b3Log( "kinematic tree: %d", kinematicTreeBytes );
 		b3Log( "dynamic tree: %d", dynamicTreeBytes );
+		b3Log( "sleeping tree: %d", sleepingTreeBytes );
 		b3Log( "pairSet: %d (%d, %d)", pairSetBytes, pairSet->count, pairSet->capacity );
 	}
 
@@ -2619,6 +2624,10 @@ b3Counters b3World_GetCounters( b3WorldId worldId )
 	b3DynamicTree* dynamicTree = world->broadPhase.trees + b3_dynamicBody;
 	b3DynamicTree* kinematicTree = world->broadPhase.trees + b3_kinematicBody;
 	s.treeHeight = b3MaxInt( b3DynamicTree_GetHeight( dynamicTree ), b3DynamicTree_GetHeight( kinematicTree ) );
+
+	b3DynamicTree* sleepingTree = world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE;
+	s.sleepingTreeHeight = b3DynamicTree_GetHeight( sleepingTree );
+	s.sleepingTreeRebuildCount = world->broadPhase.sleepingTreeRebuildCount;
 
 	s.satCallCount = world->satCallCount;
 	s.satCacheHitCount = world->satCacheHitCount;
@@ -3827,8 +3836,11 @@ void b3ValidateSolverSets( b3World* world )
 						}
 						else
 						{
+							// A dynamic proxy is in the awake or the sleeping tree. Which one its set
+							// implies is checked at the end of the step, after queued migrations ran.
 							b3BodyType proxyType = B3_PROXY_TYPE( shape->proxyKey );
-							B3_ASSERT( proxyType == b3_kinematicBody || proxyType == b3_dynamicBody );
+							B3_ASSERT( proxyType == b3_kinematicBody || proxyType == b3_dynamicBody ||
+									   proxyType == B3_SLEEPING_PROXY_TYPE );
 						}
 
 						prevShapeId = shapeId;

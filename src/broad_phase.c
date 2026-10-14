@@ -32,15 +32,21 @@ void b3CreateBroadPhase( b3BroadPhase* bp, const b3Capacity* capacity )
 	int kinematicCapacity = 16;
 	bp->trees[b3_kinematicBody] = b3DynamicTree_Create( kinematicCapacity );
 
-	int dynamicCapacity = b3MaxInt( 16, capacity->dynamicShapeCount );
+	// The dynamic shape hint sizes the sleeping tree. The awake tree starts at the floor and grows
+	// with what is awake.
+	int dynamicCapacity = 16;
 	bp->trees[b3_dynamicBody] = b3DynamicTree_Create( dynamicCapacity );
 
+	int sleepingCapacity = b3MaxInt( 16, capacity->dynamicShapeCount );
+	bp->trees[B3_SLEEPING_PROXY_TYPE] = b3DynamicTree_Create( sleepingCapacity );
+
 	bp->movedSiblings = NULL;
+	bp->sleepingTreeRebuildCount = 0;
 }
 
 void b3DestroyBroadPhase( b3BroadPhase* bp )
 {
-	for ( int i = 0; i < b3_bodyTypeCount; ++i )
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
 	{
 		b3DynamicTree_Destroy( bp->trees + i );
 	}
@@ -53,7 +59,7 @@ void b3DestroyBroadPhase( b3BroadPhase* bp )
 int b3BroadPhase_CreateProxy( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aabb, uint64_t categoryBits, int shapeIndex,
 							  bool forcePairCreation )
 {
-	B3_ASSERT( 0 <= proxyType && proxyType < b3_bodyTypeCount );
+	B3_ASSERT( 0 <= proxyType && proxyType < B3_PROXY_TREE_COUNT );
 
 	bool mark = ( proxyType != b3_staticBody || forcePairCreation );
 
@@ -67,7 +73,7 @@ void b3BroadPhase_DestroyProxy( b3BroadPhase* bp, int proxyKey )
 	b3BodyType proxyType = B3_PROXY_TYPE( proxyKey );
 	int proxyId = B3_PROXY_ID( proxyKey );
 
-	B3_ASSERT( 0 <= proxyType && proxyType < b3_bodyTypeCount );
+	B3_ASSERT( 0 <= proxyType && proxyType < B3_PROXY_TREE_COUNT );
 	b3DynamicTree_DestroyProxy( bp->trees + proxyType, proxyId );
 }
 
@@ -805,6 +811,7 @@ void b3ValidateBroadPhase( const b3BroadPhase* bp )
 {
 	b3DynamicTree_Validate( bp->trees + b3_dynamicBody );
 	b3DynamicTree_Validate( bp->trees + b3_kinematicBody );
+	b3DynamicTree_Validate( bp->trees + B3_SLEEPING_PROXY_TYPE );
 
 	// todo validate every shape AABB is contained in tree AABB
 }
@@ -812,7 +819,7 @@ void b3ValidateBroadPhase( const b3BroadPhase* bp )
 void b3ValidateNoMoved( const b3BroadPhase* bp )
 {
 #if B3_ENABLE_VALIDATION == 1
-	for ( int j = 0; j < b3_bodyTypeCount; ++j )
+	for ( int j = 0; j < B3_PROXY_TREE_COUNT; ++j )
 	{
 		const b3DynamicTree* tree = bp->trees + j;
 		b3DynamicTree_ValidateNoMoved( tree );

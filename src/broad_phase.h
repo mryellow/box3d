@@ -18,16 +18,24 @@ typedef struct b3World b3World;
 #define B3_PROXY_ID( KEY ) ( ( KEY ) >> 2 )
 #define B3_PROXY_KEY( ID, TYPE ) ( ( ( ID ) << 2 ) | ( TYPE ) )
 
+// The three body types take the proxy codes 0 to 2 and name the tree of each. The fourth code is
+// not a body type: it names the tree of sleeping dynamic proxies. The key format holds four codes.
+#define B3_SLEEPING_PROXY_TYPE ( (b3BodyType)3 )
+#define B3_PROXY_TREE_COUNT 4
+
 /// The broad-phase is used for computing pairs and performing volume queries and ray casts.
 /// This broad-phase does not persist pairs. Instead, this reports potentially new pairs.
 /// It is up to the client to consume the new pairs and to track subsequent overlap.
 typedef struct b3BroadPhase
 {
-	// One tree for each body type.
-	b3DynamicTree trees[b3_bodyTypeCount];
+	// One tree for each body type, then the tree of sleeping dynamic proxies.
+	b3DynamicTree trees[B3_PROXY_TREE_COUNT];
 
 	// The moved siblings gathered from the dynamic body tree.
 	int* movedSiblings;
+
+	// Number of full rebuilds of the sleeping dynamic tree, reported by b3World_GetCounters.
+	int sleepingTreeRebuildCount;
 
 	// Tracks shape pairs that have a b3Contact
 	// todo pairSet can grow quite large on the first time step and remain large

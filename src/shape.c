@@ -1028,7 +1028,7 @@ void b3CreateShapeProxy( b3World* world, b3Shape* shape, b3BodyType type, b3Worl
 	// Create proxies in the broad-phase.
 	shape->proxyKey = b3BroadPhase_CreateProxy( &world->broadPhase, type, *fatAABB, shape->filter.categoryBits, shape->id,
 												forcePairCreation );
-	B3_ASSERT( B3_PROXY_TYPE( shape->proxyKey ) < b3_bodyTypeCount );
+	B3_ASSERT( B3_PROXY_TYPE( shape->proxyKey ) < B3_PROXY_TREE_COUNT );
 }
 
 void b3DestroyShapeProxy( b3Shape* shape, b3BroadPhase* bp )

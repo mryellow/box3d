@@ -33,7 +33,7 @@
 
 // Snapshot image magic 'BNS3' and version
 #define B3_SNAP_MAGIC 0x33534E42u
-#define B3_SNAP_VERSION 10u // post solve restitution
+#define B3_SNAP_VERSION 11u // fourth broad-phase tree for sleeping dynamic proxies
 
 #define B3_SNAP_FLAG_VALIDATION 0x1u
 #define B3_SNAP_FLAG_DOUBLE_PRECISION 0x2u
@@ -1126,7 +1126,7 @@ int b3SerializeWorld( b3World* world, b3RecBuffer* buf, b3Recording* rec )
 
 	// Broad phase
 	b3BroadPhase* bp = &world->broadPhase;
-	for ( int t = 0; t < b3_bodyTypeCount; ++t )
+	for ( int t = 0; t < B3_PROXY_TREE_COUNT; ++t )
 	{
 		b3SerTree( buf, &bp->trees[t] );
 	}
@@ -1357,7 +1357,7 @@ bool b3DeserializeIntoShell( const uint8_t* data, int size, b3World* world, b3Re
 	{
 		b3BroadPhase* bp = &world->broadPhase;
 
-		for ( int t = 0; t < b3_bodyTypeCount; ++t )
+		for ( int t = 0; t < B3_PROXY_TREE_COUNT; ++t )
 		{
 			b3DesTree( r, &bp->trees[t] );
 		}

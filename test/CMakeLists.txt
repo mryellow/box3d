@@ -3,6 +3,7 @@
 set(BOX3D_TEST_FILES
     main.c
 	test_allocator.c
+	test_awake_tree.c
     test_bitset.c
 	test_body.c
 	test_body_query.c
