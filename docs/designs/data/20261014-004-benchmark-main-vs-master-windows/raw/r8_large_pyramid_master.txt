@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: large_pyramid, steps = 200
+thread count: 1
+run 0 : 2777.92 (ms)
+thread count: 2
+run 0 : 1456.92 (ms)
+thread count: 3
+run 0 : 1079.94 (ms)
+thread count: 4
+run 0 : 876.056 (ms)
+thread count: 5
+run 0 : 801.381 (ms)
+thread count: 6
+run 0 : 739.358 (ms)
+thread count: 7
+run 0 : 769.456 (ms)
+thread count: 8
+run 0 : 782.333 (ms)
+body 5051 / shape 5051 / contact 14950 / joint 0 / stack 6554624
+
+======================================
+All benchmarks complete!

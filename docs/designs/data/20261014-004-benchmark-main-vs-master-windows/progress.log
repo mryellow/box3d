@@ -1,0 +1,21 @@
+round 1 start 19:30:26 win_cpu=2% waited=0x30s
+round 1 done 19:41:35
+round 2 start 19:41:37 win_cpu=2% waited=0x30s
+round 2 done 19:53:14
+round 3 start 19:53:16 win_cpu=3% waited=0x30s
+round 3 done 20:04:51
+round 4 start 20:04:53 win_cpu=8% waited=0x30s
+round 4 done 20:16:29
+round 5 start 20:16:31 win_cpu=4% waited=0x30s
+round 5 done 20:28:11
+round 6 start 20:28:13 win_cpu=3% waited=0x30s
+round 6 done 20:39:46
+round 7 start 20:39:48 win_cpu=4% waited=0x30s
+round 7 done 20:51:18
+round 8 start 20:51:20 win_cpu=8% waited=0x30s
+round 8 done 21:02:52
+round 9 start 21:02:53 win_cpu=1% waited=0x30s
+round 9 done 21:14:43
+round 10 start 21:14:45 win_cpu=0% waited=0x30s
+round 10 done 21:26:21
+ALLDONE

@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: mesh_drop, steps = 170
+thread count: 1
+run 0 : 2850.4 (ms)
+thread count: 2
+run 0 : 1545.79 (ms)
+thread count: 3
+run 0 : 1128.77 (ms)
+thread count: 4
+run 0 : 1048.42 (ms)
+thread count: 5
+run 0 : 870.793 (ms)
+thread count: 6
+run 0 : 873.209 (ms)
+thread count: 7
+run 0 : 817.073 (ms)
+thread count: 8
+run 0 : 805.126 (ms)
+body 10001 / shape 10001 / contact 10000 / joint 0 / stack 7143424
+
+======================================
+All benchmarks complete!

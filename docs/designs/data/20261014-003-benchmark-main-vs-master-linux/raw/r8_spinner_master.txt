@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: spinner, steps = 800
+thread count: 1
+run 0 : 4780.65 (ms)
+thread count: 2
+run 0 : 3111.09 (ms)
+thread count: 3
+run 0 : 2447.85 (ms)
+thread count: 4
+run 0 : 2311.11 (ms)
+thread count: 5
+run 0 : 2126.27 (ms)
+thread count: 6
+run 0 : 2167.33 (ms)
+thread count: 7
+run 0 : 2178.96 (ms)
+thread count: 8
+run 0 : 2181.69 (ms)
+body 1502 / shape 1502 / contact 7437 / joint 1 / stack 2204512
+
+======================================
+All benchmarks complete!

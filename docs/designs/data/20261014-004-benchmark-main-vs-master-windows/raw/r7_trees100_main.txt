@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: trees100, steps = 500
+thread count: 1
+run 0 : 222.506 (ms)
+thread count: 2
+run 0 : 140.48 (ms)
+thread count: 3
+run 0 : 116.06 (ms)
+thread count: 4
+run 0 : 106.67 (ms)
+thread count: 5
+run 0 : 103.994 (ms)
+thread count: 6
+run 0 : 104.057 (ms)
+thread count: 7
+run 0 : 104.636 (ms)
+thread count: 8
+run 0 : 107.324 (ms)
+body 51 / shape 1101 / contact 1100 / joint 0 / stack 153216
+
+======================================
+All benchmarks complete!

@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: joint_grid, steps = 100
+thread count: 1
+run 0 : 2637.95 (ms)
+thread count: 2
+run 0 : 1418.09 (ms)
+thread count: 3
+run 0 : 1017.6 (ms)
+thread count: 4
+run 0 : 807.343 (ms)
+thread count: 5
+run 0 : 719.104 (ms)
+thread count: 6
+run 0 : 665.087 (ms)
+thread count: 7
+run 0 : 731.436 (ms)
+thread count: 8
+run 0 : 679.97 (ms)
+body 10000 / shape 10000 / contact 0 / joint 19800 / stack 40704
+
+======================================
+All benchmarks complete!

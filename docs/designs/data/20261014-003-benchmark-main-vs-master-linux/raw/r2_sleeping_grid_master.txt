@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: sleeping_grid, steps = 500
+thread count: 1
+run 0 : 24.8759 (ms)
+thread count: 2
+run 0 : 45.3261 (ms)
+thread count: 3
+run 0 : 78.3937 (ms)
+thread count: 4
+run 0 : 103.305 (ms)
+thread count: 5
+run 0 : 138.203 (ms)
+thread count: 6
+run 0 : 146.249 (ms)
+thread count: 7
+run 0 : 152.1 (ms)
+thread count: 8
+run 0 : 161.605 (ms)
+body 10043 / shape 10043 / contact 10039 / joint 0 / stack 120384
+
+======================================
+All benchmarks complete!

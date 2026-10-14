@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: junkyard, steps = 500
+thread count: 1
+run 0 : 22323.3 (ms)
+thread count: 2
+run 0 : 13161.2 (ms)
+thread count: 3
+run 0 : 9694.85 (ms)
+thread count: 4
+run 0 : 7848.82 (ms)
+thread count: 5
+run 0 : 6989.99 (ms)
+thread count: 6
+run 0 : 6960.6 (ms)
+thread count: 7
+run 0 : 5859.89 (ms)
+thread count: 8
+run 0 : 5659.7 (ms)
+body 10586 / shape 10590 / contact 194258 / joint 0 / stack 11668448
+
+======================================
+All benchmarks complete!

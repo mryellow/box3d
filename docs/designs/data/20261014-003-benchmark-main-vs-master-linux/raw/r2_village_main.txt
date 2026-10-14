@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: village, steps = 600
+thread count: 1
+run 0 : 4272.05 (ms)
+thread count: 2
+run 0 : 2671.3 (ms)
+thread count: 3
+run 0 : 2106.01 (ms)
+thread count: 4
+run 0 : 1855.43 (ms)
+thread count: 5
+run 0 : 1729.72 (ms)
+thread count: 6
+run 0 : 1812.59 (ms)
+thread count: 7
+run 0 : 1724.15 (ms)
+thread count: 8
+run 0 : 1760.19 (ms)
+body 4901 / shape 4901 / contact 13427 / joint 0 / stack 2616480
+
+======================================
+All benchmarks complete!

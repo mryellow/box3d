@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: convex_pile, steps = 500
+thread count: 1
+run 0 : 9695.32 (ms)
+thread count: 2
+run 0 : 5292.48 (ms)
+thread count: 3
+run 0 : 3859.53 (ms)
+thread count: 4
+run 0 : 3195.53 (ms)
+thread count: 5
+run 0 : 2795 (ms)
+thread count: 6
+run 0 : 2649.13 (ms)
+thread count: 7
+run 0 : 2594.79 (ms)
+thread count: 8
+run 0 : 2518.39 (ms)
+body 5121 / shape 5121 / contact 51242 / joint 0 / stack 2533568
+
+======================================
+All benchmarks complete!

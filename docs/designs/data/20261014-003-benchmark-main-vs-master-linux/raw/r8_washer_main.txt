@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: washer, steps = 1000
+thread count: 1
+run 0 : 32782.1 (ms)
+thread count: 2
+run 0 : 19444 (ms)
+thread count: 3
+run 0 : 14703.5 (ms)
+thread count: 4
+run 0 : 12177.5 (ms)
+thread count: 5
+run 0 : 11278.4 (ms)
+thread count: 6
+run 0 : 10688.1 (ms)
+thread count: 7
+run 0 : 10538.1 (ms)
+thread count: 8
+run 0 : 10683.4 (ms)
+body 8002 / shape 8041 / contact 42918 / joint 0 / stack 7624320
+
+======================================
+All benchmarks complete!

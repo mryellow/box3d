@@ -1,0 +1,21 @@
+round 1 start 16:46:19 load=0.09 0.10 1.15 waited=0x30s
+round 1 done 16:58:25
+round 2 start 16:59:55 load=1.09 2.42 2.13 waited=3x30s
+round 2 done 17:12:06
+round 3 start 17:13:06 load=1.44 2.59 2.53 waited=2x30s
+round 3 done 17:25:49
+round 4 start 17:26:49 load=1.50 2.66 2.73 waited=2x30s
+round 4 done 17:39:04
+round 5 start 17:40:34 load=0.96 2.39 2.70 waited=3x30s
+round 5 done 17:52:45
+round 6 start 17:54:15 load=1.22 2.69 2.83 waited=3x30s
+round 6 done 18:07:22
+round 7 start 18:08:52 load=1.15 2.65 2.85 waited=3x30s
+round 7 done 18:21:43
+round 8 start 18:23:13 load=0.98 2.51 2.83 waited=3x30s
+round 8 done 18:35:51
+round 9 start 18:37:21 load=1.24 2.70 2.86 waited=3x30s
+round 9 done 18:49:58
+round 10 start 18:51:28 load=1.17 2.65 2.89 waited=3x30s
+round 10 done 19:03:54
+ALLDONE

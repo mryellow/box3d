@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: post_field, steps = 100
+thread count: 1
+run 0 : 5324.42 (ms)
+thread count: 2
+run 0 : 3034.5 (ms)
+thread count: 3
+run 0 : 2076.89 (ms)
+thread count: 4
+run 0 : 1633.28 (ms)
+thread count: 5
+run 0 : 1413.07 (ms)
+thread count: 6
+run 0 : 1268.01 (ms)
+thread count: 7
+run 0 : 1267.23 (ms)
+thread count: 8
+run 0 : 1246.85 (ms)
+body 26100 / shape 26100 / contact 354 / joint 0 / stack 47968
+
+======================================
+All benchmarks complete!

@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: rain, steps = 400
+thread count: 1
+run 0 : 3615.16 (ms)
+thread count: 2
+run 0 : 2013.95 (ms)
+thread count: 3
+run 0 : 1543.53 (ms)
+thread count: 4
+run 0 : 1308.58 (ms)
+thread count: 5
+run 0 : 1140.47 (ms)
+thread count: 6
+run 0 : 1145.7 (ms)
+thread count: 7
+run 0 : 1145.14 (ms)
+thread count: 8
+run 0 : 1166.75 (ms)
+body 3700 / shape 4400 / contact 6864 / joint 4200 / stack 888928
+
+======================================
+All benchmarks complete!

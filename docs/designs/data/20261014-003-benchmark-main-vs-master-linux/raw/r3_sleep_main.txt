@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: sleep, steps = 300
+thread count: 1
+run 0 : 1614.38 (ms)
+thread count: 2
+run 0 : 904.813 (ms)
+thread count: 3
+run 0 : 659.225 (ms)
+thread count: 4
+run 0 : 537.432 (ms)
+thread count: 5
+run 0 : 590.884 (ms)
+thread count: 6
+run 0 : 575.649 (ms)
+thread count: 7
+run 0 : 581.452 (ms)
+thread count: 8
+run 0 : 583.673 (ms)
+body 2101 / shape 2101 / contact 5890 / joint 0 / stack 2594400
+
+======================================
+All benchmarks complete!

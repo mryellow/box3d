@@ -1,0 +1,24 @@
+Starting benchmarks
+======================================
+simd width = 8
+benchmark: large_world, steps = 500
+thread count: 1
+run 0 : 8.4841 (ms)
+thread count: 2
+run 0 : 18.1812 (ms)
+thread count: 3
+run 0 : 36.8076 (ms)
+thread count: 4
+run 0 : 68.9725 (ms)
+thread count: 5
+run 0 : 79.5664 (ms)
+thread count: 6
+run 0 : 90.4736 (ms)
+thread count: 7
+run 0 : 93.1773 (ms)
+thread count: 8
+run 0 : 105.141 (ms)
+body 1000099 / shape 1000099 / contact 380 / joint 0 / stack 14752
+
+======================================
+All benchmarks complete!
