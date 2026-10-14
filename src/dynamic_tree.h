@@ -8,6 +8,10 @@
 
 #define B3_TREE_STACK_SIZE 512
 
+// The sleeping dynamic tree is not rebuilt by the step. An insert that takes its root height past
+// this triggers a full rebuild on the writing thread, so its walks stay far from the stack size.
+#define B3_SLEEPING_TREE_MAX_HEIGHT 64
+
 // Used to mark a node as being moved such that pairs need to be generated and the tree
 // may need to be rebuilt. This mark comes from a few sources:
 // - updating the transform and AABB in the solver from movement

@@ -642,6 +642,7 @@ static void b3SolveContinuous( b3World* world, int bodySimIndex, b3TaskContext* 
 	b3DynamicTree* staticTree = world->broadPhase.trees + b3_staticBody;
 	b3DynamicTree* kinematicTree = world->broadPhase.trees + b3_kinematicBody;
 	b3DynamicTree* dynamicTree = world->broadPhase.trees + b3_dynamicBody;
+	b3DynamicTree* sleepingTree = world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE;
 	b3Body* fastBody = b3Array_Get( world->bodies, fastBodySim->bodyId );
 
 	b3ContinuousContext context = { 0 };
@@ -704,7 +705,8 @@ static void b3SolveContinuous( b3World* world, int bodySimIndex, b3TaskContext* 
 
 		// Each tree query is collected, keyed if needed, sorted and evaluated on its own, so the
 		// candidate order within a query is fixed by sweep key then shape id and the tree order is
-		// static, kinematic, dynamic.
+		// static, kinematic, dynamic. The two dynamic trees feed one sorted pass, so a sweep sees
+		// the same order whether a candidate is awake or asleep.
 		b3AABB sweptBox = b3AABB_Union( box1, box2 );
 		b3DynamicTree_Query( staticTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
 		b3EvaluateContinuousCandidates( &context );
@@ -714,6 +716,7 @@ static void b3SolveContinuous( b3World* world, int bodySimIndex, b3TaskContext* 
 			b3DynamicTree_Query( kinematicTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
 			b3EvaluateContinuousCandidates( &context );
 			b3DynamicTree_Query( dynamicTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
+			b3DynamicTree_Query( sleepingTree, sweptBox, B3_DEFAULT_MASK_BITS, false, b3ContinuousQueryCallback, &context );
 			b3EvaluateContinuousCandidates( &context );
 		}
 	}
@@ -2121,6 +2124,11 @@ void b3Solve( b3World* world, b3StepContext* stepContext )
 		}
 
 		b3ValidateNoMoved( &world->broadPhase );
+
+		// Bodies woken by the collide's begin touch events have their proxies placed now, with the
+		// rebuild joined and before finalize runs continuous collision, so a bullet finds them in
+		// the awake tree. The step's traversal is still open, so this is the one mid-step drain.
+		b3BroadPhase_DrainMigrations( world );
 
 		// Finalize bodies. Must happen after the constraint solver and after island splitting.
 		b3ParallelFor( world, &b3FinalizeBodiesTask, awakeBodyCount, 8, stepContext, "ccd" );

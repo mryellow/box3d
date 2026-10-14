@@ -194,9 +194,10 @@ static bool WitnessDiffers( const char* label, const VisitOrder* run1, const Vis
 static void PerturbTreeLayout( b3WorldId worldId )
 {
 	b3World* world = b3GetWorldFromId( worldId );
-	b3DynamicTree_Rebuild( world->broadPhase.trees + b3_staticBody, true );
-	b3DynamicTree_Rebuild( world->broadPhase.trees + b3_kinematicBody, true );
-	b3DynamicTree_Rebuild( world->broadPhase.trees + b3_dynamicBody, true );
+	for ( int i = 0; i < B3_PROXY_TREE_COUNT; ++i )
+	{
+		b3DynamicTree_Rebuild( world->broadPhase.trees + i, true );
+	}
 }
 
 static uint32_t HashWorldState( b3WorldId worldId, const b3BodyId* bodies, int count )
@@ -1647,7 +1648,8 @@ int ExplodeOrderTest( void )
 			PerturbTreeLayout( worldId );
 		}
 
-		RecordVisitOrder( worldId, b3_dynamicBody, ExplosionBox( def ), def->maskBits, &run->witness );
+		// Every body was created asleep, so the witness is the sleeping tree
+		RecordVisitOrder( worldId, B3_SLEEPING_PROXY_TYPE, ExplosionBox( def ), def->maskBits, &run->witness );
 
 		// Each shape mapped to its body, keeping the first visit of each body, witnesses the wake order
 		b3World* world = b3GetWorldFromId( worldId );

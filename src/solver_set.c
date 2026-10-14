@@ -52,6 +52,9 @@ void b3WakeSolverSet( b3World* world, int setIndex )
 		body->setIndex = b3_awakeSet;
 		body->localIndex = awakeSet->bodySims.count;
 
+		// A dynamic body's proxies move to the awake tree with it. Kinematic proxies stay put.
+		b3BroadPhase_MigrateBody( world, simSrc->bodyId );
+
 		// Reset sleep timer
 		body->sleepTime = 0.0f;
 
@@ -264,6 +267,9 @@ void b3TrySleepIsland( b3World* world, int islandId )
 
 			body->setIndex = sleepSetId;
 			body->localIndex = sleepBodyIndex;
+
+			// A dynamic body's proxies move to the sleeping tree with it. Kinematic proxies stay put.
+			b3BroadPhase_MigrateBody( world, bodyId );
 
 			// Move non-touching contacts to the disabled set.
 			// Non-touching contacts may exist between sleeping islands and there is no clear ownership.

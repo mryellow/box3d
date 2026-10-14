@@ -214,7 +214,8 @@ static b3Shape* b3CreateShapeInternal( b3World* world, b3Body* body, b3WorldTran
 
 	if ( body->setIndex != b3_disabledSet )
 	{
-		b3BodyType proxyType = body->type;
+		// A shape created on a sleeping dynamic body goes to the sleeping tree
+		b3BodyType proxyType = b3BroadPhase_GetBodyProxyType( body );
 		bool forcePairCreation = def->invokeContactCreation && shape->type != b3_compoundShape;
 		b3CreateShapeProxy( world, shape, proxyType, bodyTransform, forcePairCreation );
 	}
@@ -1025,10 +1026,11 @@ void b3CreateShapeProxy( b3World* world, b3Shape* shape, b3BodyType type, b3Worl
 	b3AABB* fatAABB = world->fatAABBs.data + shape->id;
 	b3UpdateShapeAABBs( shape, fatAABB, transform, type );
 
-	// Create proxies in the broad-phase.
-	shape->proxyKey = b3BroadPhase_CreateProxy( &world->broadPhase, type, *fatAABB, shape->filter.categoryBits, shape->id,
-												forcePairCreation );
-	B3_ASSERT( B3_PROXY_TYPE( shape->proxyKey ) < b3_bodyTypeCount );
+	// Create proxies in the broad-phase. Every non-static create is marked so its pairs are found.
+	bool markMoved = type != b3_staticBody || forcePairCreation;
+	shape->proxyKey =
+		b3BroadPhase_CreateProxy( &world->broadPhase, type, *fatAABB, shape->filter.categoryBits, shape->id, markMoved );
+	B3_ASSERT( B3_PROXY_TYPE( shape->proxyKey ) < B3_PROXY_TREE_COUNT );
 }
 
 void b3DestroyShapeProxy( b3Shape* shape, b3BroadPhase* bp )
@@ -1383,8 +1385,9 @@ static void b3ResetProxy( b3World* world, b3Shape* shape, bool wakeBodies, bool 
 			b3BroadPhase_DestroyProxy( &world->broadPhase, shape->proxyKey );
 
 			bool forcePairCreation = true;
+			bool markMoved = proxyType != b3_staticBody || forcePairCreation;
 			shape->proxyKey = b3BroadPhase_CreateProxy( &world->broadPhase, proxyType, *fatAABB, shape->filter.categoryBits,
-														shapeId, forcePairCreation );
+														shapeId, markMoved );
 		}
 		else
 		{
