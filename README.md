@@ -1,7 +1,5 @@
 # Box3D
 
-![Box3D Logo]([https://raw.githubusercontent.com/mryellow/box3d/refs/heads/master/logo.svg])
-
 Box3D is a 3D physics engine for games.
 
 ## Features
