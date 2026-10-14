@@ -59,6 +59,26 @@ void b3DestroyBroadPhase( b3BroadPhase* bp )
 	memset( bp, 0, sizeof( b3BroadPhase ) );
 }
 
+// The sleeping tree is never rebuilt by the step, and a move inserts without rotation, so its
+// height is bounded only here. After an insert its root height is tested against the threshold
+// and the tree is rebuilt in full when it is exceeded. The full build keeps every leaf's moved
+// bit, so a pending search survives it. Nothing is tested while a traversal is open; the outermost
+// exit runs the test after its drain instead.
+static void b3CheckSleepingTreeHeight( b3BroadPhase* bp )
+{
+	if ( bp->traversalDepth != 0 )
+	{
+		return;
+	}
+
+	b3DynamicTree* tree = bp->trees + B3_SLEEPING_PROXY_TYPE;
+	if ( b3DynamicTree_GetHeight( tree ) > B3_SLEEPING_TREE_MAX_HEIGHT )
+	{
+		b3DynamicTree_Rebuild( tree, true );
+		bp->sleepingTreeRebuildCount += 1;
+	}
+}
+
 // The caller decides the mark: an ordinary create marks every non-static leaf so its pairs are
 // found, and a migration carries the old leaf's bit so sleep and wake have no pair effect.
 int b3BroadPhase_CreateProxy( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aabb, uint64_t categoryBits, int shapeIndex,
@@ -68,6 +88,12 @@ int b3BroadPhase_CreateProxy( b3BroadPhase* bp, b3BodyType proxyType, b3AABB aab
 
 	int proxyId = b3CreateTreeProxyInternal( bp->trees + proxyType, aabb, categoryBits, shapeIndex, markMoved );
 	int proxyKey = B3_PROXY_KEY( proxyId, proxyType );
+
+	if ( proxyType == B3_SLEEPING_PROXY_TYPE )
+	{
+		b3CheckSleepingTreeHeight( bp );
+	}
+
 	return proxyKey;
 }
 
@@ -87,6 +113,11 @@ void b3BroadPhase_MoveProxy( b3BroadPhase* bp, int proxyKey, b3AABB aabb )
 
 	bool mark = true;
 	b3DynamicTree_MoveProxyInternal( bp->trees + proxyType, proxyId, aabb, mark );
+
+	if ( proxyType == B3_SLEEPING_PROXY_TYPE )
+	{
+		b3CheckSleepingTreeHeight( bp );
+	}
 }
 
 // Gather the sibling pairs with a moved node. This is done serially, it is cache friendly.
@@ -721,9 +752,6 @@ static void b3UpdateTreesTask( void* context )
 	b3DynamicTree_Rebuild( world->broadPhase.trees + b3_dynamicBody, false );
 	b3DynamicTree_Rebuild( world->broadPhase.trees + b3_kinematicBody, false );
 
-	// Until the sleeping tree is kept by its own height trigger, the step rebuilds it on order too
-	b3DynamicTree_Rebuild( world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE, false );
-
 	b3TracyCZoneEnd( tree_task );
 }
 
@@ -751,7 +779,9 @@ void b3UpdateBroadPhasePairs( b3World* world )
 	bool needUpdate = b3HasTreeMoved( bp->trees + b3_staticBody );
 	needUpdate = needUpdate || b3NeedsRebuild( bp->trees + b3_kinematicBody );
 	needUpdate = needUpdate || b3NeedsRebuild( bp->trees + b3_dynamicBody );
-	needUpdate = needUpdate || b3NeedsRebuild( bp->trees + B3_SLEEPING_PROXY_TYPE );
+
+	// The sleeping tree is rebuilt on height by its writers, not on order by the step
+	needUpdate = needUpdate || b3HasTreeMoved( bp->trees + B3_SLEEPING_PROXY_TYPE );
 
 	if ( needUpdate == false )
 	{
@@ -1051,10 +1081,12 @@ void b3BroadPhase_EndTraversal( b3World* world )
 	B3_ASSERT( bp->traversalDepth > 0 );
 	bp->traversalDepth -= 1;
 
-	// A query issued from another query's callback nests, so only the outermost exit drains
+	// A query issued from another query's callback nests, so only the outermost exit drains. The
+	// height test after it covers an insert made from a callback, which skipped its own test.
 	if ( bp->traversalDepth == 0 )
 	{
 		b3BroadPhase_DrainMigrations( world );
+		b3CheckSleepingTreeHeight( bp );
 	}
 }
 

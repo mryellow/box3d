@@ -60,6 +60,7 @@ extern int RestitutionTest( void );
 extern int SeparatingAxisTest( void );
 extern int ShapeTest( void );
 extern int SleepingExplodeTest( void );
+extern int SleepingTreeHeightTest( void );
 extern int SleepingProxyTreeTest( void );
 extern int SleepingTreePairTest( void );
 extern int SleepingWriterTest( void );
@@ -153,6 +154,7 @@ int main( int argc, char** argv )
 	MAYBE_RUN_TEST( SeparatingAxisTest );
 	MAYBE_RUN_TEST( ShapeTest );
 	MAYBE_RUN_TEST( SleepingExplodeTest );
+	MAYBE_RUN_TEST( SleepingTreeHeightTest );
 	MAYBE_RUN_TEST( SleepingProxyTreeTest );
 	MAYBE_RUN_TEST( SleepingTreePairTest );
 	MAYBE_RUN_TEST( SleepingWriterTest );

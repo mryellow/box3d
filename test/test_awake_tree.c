@@ -8,6 +8,7 @@
 #include "body.h"
 #include "broad_phase.h"
 #include "contact.h"
+#include "dynamic_tree.h"
 #include "physics_world.h"
 #include "shape.h"
 #include "solver_set.h"
@@ -883,5 +884,136 @@ int SleepingExplodeTest( void )
 	hash = b3Hash( hash, (uint8_t*)runs[1].angularVelocity, sizeof( runs[1].angularVelocity ) );
 	printf( "  sleeping explode hash 0x%08X\n", hash );
 
+	return 0;
+}
+
+// The sleeping tree is kept shallow. Unrotated moves into a nested sequence of boxes, each
+// enclosing every box before it, deepen one path per insert. At the tree level the full build
+// brings the tall tree under the threshold; at the world level the hooks keep it there after every
+// write, moved bits survive the rebuild and the pairs are still found.
+
+#define HEIGHT_PROXY_COUNT ( B3_SLEEPING_TREE_MAX_HEIGHT + 16 )
+
+// Box i of the initial row: small, disjoint, centers evenly spaced along x
+static b3AABB RowBox( int index )
+{
+	float x = 4.0f * index;
+	return (b3AABB){ { x - 0.5f, -0.5f, -0.5f }, { x + 0.5f, 0.5f, 0.5f } };
+}
+
+// Box i of the nested arrangement: encloses every nested box before it
+static b3AABB NestedBox( int index )
+{
+	float extent = 1.0f + 0.5f * index;
+	return (b3AABB){ { -extent, -extent, -extent }, { extent, extent, extent } };
+}
+
+static int SleepingTreeHeightTreeCase( void )
+{
+	b3DynamicTree tree = b3DynamicTree_Create( 16 );
+
+	int proxyIds[HEIGHT_PROXY_COUNT];
+	for ( int i = 0; i < HEIGHT_PROXY_COUNT; ++i )
+	{
+		proxyIds[i] = b3DynamicTree_CreateProxy( &tree, RowBox( i ), B3_DEFAULT_CATEGORY_BITS, (uint64_t)i );
+	}
+
+	for ( int i = 0; i < HEIGHT_PROXY_COUNT; ++i )
+	{
+		b3DynamicTree_MoveProxy( &tree, proxyIds[i], NestedBox( i ) );
+	}
+
+	b3DynamicTree_Validate( &tree );
+	int tallHeight = b3DynamicTree_GetHeight( &tree );
+	printf( "  tree level: height %d after the moves, threshold %d\n", tallHeight, B3_SLEEPING_TREE_MAX_HEIGHT );
+	ENSURE( tallHeight > B3_SLEEPING_TREE_MAX_HEIGHT );
+
+	b3DynamicTree_Rebuild( &tree, true );
+	b3DynamicTree_Validate( &tree );
+	int builtHeight = b3DynamicTree_GetHeight( &tree );
+	printf( "  tree level: height %d after the full build\n", builtHeight );
+	ENSURE( builtHeight <= B3_SLEEPING_TREE_MAX_HEIGHT );
+
+	b3DynamicTree_Destroy( &tree );
+	return 0;
+}
+
+static int SleepingTreeHeightWorldCase( void )
+{
+	b3WorldDef worldDef = b3DefaultWorldDef();
+	worldDef.workerCount = 1;
+	worldDef.enableSleep = true;
+	worldDef.gravity = b3Vec3_zero;
+	b3WorldId worldId = b3CreateWorld( &worldDef );
+	b3World* world = b3GetWorldFromId( worldId );
+	b3DynamicTree* tree = world->broadPhase.trees + B3_SLEEPING_PROXY_TYPE;
+
+	// Each body carries a box of its nested size, placed apart along x, asleep
+	b3BodyId bodies[HEIGHT_PROXY_COUNT];
+	for ( int i = 0; i < HEIGHT_PROXY_COUNT; ++i )
+	{
+		b3AABB nested = NestedBox( i );
+		float extent = nested.upperBound.x;
+		b3Pos position = { 100.0 * i, 0.0, 0.0 };
+		bodies[i] = CreateBox( worldId, b3_dynamicBody, position, extent, false );
+	}
+
+	int rebuildCount = 0;
+	int maxHeight = 0;
+	for ( int i = 0; i < HEIGHT_PROXY_COUNT; ++i )
+	{
+		b3Body_SetTransform( bodies[i], (b3Pos){ 0.0, 0.0, 0.0 }, b3Quat_identity );
+
+		b3Counters counters = b3World_GetCounters( worldId );
+		maxHeight = b3MaxInt( maxHeight, counters.sleepingTreeHeight );
+		ENSURE( counters.sleepingTreeHeight <= B3_SLEEPING_TREE_MAX_HEIGHT );
+		b3ValidateBroadPhase( &world->broadPhase );
+
+		if ( counters.sleepingTreeRebuildCount > rebuildCount )
+		{
+			// The full build keeps every leaf's moved bit
+			rebuildCount = counters.sleepingTreeRebuildCount;
+			for ( int j = 0; j <= i; ++j )
+			{
+				b3Body* body = b3GetBodyFullId( world, bodies[j] );
+				b3Shape* shape = b3Array_Get( world->shapes, body->headShapeId );
+				int proxyId = B3_PROXY_ID( shape->proxyKey );
+				ENSURE( B3_PROXY_TYPE( shape->proxyKey ) == B3_SLEEPING_PROXY_TYPE );
+				ENSURE( b3IsNodeMoved( tree->nodes + tree->proxies[proxyId].node ) );
+			}
+		}
+	}
+
+	printf( "  world level: %d rebuilds, max height %d\n", rebuildCount, maxHeight );
+	ENSURE( rebuildCount > 0 );
+
+	// A static box over the first moved body, unmarked, so the pair is found only through the
+	// sleeping proxies' bits
+	b3BodyDef staticDef = b3DefaultBodyDef();
+	staticDef.position = (b3Pos){ 0.0, 0.0, 0.0 };
+	b3BodyId staticId = b3CreateBody( worldId, &staticDef );
+	b3ShapeDef shapeDef = b3DefaultShapeDef();
+	shapeDef.invokeContactCreation = false;
+	b3BoxHull box = b3MakeBoxHull( 0.5f, 0.5f, 0.5f );
+	b3CreateHullShape( staticId, &shapeDef, &box.base );
+
+	b3World_Step( worldId, 1.0f / 60.0f, 4 );
+	b3ValidateBroadPhase( &world->broadPhase );
+
+	b3Contact* contact = FindContact( world, bodies[0], staticId );
+	ENSURE( contact != NULL );
+	ENSURE( contact->setIndex == b3_disabledSet );
+
+	b3Counters counters = b3World_GetCounters( worldId );
+	ENSURE( counters.sleepingTreeHeight <= B3_SLEEPING_TREE_MAX_HEIGHT );
+
+	b3DestroyWorld( worldId );
+	return 0;
+}
+
+int SleepingTreeHeightTest( void )
+{
+	RUN_SUBTEST( SleepingTreeHeightTreeCase );
+	RUN_SUBTEST( SleepingTreeHeightWorldCase );
 	return 0;
 }
