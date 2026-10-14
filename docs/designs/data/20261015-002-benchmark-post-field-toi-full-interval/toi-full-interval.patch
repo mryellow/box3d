@@ -1,0 +1,13 @@
+diff --git a/src/solver.c b/src/solver.c
+index 17367bb..0bb3ba3 100644
+--- a/src/solver.c
++++ b/src/solver.c
+@@ -413,7 +413,7 @@ static bool b3ContinuousQueryCallback( int proxyId, uint64_t userData, void* con
+ 	b3Sweep sweepA = b3MakeRelativeSweep( bodySim, continuousContext->base );
+ 
+ 	// Time of impact versus shape. Supports all shape types
+-	b3TOIOutput output = b3ShapeTimeOfImpact( shape, fastShape, &sweepA, &continuousContext->sweep, continuousContext->fraction );
++	b3TOIOutput output = b3ShapeTimeOfImpact( shape, fastShape, &sweepA, &continuousContext->sweep, 1.0f );
+ 	if ( isSensor )
+ 	{
+ 		// Only accept a sensor hit that is sooner than the current solid hit.
