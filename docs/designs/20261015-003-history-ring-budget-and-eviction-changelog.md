@@ -83,3 +83,19 @@ edit. Settled at revision 6; canonical is the owner's edit after re-running U-G1
   the enable-time conditions are assertions. The parent's gate revision 57 changes none of the
   sections this document cites (its §6, §7.1 entry table, §9, §12, §14).
 - Status stays Draft; Canonical is the owner's edit.
+
+## Gate re-run before Canonical (2026-10-16, U-G4 and U-G1, no revision)
+
+- AC-1 to AC-4 re-checked by the author against revision 6, the whole text, all pass; the text
+  is unchanged since the previous gate, and the parent's revisions 57 to 60 change none of the
+  sections this document cites (its §6, §7.1 entry table and ownership rule, §9, §12, §14).
+- AC-1: the slot directory indexes the ring's own slots; an entry's ownership handle is the
+  block's only owner; `pendingBytes` and `bytesUsed` are counts. AC-2: capture is one ordered
+  procedure at step end, eviction is decided at the old end alone, enable and disable are one
+  function each, and `b3DestroyWorld` calls the disable first; no caller list. AC-3: `bytesUsed`
+  is the sum of charges fixed at capture and maintained at the two ends, never reconciled against
+  the arena; §9 tests the equality as an invariant. AC-4: every retained tick is on the current
+  timeline by construction (§4) with no mark and no write-path hook; the budget and window
+  procedures are rules on sums; the enable-time conditions are assertions; a charge never changes
+  while its slot is retained.
+- Status stays Draft; Canonical is the owner's edit.

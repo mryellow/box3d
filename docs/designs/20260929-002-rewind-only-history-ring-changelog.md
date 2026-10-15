@@ -545,3 +545,34 @@ Round 64: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 - No change to the design. The confirmation round of round 63, clean; the series is re-settled
   at revision 60 after the gate revision 57, and the status word remains Draft. AC-1 to AC-4
   re-checked by the author against revisions 58 to 60: nothing to fail.
+
+## Gate re-run before Canonical (2026-10-16, U-G4 and U-G1, no revision)
+
+- AC-1 to AC-4 re-checked by the author against revision 60, the whole text, all pass.
+- AC-1: the image is a point-in-time copy the ring owns and discards, kept in step with nothing
+  live; the journal is a log of old values; the migration queue is live engine state that is
+  imaged; a phase-0 slot carries a copy of the queue beside its image, not a side table; an
+  entry's ownership handle moves a block out of the world and is its only owner; §16's per-record
+  mark is not built. No subset, scope, shadow graph or side table over a solver set, the graph, an
+  island or an id pool.
+- AC-2: every write route is a type (const element access outside the container's file, the
+  const-returning sim getters with the discarded-qualifier diagnostic an error, pointer-to-const
+  owned blocks and const-data array headers, incomplete container types, the scalar struct behind
+  a pointer-to-const), so a bypass does not compile. Set and island create and destroy are the
+  creation and destruction of const-data array fields only the container's file can write. The
+  move into the awake set is the awake arrays' push, the instances offering no other push
+  (revision 57); a move between awake arrays asserts the record is where it says. The §5.2 table
+  names routes, not callers; the lists of today's sim-writing functions and scalar writers are
+  descriptions of the migration, not the mechanism. The phase-0 rewind performing §9 step 5 is a
+  required behaviour of one function.
+- AC-3: tree layout is derived at restore from the fat AABBs and the moved list; the staging
+  buffer is moved into the slot, not reconciled with it; a record write and the image scatter copy
+  fields and leave the fields bound elsewhere, which is the write boundary, not a second record;
+  the hull entry holds the hull itself and undo moves it back; events are cleared and regenerated.
+- AC-4: the rewind tick check is API argument validation returning a result; the validation-build
+  checks of §9 step 6 and the asserts (pair-set entry, hot accessor, enable and rewind traversal,
+  recording and history exclusion, the move between awake arrays) are assertions, never control
+  flow; the setter entry's wake-state rule and the pool alloc undo's "blocks held at that moment"
+  state what the image covers and what construction guarantees, not a guard against a case the
+  structure permits; the journal's null check with history disabled is the enable gate.
+- Status stays Draft; Canonical is the owner's edit.
