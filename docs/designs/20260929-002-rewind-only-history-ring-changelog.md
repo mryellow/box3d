@@ -537,3 +537,11 @@ Round 62: 1 findings (0H-1M-0L), 1 applied, 0 declined.
 Round 63: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The first clean round on revision 60; round 64 is its confirmation.
+
+## Round 64 (2026-10-15, no revision)
+
+Round 64: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The confirmation round of round 63, clean; the series is re-settled
+  at revision 60 after the gate revision 57, and the status word remains Draft. AC-1 to AC-4
+  re-checked by the author against revisions 58 to 60: nothing to fail.
