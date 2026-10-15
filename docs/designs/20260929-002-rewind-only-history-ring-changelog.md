@@ -235,3 +235,10 @@ list, no rule on callers.
   contact creation forced, `shared/benchmarks.c`): tick 0's image holds the static tree's moved
   proxies and is the third exception to requirement 2; `large_world`'s few KB holds after its first
   step.
+
+## Revision 34 (2026-10-15, after round 34)
+
+Round 34: 2 findings (0H-1M-1L), 2 applied, 0 declined.
+
+- No change to the design. Both findings are recorded and unfolded; the series is stopped for an
+  owner decision on how a body's or joint's sim is journaled (U-S3, U-S4).
