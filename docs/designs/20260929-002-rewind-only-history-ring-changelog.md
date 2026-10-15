@@ -212,3 +212,26 @@ Round 33: 2 findings (1H-1M-0L), 0 applied, 0 declined.
 
 - No change to the design. Both findings are recorded and unfolded; the series is stopped for an
   owner decision on how a body's or joint's sim is journaled (U-S3, U-S4).
+
+## Revision 33 (2026-10-15, after round 33, owner-directed)
+
+Round 33's two findings applied after the owner asked for the choices to be evaluated. Of the
+ways to journal a non-awake sim (a capture point before each detach site; a new sim-write entry
+kind; the record entry reading the sim through a caller-supplied pointer; reordering the engine's
+detach sites to write coordinates first), the one taken uses what the journal already has: a
+sim is an element of its set's journaled array, and that array's existing `set`, push, removeswap
+and set-destroy entries hold its bytes at every write and move. No new entry kind, no per-site
+list, no rule on callers.
+
+- §5.2: a body's or joint's record entry never holds a sim; the accessor takes the record only. A
+  function that writes both makes two writes, the record through its accessor and the sim through
+  its set's array `set` at the record's `localIndex`. The bodies and joints rows drop the sims;
+  the container row names the in-place sim writers.
+- §7.1: the sufficiency argument extended to a non-awake sim through its set's array entries.
+  Round 31's clause on the entry's coordinates is deleted with the payload it qualified.
+- §12: test 2's churn adds a body-type change and a destroy of a sleeping body.
+- §17: records why the record entry never carries a sim.
+- §2, §5.1 (round 33 #2, confirmed: `CreateLargeWorld` creates a million static shapes with
+  contact creation forced, `shared/benchmarks.c`): tick 0's image holds the static tree's moved
+  proxies and is the third exception to requirement 2; `large_world`'s few KB holds after its first
+  step.

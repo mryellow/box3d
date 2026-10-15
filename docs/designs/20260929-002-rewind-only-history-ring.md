@@ -91,7 +91,10 @@ The answer has four parts:
    array is the other exception: it is imaged to its capacity, which never shrinks
    (`dynamic_tree.c`), so that term is proportional to the most awake proxies and parked leaves held at once, 24 B per
    slot, not to what is awake now (§7.4), and the ring retains it once per imaged tick in the
-   window.
+   window. Tick 0's image is the third: it holds the static tree's moved proxies, which no pair
+   update has consumed yet, so a history enabled after N static shapes were created with contact
+   creation forced and before the first step gathers and images N proxy ids once (4 B each, by
+   descending the marked nodes, §6); after any step that list is empty (§7.4).
 3. **Restore never rejected** for any restorable tick — an imaged tick inside the retained window
    and at or before the current tick (§6; every such tick when the capture interval is 1) — and
    never leaves the world inconsistent. There is no "outside churn" failure mode because the whole
@@ -240,7 +243,8 @@ Estimated bytes per tick: ~470 B per awake body, ~208 B per awake shape (whole r
 the ~50 B of `aabb`/`fatAABBs` alone), ~220 B per awake non-touching
 contact, ~490 B per touching convex contact (more with multiple manifolds), ~520 B per awake
 joint, and about 100 B per proxy slot of the awake tree's high-water mark (§7.4). For the fully-awake stress scenes this is the same order as the whole-world figures in
-§11.1 (5–51 MB/tick); for `large_world` it is a few KB. The ring holds one such image
+§11.1 (5–51 MB/tick); for `large_world` it is a few KB after its first step (its tick-0 image holds a million static
+proxy ids, §2). The ring holds one such image
 per imaged tick in the window, so the retained total is that figure times the imaged ticks (§8).
 
 ### 5.2 Cold (journaled)
@@ -251,26 +255,27 @@ them does not compile. The same rule holds for every kind of structure, applied 
 the blocks they own, sensors, world scalars and world-owned containers: outside its defining file
 a structure is reachable read-only, and every writable route is a function in that file.
 
-**Records.** The record types are `bodies[id]` with the non-awake `bodySims`,
-`shapes[id]` with `fatAABBs`, `contacts[id]`, `joints[id]` with the non-awake `jointSims`, and
-`islands[id]`. Outside its container's file a record array exposes const-qualified element access
+**Records.** The record types are `bodies[id]`, `shapes[id]` with `fatAABBs`, `contacts[id]`,
+`joints[id]` and `islands[id]`. A body's or joint's sim is not part of its record: it is an element
+of a solver set's `bodySims` or `jointSims` array, written through that array's journaled type
+(Containers, below), and a non-awake set holds no `bodyStates` (`b3GetBodyState` returns null for
+one, `body.c`). Outside its container's file a record array exposes const-qualified element access
 only, so a field assignment through anything but the three functions below is a compile error.
 
 The first is the structure's write accessor (`b3Body_Write`, `b3Shape_Write`, `b3Contact_Write`,
 `b3Joint_Write`, `b3Island_Write`), replacing the direct field assignment used at every setter
-site today: it takes the completed new value, the record together with its sim for a
-body or joint, makes the journal call itself with the value it is about to overwrite, and copies
+site today: it takes the completed new value of the record, makes the journal call itself with the value it is about to overwrite, and copies
 the new value in, so no caller has a journal call; it never returns a pointer to the record. It has
 two entry points: the structural one, which every structural function calls, always journals, and
-the setter one, which API setters call, journals unless the record's owner is awake. A body's or
-joint's entry holds its sim bytes only when the record's `setIndex` names a non-awake set
-at the time of the write, read at `localIndex` in that set's arrays and written back there by the
-undo; a write whose coordinates name the awake set holds the record alone, since the sim and state
-are in the image (a sleep updates the record's coordinates after it has moved the sim, so its entry
-holds none).
-`b3Body_Write` covers a non-awake body's `bodySims` (a non-awake set holds no `bodyStates`: `b3GetBodyState` returns null for it, `body.c`) the way `b3Joint_Write` covers
-non-awake `jointSims`, since the same setters write the record and its sim (`b3Body_SetTransform`,
-`b3Body_SetMassData`, and the rest of `body.c`'s non-awake-owner setters listed below). API
+the setter one, which API setters call, journals unless the record's owner is awake. A record
+entry never holds a sim. A function that writes a record and its sim (`b3Body_SetTransform`,
+`b3Body_SetMassData`, `b3UpdateBodyMassData` and the rest of `body.c`'s sim-writing functions
+listed below; the joint setters in every joint file) makes two writes, the record through its
+accessor and the sim through its set's array `set` at the record's `localIndex`, each journaling
+itself; the set's array is the one the record names at the time of an in-place write, since nothing
+has moved the sim. A sim moves between sets only by the array push, removeswap and set destroy
+entries, which hold its bytes (§7.1), so no entry reads a sim through a record's coordinates after
+a structural function has moved it. API
 setters between steps (`b3Body_SetLinearVelocity`, the explosion callback) reach an awake owner's
 record through its setter entry, which writes it in place without a journal entry (§7.1).
 
@@ -394,13 +399,13 @@ migration's starting worklist; the compiler, not the table, says when the migrat
 
 | Structure | Current direct-write callers, to migrate |
 |---|---|
-| `bodies[id]` and non-awake `bodySims` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), `b3PlaceBodies` (`broad_phase.c`: the parked and moving flags of each placed body, §7.4), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
+| `bodies[id]` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), `b3PlaceBodies` (`broad_phase.c`: the parked and moving flags of each placed body, §7.4), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
 | `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3CreateShapeProxy` (`proxyKey`), `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), `b3PlaceBodies` (`broad_phase.c`: `proxyKey`, single and bulk placement), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices` (`body.c`), island link, unlink, merge and split (`island.c`: the contact's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
-| `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
+| `joints[id]` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c`) |
 | solver sets: create/destroy | `b3CreateSolverSet` (new), `b3DestroySolverSet`; each makes its own journal entry |
-| solver sets: `bodySims`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | every push and removeswap goes through `b3JournaledArray` |
+| solver sets: `bodySims`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | every push, removeswap and in-place element write goes through `b3JournaledArray`; the in-place writes are a non-awake body's or joint's sim, by `b3UpdateBodyMassData`, `b3Body_SetTransform`, `b3Body_SetMassData` and the other sim-writing setters in `body.c`, and the joint setters in every joint file |
 | id pools ×6 | `b3JournaledSlotPool` alloc and free |
 | the static and sleeping trees' proxy ids, and the sleeping tree's leaf boxes | the proxy create and destroy functions of `broad_phase.c`, single and bulk, and `b3BroadPhase_MoveProxy` (§7.4); outside `broad_phase.c` the trees are pointer-to-const |
 | `broadPhase.pairSet` | `b3JournaledPairSet` add and remove; only membership is ever queried, so slot layout is not state |
@@ -594,6 +599,11 @@ journaled, or made while the owner was awake. An unjournaled write made while aw
 transition into the awake set that also falls in (T, P], and that transition journals the
 record's bytes as they stood before it (below). Undoing the entries in reverse order therefore
 ends with the oldest recorded value, which is the record's value at T. §12 tests it.
+
+A non-awake body's or joint's sim is covered the same way by its set's array entries: an in-place
+write is a `set` entry holding the old bytes, a move out of a set is a removeswap entry holding
+them or a set destroy entry owning the array, a move in is a push whose undo truncates, and a sim
+in the awake set is in the image.
 
 The rule covers the record itself, not an array a
 record's owning set holds it in — `b3TransferBody`/`b3TransferJoint` (`solver_set.c`) and the
@@ -1119,7 +1129,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    steps from the restored T back up to a fresh P before the next rewind. The churn includes a
    shape filter change that does not touch the proxy (`invokeContacts` false), a filter change
    with `invokeContacts` set, which destroys and recreates the proxy in its tree, a body-type
-   change that recreates it in a different tree, `SetAwake(false)` immediately after each rewind,
+   change that recreates it in a different tree, a body-type change and a destroy of a sleeping body, `SetAwake(false)` immediately after each rewind,
    a `b3World_SetUserData` call whose value must survive each rewind, a distinct `userData` word
    on every body, shape and joint (changed by setters during the churn) compared against the value
    recorded at T, creation and destruction of the world's only compound shape, hull shape
@@ -1385,6 +1395,12 @@ follows the old timeline bit for bit when it replays the same API calls, time st
 - **§12 stays in the design.** Which states the hash covers and which API churn the exactness tests
   must include are what the completeness of the state inventory (§5) is judged against, so the
   tests are part of what this design decides, not mechanism left to a later prompt.
+- **A record entry never carries a sim.** The detach sites (`b3DestroyBody`, `b3TransferBody`,
+  `b3TrySleepIsland`) move a sim out of its set before they write the record's coordinates, so an
+  entry that read the sim at those coordinates would read a vacated or reoccupied slot. The sim is
+  an element of a journaled set array whose own entries hold its bytes at every move; a capture
+  point before each detach would be a per-site list, and reordering the engine's writes a rule on
+  callers.
 - **The sleeping tree is derived, not imaged and not byte-journaled.** It is proportional to the
   sleeping population, which requirement 2 forbids imaging. A byte journal of its writes would
   restore its exact layout, which is needed only where a tree's layout is read, and nothing reads
