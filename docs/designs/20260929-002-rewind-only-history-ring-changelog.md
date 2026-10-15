@@ -341,3 +341,11 @@ Round 43: 1 findings (0H-0M-1L), 1 applied, 0 declined.
 
 - §5.2: the islands worklist row names `b3RemoveBodyFromIsland` (`body.c`) and the solver-set
   transitions (`solver_set.c`) with their routes.
+
+## Revision 44 (2026-10-15, after round 44)
+
+Round 44: 2 findings (1H-0M-1L), 2 applied, 0 declined.
+
+- §5.2, §7.3: the sim getters of `body.h` and `joint.h` become const-returning; `b3SyncBodyFlags`
+  joins the in-place sim writers.
+- §2: the callback-order exception covers worker interleaving as well as layout.

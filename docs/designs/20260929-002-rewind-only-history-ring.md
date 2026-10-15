@@ -66,8 +66,8 @@ The answer has four parts:
 ## 2. Requirements
 
 1. **Bit-exact**, with two named exceptions that v1 does not fix: §10's `preSolve`
-   and custom filter callback order after a layout-changing restore, for a caller whose callback has
-   order-dependent side effects, and §5.3's name string for two names whose hashes collide. After
+   and custom filter call order after a restore, which tree layout and worker interleaving can both
+   change, for a caller whose callback has order-dependent side effects, and §5.3's name string for two names whose hashes collide. After
    `Rewind(T)`, every simulation-affecting byte of engine state equals its value at the end of step T (tree layout is not
    simulation-affecting, §7.4). Host configuration, meaning callback
    registrations, their contexts and `world->userData`, is not engine state: `Rewind` leaves it as
@@ -252,7 +252,9 @@ a structure is reachable read-only, and every writable route is a function in th
 `joints[id]` and `islands[id]`. A body's or joint's sim is not part of its record: it is an element
 of a solver set's `bodySims` or `jointSims` array, written through that array's journaled type
 (Containers, below), and a non-awake set holds no `bodyStates` (`b3GetBodyState` returns null for
-one, `body.c`). Outside its container's file a record array exposes const-qualified element access
+one, `body.c`). `b3GetBodySim`, `b3GetBodyState` and `b3GetJointSim` (`body.h`, `joint.h`), which
+return writable pointers into a set's arrays to every file today, become const-returning, as
+`b3GetShapeMaterials` does below; a write through one is then a compile error. Outside its container's file a record array exposes const-qualified element access
 only, so a field assignment through anything but the three functions below is a compile error.
 
 The first is the structure's write accessor (`b3Body_Write`, `b3Shape_Write`, `b3Contact_Write`,
@@ -406,7 +408,7 @@ migration's starting worklist; the compiler, not the table, says when the migrat
 | `joints[id]` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c`); `b3RemoveBodyFromIsland` (`body.c`: the island's `bodies` array removeswap, a `b3JournaledArray` operation); the wake, sleep and merge transitions (`solver_set.c`: the island's `setIndex` and `localIndex`, through `b3Island_Write`) |
 | solver sets: create/destroy | `b3CreateSolverSet` (new), `b3DestroySolverSet`; each makes its own journal entry |
-| solver sets: `bodySims`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | every push, removeswap and in-place element write goes through `b3JournaledArray`; the in-place writes are a non-awake body's or joint's sim, by `b3UpdateBodyMassData`, `b3Body_SetTransform`, `b3Body_SetMassData` and the other sim-writing setters in `body.c`, and the joint setters in every joint file |
+| solver sets: `bodySims`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | every push, removeswap and in-place element write goes through `b3JournaledArray`; the in-place writes are a non-awake body's or joint's sim, by `b3UpdateBodyMassData`, `b3SyncBodyFlags`, `b3Body_SetTransform`, `b3Body_SetMassData` and the other sim-writing setters in `body.c`, and the joint setters in every joint file |
 | id pools ×6 | `b3JournaledSlotPool` alloc and free |
 | the static and sleeping trees' proxy ids, and the sleeping tree's leaf boxes | the proxy create and destroy functions of `broad_phase.c`, single and bulk, and `b3BroadPhase_MoveProxy` (§7.4); outside `broad_phase.c` the trees are pointer-to-const |
 | `broadPhase.pairSet` | `b3JournaledPairSet` add and remove; only membership is ever queried, so slot layout is not state |
@@ -653,7 +655,8 @@ pair-set, bitset and array mutations are journaled by their container types (§5
 island and solver-set create and destroy entries by the one function that performs each, so
 the structural functions carry no journal calls of their own. The one-time work is migrating
 §5.2's record-field callers to their accessor and changing each world-owned container field to
-its journaled type; the compiler then rejects any mutator that still reaches one directly.
+its journaled type, and making the sim getters of `body.h` and `joint.h` const-returning (§5.2); the
+compiler then rejects any mutator that still reaches one directly.
 
 No accessor or container does anything on behalf of the ring beyond appending its entry. A write
 after a rewind is an ordinary write, because the ring holds nothing later than the current tick
