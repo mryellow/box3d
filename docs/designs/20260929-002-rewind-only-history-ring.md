@@ -71,7 +71,8 @@ The answer has four parts:
    `Rewind(T)`, every simulation-affecting byte of engine state equals its value at the end of step T (tree layout is not
    simulation-affecting, §7.4). Host configuration, meaning callback
    registrations, their contexts and `world->userData`, is not engine state: `Rewind` leaves it as
-   the caller last set it, and the caller sets back what its callbacks read (§10). Re-stepping
+   the caller last set it, and the caller sets it back to its value at T and replays its changes
+   like any input (§10). Re-stepping
    with the same inputs reproduces the original ticks exactly, including ids, generations, events,
    island membership, and sleep timing. This is a claim about re-stepping, not about querying the
    world immediately after `Rewind(T)` alone: event arrays are not simulation-affecting (nothing
@@ -736,18 +737,17 @@ before P.
   past without giving up the present records what it needs to look at (poses for a lag-compensated
   hit check, for instance) as the ticks happen.
 - **Inputs are every API call.** Rewind undoes body/shape/joint creation, destruction and every
-  setter made after T. The caller replays them per tick, exactly as it replays forces and
-  velocities, except the world-level host configuration listed under *Callbacks are not state*
-  below. No mutation is restored by some other route or left in place: the contract has no list
-  of exceptions to remember.
+  setter made after T; world-level host configuration (*Callbacks are not state*, below) it
+  leaves for the caller to set back. The caller replays them all per tick, exactly as it replays
+  forces and velocities. No mutation is restored by some other route or left in place: the
+  contract has no list of exceptions to remember.
 - **Callbacks are not state.** `preSolve`, custom filter, friction/restitution mixers run live;
   the caller's callbacks must be pure functions of their inputs for the replay to be exact. The
-  *function pointers themselves* (`world->customFilterFcn` and similar) and `world->userData` are
-  also not restored by `Rewind` — the world uses whatever is currently registered, not whatever
-  was registered at T. A caller that swaps a callback mid-timeline is changing the rules the
-  replay runs under, the same as changing engine code between capture and replay; it is not a case
-  bit-exactness covers. Registering a callback or setting `world->userData` writes no simulation
-  state and makes no journal entry. The per-world SIMD width (`b3World_EnableSSE2Fallback`) and
+  *function pointers themselves* (`world->customFilterFcn` and similar), their contexts and
+  `world->userData` are not restored by `Rewind`: they are host inputs, which the caller sets back
+  to their values at T before the first replayed step and whose changes it replays at their
+  original ticks, like any other API call. Registering a callback or setting `world->userData`
+  writes no simulation state and makes no journal entry. The per-world SIMD width (`b3World_EnableSSE2Fallback`) and
   the process-wide width are host configuration of the same kind, left by `Rewind` and outside
   the hash; width 4 and the native width simulate bit-identically (§3).
   Custom filter order in pair discovery and in a sensor query follows tree traversal (§3);
@@ -1073,11 +1073,11 @@ if ( serverTick <= now )
 	uint64_t T = b3World_GetRestorableTick( w, serverTick );
 	if ( b3World_Rewind( w, T ) == b3_historyOk )
 	{
-		set the host state callbacks read (world userData, callback contexts) back to its value at T;
+		set host configuration (callback registrations, their contexts, world userData) and the host state callbacks read back to its value at T;
 		if ( T == serverTick ) { apply the server correction; }
 		for ( t = T + 1; t <= now; ++t )
 		{
-			replay API calls and inputs for t;
+			replay API calls and inputs for t, registration changes included;
 			b3World_Step( w, dt, sub );
 			if ( t == serverTick ) { apply the server correction; }
 		}

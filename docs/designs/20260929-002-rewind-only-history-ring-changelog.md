@@ -399,3 +399,12 @@ Round 47: 1 findings (0H-0M-1L), 1 applied, 0 declined.
 Round 48: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The first clean round on revision 47; round 49 is its confirmation.
+
+## Revision 49 (2026-10-15, after round 49)
+
+Round 49: 1 findings (0H-1M-0L), 1 applied, 0 declined.
+
+- §2, §10, §14: callback registrations, their contexts and `world->userData` are host inputs the
+  caller sets back to their values at T and replays at their original ticks, like any API call;
+  a mid-timeline swap is no longer outside the contract. The confirmation of round 48 was not
+  clean, so a fresh clean round and its confirmation follow.
