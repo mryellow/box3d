@@ -1,6 +1,6 @@
 ---
 title: What the awake tree split gives a bit-exact rewind
-status: Draft
+status: Closed, folded into 20260929-002 (§5.4, §7.4, §13 and §17)
 date: 2026-10-13
 ---
 

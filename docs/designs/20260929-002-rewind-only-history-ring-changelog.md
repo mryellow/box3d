@@ -1,0 +1,49 @@
+# Changelog: 20260929-002 rewind-only history ring
+
+## Revisions 1 to 21 (2026-09-29 to 2026-09-30)
+
+- Derived from `20260927-002-bit-exact-history-ring.md` by removing forward scrub. Twenty-one
+  review rounds against source as of `5643cd8`, recorded in `docs/designs/reviews/`; the series
+  converged at round 21. Findings: 4 (1H-2M-1L) -> 5 (1H-3M-1L) -> 4 (3H-1M-0L) -> 1 (0H-1M-0L)
+  -> 3 (1H-2M-0L) -> 2 (0H-1M-1L) -> 2 (1H-1M-0L) -> 1 (0H-1M-0L) -> 2 (0H-1M-1L) -> 6 (0H-3M-3L)
+  -> 5 (0H-4M-1L) -> 5 (0H-4M-1L) -> 3 (0H-2M-1L) -> 5 (0H-3M-2L) -> 4 (0H-2M-2L) -> 3 (1H-0M-2L)
+  -> 3 (0H-1M-2L) -> 3 (0H-2M-1L) -> 2 (0H-1M-1L) -> 4 (0H-2M-2L) -> 0 (0H-0M-0L). The tallies
+  lived in the front matter until revision 22.
+
+## Revision 22 (2026-10-15)
+
+Reconciled with the tree changes on `master` through `55a40d1` (U-I1): the sorted continuous
+candidates and explosion order (`20261012-001`, `20261012-005`, `20261013-005`), the awake and
+sleeping dynamic trees (`20261013-001`), the parked leaf and `b3Body_SetTransform` wake
+(`20261015-001`), the unrotated and bulk migration inserts. Folds in
+`20261013-002-awake-tree-split-rewind.md`, now Closed. Reopens the doc at full scope: status is
+the bare word Draft and the finding tallies moved here.
+
+- Front matter: status, code baseline.
+- §2 requirement 1, §3, §4 table and cost line: tree layout is not simulation-affecting on
+  today's engine; the awake tree and the migration queue are hot; the static, kinematic and
+  sleeping layouts are derived.
+- §5.1: rows for the awake tree, the migration queue and the kinematic tree's moved proxies
+  replace the moved-proxies row; the awake tree's bytes join the per-tick estimate.
+- §5.2 table: proxy-id row names the single and bulk create choke points and the two journaled
+  trees.
+- §5.4 rewritten for four trees and the two rebuild rules.
+- §6: the awake tree and the queue are flat copies; the moved-proxy gather is the kinematic
+  tree's.
+- §7.1: proxy entries name their trees and carry the leaf's box; the sleep path's proxy creates
+  are entries. §7.2: one entry per migrated shape, churn measured in the preflight.
+- §7.4 rewritten as "Trees": which tree holds what, the awake tree image with the queue, the
+  derived trees' restore pass and moved-bit restore, leaf box equals fat AABB entry, proxy
+  identity with the bulk create, height-triggered rebuilds, phase-1 kinematic image. The three
+  order changes, the CCD two-pass sensor collection and the explode description are gone, since
+  the engine now sorts.
+- §9 step 6: the step's proxy-tree check. §11.3: order changes removed from the engine-change
+  list.
+- §12: test 1 hashes four proxy pools and the queue; test 2 adds the parked, shape-on-sleeping,
+  bulk and height-trigger cases; test 5 reports the sleeping tree's rebuild; test 7 is written
+  for the four trees.
+- §13: phase 1 images the awake tree and the kinematic tree, journals the static and sleeping
+  trees; phase 2 derives the kinematic tree.
+- §16: open question on the order changes removed, the rest renumbered.
+- §17 Provenance added: awake tree imaged, sleeping tree derived, pool growth, no height bound,
+  queue imaged.
