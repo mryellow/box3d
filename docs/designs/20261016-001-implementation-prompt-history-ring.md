@@ -178,8 +178,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `enableContinuous`, `enableSpeculative`, `enableRestitutionPropagation`, `gravity`,
   `hitEventThreshold`, `restitutionThreshold`, `restitutionIterations`, `maxLinearSpeed`,
   `contactSpeed`, `contactHertz`, `contactDampingRatio`, `contactRecycleDistance`,
-  `endEventArrayIndex`, `inv_h`, `inv_dt`). `splitIslandId` is written by `b3DestroyIsland` and the
-  solver, `compoundShapeCount` by shape creation and destruction.
+  `endEventArrayIndex`, `inv_h`, `inv_dt`). `splitIslandId` is written by `b3DestroyIsland` and
+  `b3SplitIslandTask` (`src/island.c`), the solver's step start and end (`src/solver.c`) and
+  `b3TrySleepIsland` (`src/solver_set.c`); `compoundShapeCount` by shape creation and destruction.
 
 **Broad phase and trees.**
 
@@ -398,11 +399,13 @@ Two internal pieces of test machinery are shared by several entries and are writ
   change) with the tick it was made in; `ReplayOps( worldId, log, tick )` re-issues the calls of
   one tick in order. Ids are recorded as creation ordinals and resolved through the ids the replay
   obtains, since a replayed creation gives the same id (the design §9).
-- **The event digest.** A per-tick hash over the step's events in reported order: body move events
-  (body id, transform, `fellAsleep`), contact begin and end (shape ids), sensor begin and end
-  (sensor and visitor shape ids), hit events (shape ids, point, normal, speed), joint events, read
-  through the public getters after each step. The design §12 test 3 compares events by type,
-  contents and order; the digest is that comparison.
+- **The event digest.** A per-tick hash over the step's events in reported order, each event by
+  every named field of its public struct (`include/box3d/types.h`), never its padding: body move
+  events (`userData`, transform, body id, `fellAsleep`), contact begin and end (shape ids, contact
+  id), hit events (shape ids, contact id, point, normal, speed, the two user material ids), sensor
+  begin and end (sensor and visitor shape ids), joint events (joint id, `userData`), read through
+  the public getters after each step. The design §12 test 3 compares events by type, contents and
+  order; the digest is that comparison.
 
 ### H0. State hash
 
@@ -730,7 +733,7 @@ that follow from it:
   serializer's reader and, from H5, the image copy go through it. Every writer of one of those
   fields takes a local copy, changes it and writes it back: `b3World_SetGravity` and the other
   public setters, `b3World_EnableSleeping` and the other enable setters, the step's `inv_h`/`inv_dt`, the
-  end-event flip, `splitIslandId` in the solver and `b3DestroyIsland`, `compoundShapeCount` in
+  end-event flip, `splitIslandId` at its four sites (§2), `compoundShapeCount` in
   shape creation and destruction. Every reader reads through the pointer.
 - `const b3BodySim* b3GetBodySim`, `const b3BodyState* b3GetBodyState`, `const b3JointSim*
   b3GetJointSim`, `const b3JointSim* b3GetJointSimCheckType`. Writers use `b3SetBodySim( world,
@@ -1149,7 +1152,11 @@ them:
   `ENSURE` equality at every tick. Passes before H5 (layout independence is the engine's, the design
   §3); it guards the restore pass.
 - `HistoryCostTest` case 1, `SleepingDynamicCostCase`: 20,000 single-box dynamic bodies created
-  asleep in a grid, far apart, sixteen awake boxes falling onto a static ground elsewhere, sleep on,
+  asleep in a grid, far apart, in batches of 100 with a step after each batch (a shape created on
+  a sleeping body enters the awake tree first, §2, and `proxyCapacity` never shrinks, so the batches
+  keep the awake tree's high-water mark, which the image carries, near the sixteen awake boxes;
+  `ENSURE` the awake tree's `proxyCapacity` is at most 256 before the enable), sixteen awake boxes
+  falling onto a static ground elsewhere, sleep on,
   `workerCount` 4, history enabled with an unbounded budget after ten warm-up steps; for each of the
   next twenty steps the slot's charge (`bytesUsed` after minus before) is `ENSURE`d at or below 256
   KB. Fails before H5: the serialized image holds every sleeping body's record, sim and shape, over
@@ -1267,7 +1274,9 @@ Measurements the closure doc needs:
 - **Cost** (the design §12 test 5; the ring doc §9 test 2), a scratch harness in a Release build,
   eight workers, per scene of the benchmark table plus `large_world` and a scene of one million
   sleeping dynamic and kinematic bodies with sixteen awake (built in the harness: a grid of boxes
-  created asleep, half kinematic, awake boxes falling elsewhere): capture microseconds and percent
+  created asleep, half kinematic, in batches with a step after each as `HistoryCostTest` case 1
+  does, so the awake tree's capacity stays small, awake boxes falling elsewhere): capture
+  microseconds and percent
   of the step (the capture timed around the H1 insertion in a scratch build, the step timed in the
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
   point and is not the denominator);

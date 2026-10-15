@@ -152,3 +152,16 @@ Round 6: 4 findings (H2-M2-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
 - The phase-0 writer sizes an imaged slot with a count-only serialization before the budget steps
   and writes into a buffer of exactly that capacity.
 - Length 1351 -> 1361 lines.
+
+## Revision 8: after review round 7
+
+Round 7: 3 findings (H1-M1-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> pending.
+
+- `SleepingDynamicCostCase` and §7's million-body scene create their sleeping bodies in batches
+  with a step after each, since a shape created on a sleeping body enters the awake tree, whose
+  proxy capacity never shrinks and is imaged; the case checks the capacity before the enable.
+- The event digest hashes every named field of each public event struct, contact ids, user
+  material ids and the `userData` words included.
+- §2 names all four `splitIslandId` writers; H2 refers to them.
+- Length 1361 -> 1370 lines.
