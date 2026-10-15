@@ -39,3 +39,29 @@
   per scene in the suite and 1,000 under `BOX3D_HISTORY_SOAK`; a 3% benchmark regression threshold
   with history disabled; no golden may change on this branch.
 - Length 1263 lines.
+
+## Revision 2: after review round 1
+
+Round 1: 9 findings (H3-M5-L1), 9 applied, 0 declined. Findings: 3/5/1 -> pending.
+
+- The compile-boundary checks of H2, H3a, H3b and H3c name statements that exist at the previous
+  commit (`b3GetBodySim` taken into a non-const pointer, the joint sim's `constraintHertz`, the
+  record arrays' `data`, `b3GetShapeMaterials`) with the diagnostic each produces, and separately
+  the statements through the new const getters that fail at the commit alone; `drawScale` is a
+  record field, not a sim field. §3 admits the second kind.
+- `HistoryRingTest` reads its byte-count baseline before the world is created and checks it after
+  the disable and the destroy, since the world's own arrays grow across the churn.
+- Every test that rewinds names its `tickCount`: `HistoryReplayTest` 90, the golden scene 120,
+  `SegmentWalkCase` 16, `HistoryTreeTest` 30, `HistoryUndoSufficiencyTest` 60.
+- `HistoryRingTest` cases 2 to 4 set `maxBytes` to one and a half images, where the ring doc §6's
+  minimum window is over budget, and state the interval sequence, the imaged ticks and the window
+  that follow; the invariant check reads imaged flags from the directory.
+- H3b's file list names `src/container.h`.
+- §3's fail-before procedure covers every commit that adds an entry or a case to the existing
+  test file.
+- The §6 row for the design §7.3 names inspection of each journal function's first statement
+  beside the benchmark.
+- §7's capture percentage is over the step timed in the harness, since `b3World_GetProfile().step`
+  ends before the capture point.
+- §2 counts seven traversal-wrapped public queries and casts.
+- Length 1263 -> 1284 lines.

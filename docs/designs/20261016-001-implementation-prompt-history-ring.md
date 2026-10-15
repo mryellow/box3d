@@ -185,7 +185,7 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `b3Array( int ) migrationQueue`, `int traversalDepth`, `int migrationBatchDepth`,
   `movedSiblings` and `sleepingTreeRebuildCount`. `b3BroadPhase_BeginTraversal` and
   `b3BroadPhase_EndTraversal` exist under the design's names and are raised and lowered by
-  `b3World_Step`, `b3World_Draw`, the eight public queries and casts and `b3World_Explode`
+  `b3World_Step`, `b3World_Draw`, the seven public queries and casts and `b3World_Explode`
   (`src/physics_world.c`); `migrationBatchDepth` is raised only inside `b3WakeSolverSet` and
   `b3TrySleepIsland`, which call no public API, so it is zero at every API entry. The design §9's
   "no traversal open" assertion is `traversalDepth == 0`.
@@ -321,10 +321,11 @@ validates the dynamic, kinematic and sleeping trees; `b3DynamicTree_Validate` is
 - Nine commits in the order of §4, each building and passing the whole `test` target on its own in
   both precision configurations (§7), with `BOX3D_VALIDATE` on. Commit messages are plain
   descriptive sentences, no type prefix, no AI-attribution trailer.
-- Tests that must fail before a commit are shown to fail before it. For a commit whose new test is
-  in a file that does not exist at the previous commit, check out the previous commit in a scratch
-  `git worktree`, copy in the working tree's `test/test_history.c`, `test/main.c` and
-  `test/CMakeLists.txt`, build, and run each new entry by name. Where this document says a test
+- Tests that must fail before a commit are shown to fail before it. For every commit that adds a
+  test entry or a case to one, check out the previous commit in a scratch `git worktree`, copy in
+  the working tree's `test/test_history.c`, `test/main.c` and `test/CMakeLists.txt`, build, and
+  run each new or extended entry by name (a new case in an existing entry is identified by its
+  `condition false:` line). Where this document says a test
   fails before at runtime, the build must succeed and the test must fail on the check this document
   names, the quoted `condition false:` line or `B3_ASSERT` message naming it, not on a fixture check.
   Where it says the test fails before by not building, the build failure and its first error line
@@ -333,9 +334,10 @@ validates the dynamic, kinematic and sleeping trees; `b3DynamicTree_Validate` is
 - The boundary commits H2, H3a, H3b and H3c change no behaviour. Their evidence is threefold: the
   whole suite and every golden of §5 unchanged; the `HistoryCrossWorkerTest` goldens recorded in H1
   unchanged; and a compile-boundary check, a scratch translation unit per commit in the scratch
-  directory, never committed, that compiles against `src/` at the previous commit and fails to
-  compile at the commit with the diagnostic this document names. The closure doc quotes the
-  diagnostic.
+  directory, never committed, whose statements compile against `src/` at the previous commit and
+  fail to compile at the commit with the diagnostic this document names, plus, where the commit
+  introduces the const getter, statements that fail at the commit alone. The closure doc quotes
+  every diagnostic.
 - Touch only the files each increment lists in §4, except that the boundary commits also touch
   any `src/` or `test/` file the compiler names once the types change: the designs make the compiler
   the judge of when the migration is complete (the design §5.2), so a file the compiler names is in
@@ -564,23 +566,30 @@ in full are the specification. Mechanics that follow from them:
   one hull shape referenced by a single body, with the op log recording the churn. The invariant
   check run after every operation below: for every tick from 0 to `historyTick + 5`,
   `b3World_GetRestorableTick` returns the newest retained imaged tick at or below it as the test
-  tracks it, or `UINT64_MAX` when none; `b3World_GetHistoryInfo().bytesUsed` equals the sum of the
-  retained slots' charges read from the directory through `src/world_history.h`;
-  `b3World_Rewind( historyTick + 1 )` returns `b3_historyTickUnavailable` and leaves the hash
-  unchanged. Cases, each on a fresh world and each ending with `b3World_DisableHistory` and
-  `ENSURE( b3GetByteCount() == base )` where `base` was read before the enable, and one case ending
-  with `b3DestroyWorld` instead and the same check:
+  tracks it from the directory's imaged flags, or `UINT64_MAX` when none;
+  `b3World_GetHistoryInfo().bytesUsed` equals the sum of the retained slots' charges read from the
+  directory through `src/world_history.h`; `b3World_Rewind( historyTick + 1 )` returns
+  `b3_historyTickUnavailable` and leaves the hash unchanged. Cases, each on a fresh world created
+  after `int64_t base = b3GetByteCount();` and each ending with `b3World_DisableHistory`,
+  `b3DestroyWorld` and `ENSURE( b3GetByteCount() == base )`, except case 6, which ends with
+  `b3DestroyWorld` alone (its own disable call) and the same check:
   1. unbounded budget, `tickCount` 8, interval 1: after 20 steps the retained imaged ticks are 12
      to 20 (9 slots), and `oldestImageTick` is 12;
-  2. a budget: read `s`, the charge of one imaged slot after the first step; `maxBytes` = 3 × `s`,
-     `tickCount` 32, interval 1: as steps proceed the effective interval widens by doubling and never
-     narrows; after 64 steps `bytesUsed <= maxBytes` or the overrun case below holds; the interval
-     reported is a power of two at most 32;
-  3. a single slot over budget: `maxBytes` = `s` / 2: every step's slot is admitted, `bytesUsed >
-     maxBytes`, restorable ticks are never empty, and `Rewind` to the newest imaged tick restores the
-     hash recorded there;
-  4. a minimum window over budget: `tickCount` 4, interval 1, `maxBytes` = 2 × `s`: the two newest
-     imaged slots are retained together over budget and the rewind to either works;
+  2. a budget: read `s`, the charge of tick 0's imaged slot after the enable, on a world of this
+     scene with no churn; `maxBytes` = `s` + `s` / 2 (one image fits, two do not), `tickCount` 32,
+     interval 1: the minimum window is over budget at every tick an image is due, so
+     `effectiveInterval` reads 2 after step 1, 4 after step 2, 8 after step 4, 16 after step 8 and
+     32 after step 16 and every later step through step 200; the imaged ticks are 0, 32, 64, 96,
+     128, 160 and 192 (read from the directory), `bytesUsed > maxBytes` whenever two imaged slots
+     are retained, and `oldestImageTick` follows the window bound (0 through step 32, 32 through
+     step 64, and so on);
+  3. a single slot over budget: `tickCount` 8, interval 1, `maxBytes` = `s` / 2: the interval widens
+     as in case 2 up to 8, every step's slot is written, `bytesUsed > maxBytes` at every step,
+     `b3World_GetRestorableTick( historyTick )` is never `UINT64_MAX`, and `Rewind` to it restores
+     the hash recorded there;
+  4. a minimum window over budget: `tickCount` 4, interval 1, `maxBytes` = `s` + `s` / 2: after
+     step 4 ticks 0 and 4 are imaged and retained together, `bytesUsed > maxBytes`, and a rewind to
+     either works; after step 5 tick 0 is gone;
   5. a sole image under pressure: `tickCount` 1, `captureInterval` 1, `maxBytes` = `s` / 2: tick 0's
      image is retained until the next image is written, and `Rewind( 0 )` works after one step;
   6. a rewind to each retained imaged tick in turn from the newest to the oldest, on the unbounded
@@ -635,7 +644,8 @@ in full are the specification. Mechanics that follow from them:
 - `HistoryReplayTest` (the design §12 test 3). On three scenes (the pile of `HistoryRingTest`; the
   `sleep` benchmark scene; a scene with a mesh ground, a compound, a sensor and two joints), with a
   `preSolve` callback that rejects a contact when the shape's `userData` word is odd and a custom
-  filter that reads a context struct's field, both registered; history enabled, 90 ticks stepped
+  filter that reads a context struct's field, both registered; history enabled with `tickCount` 90
+  and interval 1, 90 ticks stepped
   with churn recorded in the op log and the per-tick hash and event digest recorded, the world
   `userData` and the filter context's field changed at tick 50; then for T in { 30, 60, 89, 0 }:
   `Rewind( T )`, set the world `userData` and the context field back to their values at T, replay
@@ -651,7 +661,8 @@ in full are the specification. Mechanics that follow from them:
   scene, `HistoryGoldenScene` in the test file, deterministic and fixed (forty hull boxes and ten
   spheres on a wave mesh, a height field, a compound, two sensors, a chain of three joints, bodies
   created asleep and woken by a falling box, two bodies destroyed and recreated at tick 30, a
-  filter change at tick 40), stepped 120 ticks with history enabled at interval 4, rewound to 100
+  filter change at tick 40), stepped 120 ticks with history enabled at `tickCount` 120 and interval
+  4, rewound to 100
   and replayed to 120: `b3World_ComputeStateHash` at ticks 60, 100 (before the rewind), 100 (after
   it) and 120 (after replay) pinned per precision as `HISTORY_GOLDEN_HASH_60`, `_100`, `_120` under
   `ENSURE_GOLDEN`'s condition, recorded on this platform in this commit; the two values at 100 are
@@ -695,10 +706,10 @@ that follow from it:
 
 **Evidence.** The suite in both precisions; every golden of §5 unchanged; the `HISTORY_GOLDEN_HASH_*`
 values unchanged. Compile-boundary check: a scratch unit including `physics_world.h`, `body.h` and
-`joint.h` with the statements `b3GetBodySim( w, b )->mass = 1.0f;`,
-`b3GetJointSimCheckType( id, b3_revoluteJoint )->drawScale = 1.0f;` and `w->gravity.y = 0.0f;`
-compiles at H1 and fails at H2 with the discarded-qualifier error for the first two and an
-unknown-member error for the third.
+`joint.h` with the statements `b3BodySim* sim = b3GetBodySim( w, b );`,
+`b3GetJointSimCheckType( id, b3_revoluteJoint )->constraintHertz = 1.0f;` and `w->gravity.y = 0.0f;`
+compiles at H1 and fails at H2 with the discarded-qualifier error for the first, a read-only-object
+error for the second and an unknown-member error for the third.
 
 ### H3a. Body and shape write accessors
 
@@ -754,15 +765,16 @@ field exclusions are the specification. Mechanics that follow from them:
   through the accessor. A function that writes a body's record and its sim makes two writes (the
   design §5.2). Tests that read internals read through the const getters.
 
-**Evidence.** As H2. Compile-boundary check: `b3GetBodyRecord( w, 0 )->sleepTime = 0.0f;`,
-`world->bodies.data[0].mass = 1.0f;`, `b3GetShapeMaterials( s )[0].friction = 0.0f;` and
-`b3GetShapeRecord( w, 0 )->userShape = NULL;` compile at H2 and fail at H3a (discarded qualifier,
-incomplete type, discarded qualifier, discarded qualifier).
+**Evidence.** As H2. Compile-boundary check: `world->bodies.data[0].mass = 1.0f;` and
+`b3GetShapeMaterials( s )[0].friction = 0.0f;` compile at H2 and fail at H3a (no member `data` on
+the pointer to the incomplete type; a read-only object); `b3Body* b = b3GetBodyRecord( w, 0 );` and
+`b3Shape* sh = b3GetShapeRecord( w, 0 );` fail at H3a with the discarded-qualifier error and have
+no before run, the getters being new.
 
 ### H3b. Contact write accessor, manifold blocks and mesh caches
 
-**Files.** `src/contact.h`, `src/contact.c`, new `src/contact_array.h`, `src/mesh_contact.c`,
-`src/contact_solver.c`, `src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.c`,
+**Files.** `src/contact.h`, `src/contact.c`, new `src/contact_array.h`, `src/container.h`,
+`src/mesh_contact.c`, `src/contact_solver.c`, `src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.c`,
 `src/island.c`, `src/solver_set.c`, `src/body.c`, `src/shape.c`, `src/world_snapshot.c`,
 `src/world_hash.c`, `test/test_history.c`, and any file the compiler names (§3).
 
@@ -794,8 +806,10 @@ the specification. Mechanics that follow from them:
   add and remove, island link and unlink, the set transfers, the begin and end touch processing)
   go through the accessor.
 
-**Evidence.** As H2. Compile-boundary check: `b3GetContactRecord( w, 0 )->flags = 0;` and
-`b3GetContactRecord( w, 0 )->manifolds[0].pointCount = 0;` compile at H3a and fail at H3b.
+**Evidence.** As H2. Compile-boundary check: `world->contacts.data[0].flags = 0;` compiles at H3a
+and fails at H3b (no member `data` on the pointer to the incomplete type);
+`b3Contact* c = b3GetContactRecord( w, 0 );` and `b3Manifold* m = b3GetContactRecord( w, 0 )->manifolds;`
+fail at H3b with the discarded-qualifier error and have no before run.
 
 ### H3c. Joint, island, solver-set and sensor boundaries
 
@@ -840,9 +854,12 @@ record-array and in-record array rules) is the specification. Mechanics that fol
 - `b3SetBodySim`, `b3SetBodyState` and `b3SetJointSim` of H2 are now the set functions of those
   arrays.
 
-**Evidence.** As H2. Compile-boundary check: `b3GetJointRecord( w, 0 )->drawScale = 1.0f;`,
-`world->solverSets.data[2].bodySims.data[0].mass = 1.0f;`, `world->sensors.data[0].shapeId = 0;`
-and `b3GetIslandRecord( w, 0 )->bodies.data[0] = 0;` compile at H3b and fail at H3c.
+**Evidence.** As H2. Compile-boundary check: `world->joints.data[0].drawScale = 1.0f;`,
+`world->solverSets.data[2].bodySims.data[0].mass = 1.0f;` and `world->sensors.data[0].shapeId = 0;`
+compile at H3b and fail at H3c (no member `data` on the pointers to the incomplete types for the
+first two; a read-only object for the third); `b3Joint* j = b3GetJointRecord( w, 0 );` and
+`int* ids = b3GetIslandRecord( w, 0 )->bodies.data;` fail at H3c with the discarded-qualifier
+error and have no before run.
 
 ### H4. The journal
 
@@ -945,7 +962,8 @@ write, so the walk alone must restore the hash:
    recorded one, every sleeping body's shape `proxyKey` equals its recorded value, and
    `pendingBytes` is 0. Fails before H4 by not building.
 2. `SegmentWalkCase`: the same scene with no awake body at all (the piles asleep, the kinematic
-   body asleep, no sensor), history enabled, stepped 12 ticks with one cold op from case 1 before
+   body asleep, no sensor), history enabled with `tickCount` 16, stepped 12 ticks with one cold op
+   from case 1 before
    each step (static creates with `invokeContactCreation` false, so no tree holds a mark at a
    boundary), the hash recorded per tick; then `b3History_UndoSegments( world, 6 )` and `ENSURE` the
    hash equals the hash at tick 6; then to tick 0 and the hash at 0. With no awake body `b3Solve`
@@ -976,8 +994,8 @@ rewind with no step since a sensor destruction and since a hull release now chec
 `pendingBytes` before and 0 after; and after every operation the manifold allocators' summed
 `allocationCount` equals the live contacts' block count plus the manifold handles the retained
 slots and the staging buffer own (read through `src/world_history.h`). The leak check
-`ENSURE( b3GetByteCount() == base )` after disable and after destroy stands as the check for
-every other block kind.
+`ENSURE( b3GetByteCount() == base )` after the destroy stands as the check for every other block
+kind.
 
 ### H5. The hot image and the in-place restore
 
@@ -1040,7 +1058,7 @@ them:
   (T, P]; awake at T and put to sleep in (T, P]; put to sleep in tick T itself; put to sleep at or
   before T and still asleep at P; asleep at T, woken, put to sleep and woken again in (T, P]; moved
   into the awake set by `b3Body_SetType` and by `b3Body_Enable`. Each case `ENSURE`s the hash after
-  `Rewind( T )` equals the recorded one, run with `captureInterval` 1 and 4 (with 4, T is the
+  `Rewind( T )` equals the recorded one, run with `tickCount` 60 and `captureInterval` 1 and 4 (with 4, T is the
   imaged tick at or before the scripted one). Passes before H5 under the serializer path; it is the
   regression check for the journal's sufficiency once the image is partial, and the closure doc says
   so.
@@ -1050,7 +1068,8 @@ them:
   candidates, some awake and some asleep, one of them a nearer hit that a `preSolve` rejects; a
   sweep with more than eight sensor candidates; an explosion hitting several shapes of one body; an
   explosion waking bodies in several sleeping sets, some connected by joints. Each: record the hash
-  and event digest per tick over 30 ticks, rewind to 10, perturb, replay to 30 with the op log, and
+  and event digest per tick over 30 ticks with history enabled at `tickCount` 30, rewind to 10,
+  perturb, replay to 30 with the op log, and
   `ENSURE` equality at every tick. Passes before H5 (layout independence is the engine's, the design
   §3); it guards the restore pass.
 - `HistoryCostTest` case 1, `SleepingDynamicCostCase`: 20,000 single-box dynamic bodies created
@@ -1123,7 +1142,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | design §5.2 one function each for set and island create and destroy; one sensor destroy; split hands arrays to the destroy | Inspection of H3c and H4; `HistoryJournalTest` case 3 | n/a |
 | design §7.1 every entry kind and its undo; ownership one way; the record-write rule; entering the awake set | `HistoryJournalTest` cases 1 to 4; `HistoryUndoSufficiencyTest`; `HistoryRewindTest`'s structural cases | Build failure (H4) |
 | design §6 between-step mutations undone first; `Rewind( P )` | `HistoryRingTest` cases 8 to 10; `HistoryJournalTest` case 1 | Build failure (H1, H4) |
-| design §7.3 one null check with history disabled | §7 benchmark, base against branch, history disabled | n/a |
+| design §7.3 one null check with history disabled | Inspection of every journal function's first statement; §7 benchmark, base against branch, history disabled, for the cost | n/a |
 | design §6 capture steps 1 to 4; §9 steps 3 to 6 in place | `HistoryCostTest` case 1; the H1 tests unchanged under the new path; inspection | Yes, the 256 KB bound (H5) |
 | design §12 test 8 | `HistoryUndoSufficiencyTest` | No, regression (H5) |
 | trees doc §5 awake tree and queue imaged; §6 restore list, pass, moved lists, sleeping tree untouched; §7 proxy entries and identity; §8 rebuilds make no entry | `HistoryJournalTest` case 4; `HistoryRewindTest`'s tree cases; `HistoryTreeTest`; `HistoryHashTest` case 3; inspection | Case 4: build failure (H4) |
@@ -1173,7 +1192,9 @@ Measurements the closure doc needs:
   eight workers, per scene of the benchmark table plus `large_world` and a scene of one million
   sleeping dynamic and kinematic bodies with sixteen awake (built in the harness: a grid of boxes
   created asleep, half kinematic, awake boxes falling elsewhere): capture microseconds and percent
-  of the step (the capture point timed around the H1 insertion, the step by `b3World_GetProfile`);
+  of the step (the capture timed around the H1 insertion in a scratch build, the step timed in the
+  harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
+  point and is not the denominator);
   image and journal bytes per tick (the slot's charge split by the directory); `bytesUsed`, the
   retained window and the effective interval at `tickCount` 60 under an unbounded budget and under
   `maxBytes` of a quarter of the unbounded steady-state `bytesUsed`; restore milliseconds for
