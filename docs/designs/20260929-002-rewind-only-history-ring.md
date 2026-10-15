@@ -774,8 +774,9 @@ before P.
   proxy leaves its ancestors enlarged), so it too may differ after a restore, as may which of several
   equal-fraction hits a closest ray or shape cast reports. A caller replays the API calls it recorded, not the queries that
   produced them; a caller that issues API calls from a query callback records those calls as inputs.
-- **Events are regenerated** for every step replayed after T exactly as originally, because event
-  generation is deterministic; step T's own events are not available after `Rewind(T)`. The engine
+- **Events are regenerated** for every step replayed after T, the original's when the replayed
+  inputs are the original's, because event generation is deterministic, and a corrected replay's
+  own otherwise; step T's own events are not available after `Rewind(T)`. The engine
   does not flag replay; the caller knows it is replaying.
 - **Recording.** `b3World_StartRecording` and `b3World_EnableHistory` are mutually exclusive: the
   recording's operation list has no rewind, so playback of a recording that continued after a

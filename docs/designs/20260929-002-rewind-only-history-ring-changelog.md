@@ -437,3 +437,10 @@ Round 53: 1 findings (1H-0M-0L), 1 applied, 0 declined.
 
 - §7.1, §5.2: the proxy create and destroy entries and the trees write route cover the kinematic
   tree once it is derived (§13), as the trees doc already does.
+
+## Revision 54 (2026-10-15, after round 54)
+
+Round 54: 1 findings (0H-0M-1L), 1 applied, 0 declined.
+
+- §10: replayed events are the original's when the replayed inputs are the original's, and a
+  corrected replay's own otherwise.
