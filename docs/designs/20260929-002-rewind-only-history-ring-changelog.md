@@ -198,3 +198,10 @@ Round 31: 1 findings (1H-0M-0L), 1 applied, 0 declined.
 - §5.2: a body's or joint's journal entry holds its sim and state only when the record's
   coordinates name a non-awake set at the time of the write; a write whose coordinates name the
   awake set holds the record alone.
+
+## Revision 33 (2026-10-15, after round 32)
+
+Round 32: 1 findings (0H-1M-0L), 1 applied, 0 declined.
+
+- §5.2, §7.1: a non-awake set holds no `bodyStates`; a body's entry holds its sim only. The record
+  inventory row, the container row and the array push tag drop `bodyStates`.

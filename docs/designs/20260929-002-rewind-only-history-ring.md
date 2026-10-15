@@ -251,24 +251,24 @@ them does not compile. The same rule holds for every kind of structure, applied 
 the blocks they own, sensors, world scalars and world-owned containers: outside its defining file
 a structure is reachable read-only, and every writable route is a function in that file.
 
-**Records.** The record types are `bodies[id]` with the non-awake `bodySims`/`bodyStates`,
+**Records.** The record types are `bodies[id]` with the non-awake `bodySims`,
 `shapes[id]` with `fatAABBs`, `contacts[id]`, `joints[id]` with the non-awake `jointSims`, and
 `islands[id]`. Outside its container's file a record array exposes const-qualified element access
 only, so a field assignment through anything but the three functions below is a compile error.
 
 The first is the structure's write accessor (`b3Body_Write`, `b3Shape_Write`, `b3Contact_Write`,
 `b3Joint_Write`, `b3Island_Write`), replacing the direct field assignment used at every setter
-site today: it takes the completed new value, the record together with its sim and state for a
+site today: it takes the completed new value, the record together with its sim for a
 body or joint, makes the journal call itself with the value it is about to overwrite, and copies
 the new value in, so no caller has a journal call; it never returns a pointer to the record. It has
 two entry points: the structural one, which every structural function calls, always journals, and
 the setter one, which API setters call, journals unless the record's owner is awake. A body's or
-joint's entry holds its sim and state bytes only when the record's `setIndex` names a non-awake set
+joint's entry holds its sim bytes only when the record's `setIndex` names a non-awake set
 at the time of the write, read at `localIndex` in that set's arrays and written back there by the
 undo; a write whose coordinates name the awake set holds the record alone, since the sim and state
 are in the image (a sleep updates the record's coordinates after it has moved the sim, so its entry
 holds none).
-`b3Body_Write` covers a non-awake body's `bodySims`/`bodyStates` the way `b3Joint_Write` covers
+`b3Body_Write` covers a non-awake body's `bodySims` (a non-awake set holds no `bodyStates`: `b3GetBodyState` returns null for it, `body.c`) the way `b3Joint_Write` covers
 non-awake `jointSims`, since the same setters write the record and its sim (`b3Body_SetTransform`,
 `b3Body_SetMassData`, and the rest of `body.c`'s non-awake-owner setters listed below). API
 setters between steps (`b3Body_SetLinearVelocity`, the explosion callback) reach an awake owner's
@@ -394,13 +394,13 @@ migration's starting worklist; the compiler, not the table, says when the migrat
 
 | Structure | Current direct-write callers, to migrate |
 |---|---|
-| `bodies[id]` and non-awake `bodySims`/`bodyStates` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), `b3PlaceBodies` (`broad_phase.c`: the parked and moving flags of each placed body, §7.4), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
+| `bodies[id]` and non-awake `bodySims` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), `b3PlaceBodies` (`broad_phase.c`: the parked and moving flags of each placed body, §7.4), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
 | `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3CreateShapeProxy` (`proxyKey`), `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), `b3PlaceBodies` (`broad_phase.c`: `proxyKey`, single and bulk placement), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices` (`body.c`), island link, unlink, merge and split (`island.c`: the contact's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c`) |
 | solver sets: create/destroy | `b3CreateSolverSet` (new), `b3DestroySolverSet`; each makes its own journal entry |
-| solver sets: `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | every push and removeswap goes through `b3JournaledArray` |
+| solver sets: `bodySims`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | every push and removeswap goes through `b3JournaledArray` |
 | id pools ×6 | `b3JournaledSlotPool` alloc and free |
 | the static and sleeping trees' proxy ids, and the sleeping tree's leaf boxes | the proxy create and destroy functions of `broad_phase.c`, single and bulk, and `b3BroadPhase_MoveProxy` (§7.4); outside `broad_phase.c` the trees are pointer-to-const |
 | `broadPhase.pairSet` | `b3JournaledPairSet` add and remove; only membership is ever queried, so slot layout is not state |
@@ -552,7 +552,7 @@ undoing its mutation needs, and nothing about the value the mutation wrote. Entr
 | island destroy | island id, ownership handles and byte sizes for the island's `bodies`, `contacts` and `joints` arrays; a destroy is made only by `b3DestroyIsland`, and the split path hands its detached base arrays to that entry instead of freeing them itself | reattach the arrays to the restored record; eviction frees the arrays the entry holds |
 | set create (sleep) | set index | destroy the set's `bodySims`, `bodyStates`, `jointSims`, `contactIndices` and `islandSims` arrays, leaving each empty and setting the set's `setIndex` to `B3_NULL_INDEX`, as `b3DestroySolverSet` leaves a free set |
 | set destroy (wake) | set index, ownership handle and byte size for each of those five arrays | reattach the arrays and set the set's `setIndex` back to the set index; eviction frees them |
-| array push | array tag (a solver set's `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims`, an island's link arrays, or `world->sensors`), owner id (set index or island id), old length | truncate to the old length; for `world->sensors`, first free the `hits`, `overlaps1` and `overlaps2` arrays the pushed element holds |
+| array push | array tag (a solver set's `bodySims`/`jointSims`/`contactIndices`/`islandSims`, an island's link arrays, or `world->sensors`), owner id (set index or island id), old length | truncate to the old length; for `world->sensors`, first free the `hits`, `overlaps1` and `overlaps2` arrays the pushed element holds |
 | array removeswap | array tag, owner id, old length, index, and the full old bytes of the removed element (that slot's content is gone once the last element is copied over it, not captured by any record write); for `world->sensors` also the ownership handles and byte sizes of the removed sensor's `hits`, `overlaps1` and `overlaps2` arrays | grow to the old length, copy the element now at the index (the mover) back to the last slot, then write the removed element's bytes at the index (no mover copy when the index was the last slot); for `world->sensors`, hand the arrays back to the element |
 | array clear / set | clear: array tag, owner id, old length and all old bytes; set: array tag, owner id, index and old bytes | restore the length and bytes / write the old bytes |
 | material block | shape id, the old `materialCount`, and for an element write (`b3Shape_SetSurfaceMaterial`, `b3Shape_SetMeshMaterial`, and every other material write, all made through one `b3Shape_WriteMaterial` accessor) the index and old element bytes, for a resize or replacement the old `materials` array bytes; either way for a write that leaves a block on both sides (inline single-material shapes have no block and are covered by the shape's own record write, which `b3Shape_WriteMaterial` makes through `b3Shape_Write`; journaled whatever the owner's wake state, because an image carries no pointees). A block created or destroyed with its shape is not copied: a destroyed one rides in that shape's pool free entry as an ownership handle, and a created one is freed by the pool alloc's undo | element write: write the old element back at the index; resize or replacement: reallocate and copy old; either way set `materialCount` |
