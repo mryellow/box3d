@@ -103,15 +103,8 @@ The answer has four parts:
    re-stepping. Rewind is one-way: it discards every tick after T, and the only way forward from T
    is `b3World_Step`.
 5. **Budgeted memory** with graceful degradation: a byte budget widens the capture interval
-   instead of failing. The budget is a target under normal churn, not a hard ceiling, and any
-   overrun is limited to the retained minimum window's own slots: a single
-   tick whose own image and journal segment exceed the budget is still admitted (§8) rather than
-   rejected, since rejecting it would violate requirement 3. `maxBytes` bounds retained history;
-   arena and staging capacity are reported separately (§8, §14). Retained memory is the per-tick
-   slot multiplied by the imaged ticks in the window, not the per-tick figure alone: on the
-   all-awake stress scenes (5 to 51 MB per image, §5.1) a 60-tick window at interval 1 holds 0.3
-   to 3 GB, so on those scenes `maxBytes` is what keeps the ring in the hundreds of megabytes, at
-   the price of a wider interval and fewer restorable ticks.
+   instead of failing, and a tick whose own slot exceeds the budget is still admitted, since
+   rejecting it would violate requirement 3 (§8).
 6. **No approximations and no new solver participant kinds.** Resimulation is `b3World_Step`.
 7. **Verified by construction, not by audit.** Every cold structure in §5.2 is written only
    through its write accessor or journaled container type, and the journal call lives inside that
@@ -521,13 +514,8 @@ Records carry their ids, so gather order is irrelevant and workers can write dis
 A fused variant that writes body and contact images from inside finalize and store-impulses,
 while the data is in cache, is an optimisation to measure, not a design change.
 
-**Capture interval.** `captureInterval = K` images every K-th tick; journal segments are still
-recorded every tick because they are needed to walk back to an image. Restorable ticks are the
-imaged ones; `b3World_GetRestorableTick(T)` returns the newest imaged tick ≤ T, and the caller
-replays from there. K divides image bytes and image-capture cost by K; journal bytes are
-per-tick regardless of K, so total ring memory falls by less than K, by an amount that depends
-on the scene's image-to-journal ratio. K trades that against up to K−1 extra replayed ticks.
-K=1 is the default.
+**Capture interval.** Which ticks are imaged, and therefore restorable, is the ring's decision
+(§8); capture images a tick when the ring says it is due and records a segment every tick.
 
 **Between-step mutations and repeated rewinds.** API calls made after `historyTick`'s step
 closed but before the next `b3World_Step` runs are journaled into the *next* tick's segment when
@@ -822,89 +810,14 @@ proxy entries and the restore pass are required in every phase.
 
 ## 8. Ring
 
-One circular byte arena per world. Slots are variable-length regions written in tick order: a
-header, the image, the journal segment. A slot directory maps tick → offset. The ring changes at
-its two ends only:
-
-- **The new end.** Capture appends the slot for the next tick. `Rewind(T)` removes every slot
-  after T and moves the write position back to the end of slot T.
-- **The old end.** When the writer wraps into the oldest slot, that slot is evicted (the blocks
-  its entries own are freed), together with the non-imaged slots after it up to the next imaged
-  slot, which no rewind can reach, and the retained window shrinks by those ticks. The writer never
-  wraps into a slot of the minimum window (two imaged ticks with the segments between them, the
-  budget rule below); the arena grows instead, so a young ring's sole image and the segments after
-  it are retained until a second image is captured. Segments are only
-  walked from the current tick back to an imaged tick T, so the segments of ticks at or before
-  the oldest retained imaged tick are never read; `oldestImageTick` is that imaged tick, and
-  every segment after it is retained.
-
-`world->historyTick` names the last completed tick, which is always the newest slot in the ring.
-Capture increments it, then writes slot `historyTick`. Rewind sets it to T.
-
-**Rewind discards, by construction.** The slots after T describe a timeline the caller is
-replacing, and nothing in this design can return to them, so `Rewind` removes them as part of the
-same call, after undoing their segments. Removing them is moving the write position: their images
-are flat bytes, and their entries own no block once undone (§7.1). Every retained tick is
-therefore always on the current timeline, without any write path having to notice that a rewind
-happened and without any slot carrying a mark of which timeline it belongs to.
-
-- `maxBytes` is the target for retained bytes. When a capture would not fit even after evicting
-  down to a minimum window (say two imaged ticks, with the journal segments between them;
-  `tickCount` is a separate limit that can leave fewer, and it never widens the interval), the
-  capture interval doubles, as the recording player's keyframe ring
-  does (`replay.c`), and never past `tickCount`, beyond which a wider interval retains
-  no fewer image bytes. A tick is imaged when at least the effective interval has passed since
-  the last imaged tick (tick 0 is imaged), so retained imaged ticks need not be multiples of the
-  interval. Widening takes effect at the tick that triggers it: that tick's image is skipped when
-  the doubled interval says it is not due, and its slot is then the journal segment alone. Slots
-  already retained are untouched, the effective interval is not narrowed again, and a rewind
-  leaves it as it is. `b3World_GetHistoryInfo` reports the effective
-  interval and window. Doubling the interval trades how *often* an image is taken; it does not
-  shrink any single tick's own image or journal segment, so it cannot help when one tick's own
-  slot — awake state that size, or a burst of structural churn — exceeds `maxBytes` outright.
-  That tick's slot is admitted anyway, and so is a minimum window whose slots each fit but do not fit
-  together (journal bytes are not reduced by widening), growing the arena past `maxBytes` for as
-  long as those slots are retained; `b3World_GetHistoryInfo`'s `bytesUsed` reports the overrun
-  rather than hiding it. `maxBytes` is therefore a target the ring holds to under normal churn,
-  not a hard ceiling.
-- A slot's charge against `maxBytes`, and its share of `bytesUsed`, is its header, image and
-  journal bytes plus the byte size of every heap block its journal entries own (a destroyed
-  sleeping set's, island's or contact's arrays, a destroyed shape's `materials` block, a destroyed
-  sensor's arrays, a hull); each owning entry records that size. The charge is computed once, at
-  capture, and a slot is evicted whole, so the oldest retained slot's own journal segment, which
-  no rewind reads, stays retained and charged until then and a charge never changes while its slot
-  is retained (releasing it early would change a charge mid-life and walk its entries when the slot
-  before it is evicted); blocks owned by entries still in the staging buffer (destroys made since the
-  last step) are charged when that segment closes. Until then `b3HistoryInfo`'s `pendingBytes`
-  reports the staging buffer's used bytes plus the bytes of the blocks its entries own, outside
-  `bytesUsed` and outside the budget, held until the next step closes the segment or a rewind undoes
-  them. Evicting the slot frees the blocks and releases the charge; removing the slot in a
-  rewind releases the charge, the blocks having gone back to the world.
-- Capacity growth (a scene grows) is a realloc of the arena with slot offsets preserved; rare
-  after warm-up.
-- Once the arena has warmed up, the ring slot is carved from existing capacity and nothing is
-  allocated for it: its size is only known at step end
-  (image bytes from the §6 count, journal bytes from the staging buffer's final size, §6),
-  and reservation happens then. The per-tick journal staging buffer (§6) can itself grow during
-  the step on an unusually large burst of structural churn; it is reused tick to tick and grows
-  rarely once warmed up to the scene's typical churn, the same amortized sense as the arena's own
-  capacity growth above, but it is not claimed to be allocation-free the way the ring slot is. Its
-  capacity is outside `maxBytes`, `bytesUsed` counts retained history and not arena capacity, and
-  both capacities are reported separately (`b3HistoryInfo`).
-
-`b3World_EnableHistory` is called at a step boundary, with no broad-phase traversal open, and with no end events queued by API calls since
-the last step (it asserts this; tick 0's image carries no event state, and `Rewind(0)` clears both
-end-event buffers). It sets `historyTick` to 0 and images the world as it stands as the slot for
-tick 0, with an empty journal segment; `Rewind(0)` restores that world, and the ticks after it count
-steps from there. `tickCount` bounds the window independently of `maxBytes`: after each capture,
-slots are evicted from the oldest end while the ticks from the oldest retained imaged tick to
-`historyTick` exceed `tickCount` and a later imaged tick remains, so an unbounded byte budget
-still retains only the ticks from the oldest retained imaged tick, at most `tickCount` before `historyTick`, to `historyTick`.
-
-`b3World_DisableHistory` frees every slot, the blocks their entries own, the blocks owned by
-entries still in the staging buffer, the arena and the staging buffer. `b3DestroyWorld` does the
-same first, before it tears down any structure those blocks were allocated from (the manifold block
-allocators, the hull database).
+The ring that holds the slots is decided in
+`docs/designs/20261015-003-history-ring-budget-and-eviction.md` (the ring doc): slots and their
+two ends, which ticks are imaged and restorable, the byte budget and its degradation, the retained
+window, a slot's charge, and `b3World_EnableHistory`/`b3World_DisableHistory`. Every `§8`
+citation in this document is a citation of that document. This document relies on it for: one
+slot per tick holding the image and the journal segment; `Rewind(T)` removing the slots after T;
+a restorable tick being an imaged tick in the retained window at or before the current tick; and
+tick 0 being imaged at enable as the world then stands.
 
 ## 9. Restore
 
@@ -1173,8 +1086,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    bytes (`bytesUsed`) and the effective interval at a 60-tick window, under an unbounded budget
    and under a budget the window does not fit; restore ms
    for 1, 5 and 9 ticks back; replay ms. Measured in a release build, without §9 step 6's
-   validation-build checks. Acceptance: `bytesUsed` within `maxBytes` except in §8's overrun
-   cases, with the retained window and interval reported per scene; capture < 15% of step at 8 workers for
+   validation-build checks. Acceptance: the ring's budget acceptance (§8); capture < 15% of step at 8 workers for
    the all-awake scenes and < 1 µs·awake for `large_world` and for a scene of a million sleeping
    dynamic and kinematic bodies with few awake; restore proportional to awake plus
    sensors and journal; replay equals N × step within noise, with the first replayed step after a
@@ -1184,17 +1096,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    tree's full rebuild reported separately too; neither has a fixed bound because each scales with
    the scene's proxy count, and the measured figure is what a caller weighs against its frame
    budget.
-6. **Ring transitions.** Interval widening under `maxBytes`, eviction, a single slot over budget,
-   a minimum window over budget, and removal on rewind: a rewind to each retained imaged tick; a
-   rewind followed by steps and a second rewind into the re-stepped ticks; two rewinds with no
-   step between them; `Rewind(P)` after a force, torque or impulse call on an awake body; and a
-   rewind with no step since a create or destroy, a setter on a sleeping body, and a heap-owning
-   change (sensor destruction, hull release). After each, the restorable ticks are exactly the
-   retained imaged ticks at or before `historyTick`, `bytesUsed` is the sum of the retained slots'
-   charges, a request for a tick after `historyTick` returns `b3_historyTickUnavailable`, every
-   heap block is either live in the world or owned by an entry of a retained slot or of the staging buffer, and the block
-   allocators' live allocation counts (not their retained capacity) return to baseline after
-   `DisableHistory` and after `b3DestroyWorld` with history enabled.
+6. **Ring transitions.** Decided and tested with the ring (§8).
 7. **Tree-order independence.** Restore-and-replay cases built to differ in the layout of the
    static, kinematic and sleeping trees after a rewind from the original run's: a bullet sweep
    with several competing candidates, some awake and some asleep, one of them a nearer hit that

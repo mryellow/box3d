@@ -260,3 +260,11 @@ Round 36: 3 findings (2H-1M-0L), 3 applied, 0 declined.
   retained until a second is captured.
 - §9: the lock refuses the entries that take an unlocked world and no others; the callback contract
   is unchanged.
+
+## Revision 37 (2026-10-15, after round 36, split)
+
+Split under the split check (U-T6) after the series' convergence pattern was reviewed: §8 moves
+to `docs/designs/20261015-003-history-ring-budget-and-eviction.md`, which decides the ring alone.
+§8 keeps its number and becomes the cross-reference, so every `§8` citation resolves to the ring
+doc. Requirement 5 shrinks to its requirement; §6's capture-interval paragraph, §12 test 6 and
+test 5's budget acceptance move with the ring. No decision changed.
