@@ -190,3 +190,11 @@ owner ruled on two others.
 - §17: owner decision recorded: §12 stays in the design (the tests are part of what it decides).
 - Owner ruling, no edit: the migration queue is live engine state (AC-1 holds); the restore pass
   and the doc's length stay as they are.
+
+## Revision 32 (2026-10-15, after round 31)
+
+Round 31: 1 findings (1H-0M-0L), 1 applied, 0 declined.
+
+- §5.2: a body's or joint's journal entry holds its sim and state only when the record's
+  coordinates name a non-awake set at the time of the write; a write whose coordinates name the
+  awake set holds the record alone.

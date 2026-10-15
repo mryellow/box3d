@@ -262,7 +262,12 @@ site today: it takes the completed new value, the record together with its sim a
 body or joint, makes the journal call itself with the value it is about to overwrite, and copies
 the new value in, so no caller has a journal call; it never returns a pointer to the record. It has
 two entry points: the structural one, which every structural function calls, always journals, and
-the setter one, which API setters call, journals unless the record's owner is awake.
+the setter one, which API setters call, journals unless the record's owner is awake. A body's or
+joint's entry holds its sim and state bytes only when the record's `setIndex` names a non-awake set
+at the time of the write, read at `localIndex` in that set's arrays and written back there by the
+undo; a write whose coordinates name the awake set holds the record alone, since the sim and state
+are in the image (a sleep updates the record's coordinates after it has moved the sim, so its entry
+holds none).
 `b3Body_Write` covers a non-awake body's `bodySims`/`bodyStates` the way `b3Joint_Write` covers
 non-awake `jointSims`, since the same setters write the record and its sim (`b3Body_SetTransform`,
 `b3Body_SetMassData`, and the rest of `body.c`'s non-awake-owner setters listed below). API
