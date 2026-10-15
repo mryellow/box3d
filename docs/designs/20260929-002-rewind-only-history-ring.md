@@ -695,9 +695,11 @@ tree unordered and which returns at once for an empty tree. The tree starts at t
 and grows with what the tree holds, awake proxies and parked leaves, so the mark is set by the most
 held at once, not by the capacity hint; requirement 2 reads "proportional to the most awake proxies
 and parked leaves held at once" for this array. The
-migration queue is imaged with it: at a step boundary it holds exactly the sleeping bodies whose
-marked leaves are parked in the awake tree, each once, in the order the next drain places them,
-and that order decides which sleeping-tree ids they receive. Restore frees the live tree's arrays,
+migration queue is imaged with it, by its stored count and order: after a step's drain it holds
+exactly the sleeping bodies whose marked leaves are parked in the awake tree, each once, in the
+order the next drain places them, and that order decides which sleeping-tree ids they receive; the
+tick-0 image can also hold a body once per shape created on it since the last drain, and the id of a
+destroyed body, which the drain drops (`broad_phase.c`). Restore frees the live tree's arrays,
 its spare array and its rebuild buffers, allocates the image's sizes and copies, and copies the
 queue; proxy capacity is state for this tree, because the imaged free list covers the slots below
 the imaged capacity only and `b3Free` hands the block size to a user free function (`core.c`).
@@ -1195,15 +1197,17 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
   O(world) and allocates, but it exists, it is tested, and it lets tests 2, 3 and 4 be written,
   without their `userData` clauses and test 2's geometry-replacement debug-draw clause, which apply
   from phase 1, and the full-state hash be validated before any engine change. It also answers
-  whether the game's correction path works end to end. Two things this needs beyond the ring
+  whether the game's correction path works end to end. Three things this needs beyond the ring
   plumbing itself: interned geometry (hull/mesh/height-field/compound shapes) goes through a
   recording registry (`world_snapshot.c`) that the ring's images must share and keep alive for the
   retained window; and the reader zeroes host
   `userData` on bodies/joints/shapes rather than restoring it (`world_snapshot.c`), so a host
   whose callbacks depend on `userData` needs to rebind it after every phase-0 restore; and it
   carries a live shape's renderer handle across a restore whenever the slot and generation match,
-  even if the geometry was replaced. Neither applies once phase 1's in-place restore replaces the
-  serializer.
+  even if the geometry was replaced; and the serializer neither writes nor reads the migration
+  queue, so each slot carries the queue array beside its image and a restore copies it back, which
+  keeps a parked leaf's body placed by the next drain in the original order. None applies once
+  phase 1's in-place restore replaces the serializer.
 - **Phase 1, hot image + undo journal.** Per-structure write accessors (§5.2) with the existing
   callers migrated to them and the direct-write access removed from every other translation unit (the
   build fails on any remaining direct write; the phase is not complete until it does), ring arena
@@ -1378,7 +1382,7 @@ follows the old timeline bit for bit; that is the property everything else rests
   inserts are settled primitives the static tree depends on today, and the sleeping tree's height
   trigger is the engine's own; a restored layout is walked with the same stacks, and an undone
   insert is tested by the same trigger.
-- **The migration queue is imaged, not rebuilt from the parked flags.** At a step boundary the
+- **The migration queue is imaged, not rebuilt from the parked flags.** After a step's drain the
   queue is exactly the parked bodies in placement order, and that order decides the sleeping-tree
   ids the next drain hands out; a scan of the body records for the flag would be O(world) and would
   give id order, not placement order.

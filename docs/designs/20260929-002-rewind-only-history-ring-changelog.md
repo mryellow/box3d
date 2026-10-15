@@ -130,3 +130,12 @@ Round 24: 4 findings (1H-1M-2L), all applied.
 - §4, §14: the restore cost includes the sleeping tree's height-triggered full rebuild.
 - §5.2: `b3PlaceBodies` joins the `shapes[id]` worklist (`proxyKey`).
 - §10: body, shape and joint `userData` restored; `world->userData` is host configuration.
+
+## Revision 28 (2026-10-15, after round 25)
+
+Round 25: 2 findings (1H-1M-0L), 2 applied, 0 declined.
+
+- §13: phase 0's prerequisites gain the migration queue, carried in each ring slot beside its
+  serialized image and copied back on restore (the serializer does not write it).
+- §7.4, §17: the queue is imaged by stored count and order; each body once holds after a step's
+  drain, and the tick-0 image can hold repeats and destroyed bodies' ids.
