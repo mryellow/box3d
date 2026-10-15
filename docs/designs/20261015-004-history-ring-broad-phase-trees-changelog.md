@@ -16,3 +16,11 @@ Round 1: 2 findings (0H-1M-1L), 2 applied, 0 declined.
 
 - §7: the serializer's tree load becomes a load function of `broad_phase.c`; the claim that every
   shape write follows the proxy operation is narrowed to the `proxyKey` write.
+
+## Revision 3 (2026-10-15, after round 2)
+
+Round 2: 2 findings (0H-1M-1L), 2 applied, 0 declined.
+
+- §9: the static and sleeping trees' proxy entries and restore pass are required from phase 1;
+  phase 0 restores all four trees from the serialized image.
+- §5: the awake-tree image is the serializer's fields less the fixed `version`.

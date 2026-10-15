@@ -79,7 +79,7 @@ id than it had at T would disagree with that record.
 It holds the proxies of awake dynamic bodies and the parked leaves
 of sleeping ones, and the step rewrites it on every tick its root moved or its order broke, so it
 is hot state of the awake population. Its image is the fields the serializer's tree writer
-(`world_snapshot.c`) writes: the scalars (`nodeEnd`, `pairFreeList`, `proxyCount`,
+(`world_snapshot.c`) writes, less the fixed compatibility `version` (`types.h`): the scalars (`nodeEnd`, `pairFreeList`, `proxyCount`,
 `proxyCapacity`, `proxyFreeList`, `dfsOrdered`), `nodes` and `parents` up to `nodeEnd`, and
 `proxies` up to `proxyCapacity`, since the free list threads through every free slot; the spare
 node array and the rebuild scratch arrays hold no state. About 100 B per proxy slot. The bound is
@@ -206,8 +206,9 @@ fire on a different insert, which nothing reads.
 Until the restore pass covers the kinematic tree (phase 2), it is imaged raw as the awake tree is:
 O(kinematic proxies) ring memory, which fails requirement 2 for a world with many sleeping
 kinematic bodies and is fine for everything in `benchmark/`, where the kinematic tree starts at 16
-slots and stays small. The static and sleeping trees are world-sized and never imaged, so their
-proxy entries and the restore pass are required in every phase.
+slots and stays small. The static and sleeping trees are world-sized and never imaged by the ring, so their
+proxy entries and the restore pass are required in every phase from phase 1; phase 0 restores all
+four trees from the serialized whole-world image (`docs/designs/20260929-002-rewind-only-history-ring.md` §13).
 
 ## 10. Verification
 
