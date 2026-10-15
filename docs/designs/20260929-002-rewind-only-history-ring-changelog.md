@@ -205,3 +205,10 @@ Round 32: 1 findings (0H-1M-0L), 1 applied, 0 declined.
 
 - §5.2, §7.1: a non-awake set holds no `bodyStates`; a body's entry holds its sim only. The record
   inventory row, the container row and the array push tag drop `bodyStates`.
+
+## Round 33 (2026-10-15, no revision)
+
+Round 33: 2 findings (1H-1M-0L), 0 applied, 0 declined.
+
+- No change to the design. Both findings are recorded and unfolded; the series is stopped for an
+  owner decision on how a body's or joint's sim is journaled (U-S3, U-S4).
