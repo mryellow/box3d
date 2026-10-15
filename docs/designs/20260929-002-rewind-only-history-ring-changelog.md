@@ -304,3 +304,10 @@ Round 40: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The first clean round after the second split; the confirmation round
   follows.
+
+## Round 41 (2026-10-15, no revision)
+
+Round 41: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The confirmation round of round 40, clean; the series is settled at
+  revision 40 and the status word remains Draft.
