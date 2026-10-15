@@ -162,16 +162,18 @@ for the static and sleeping trees, and for the kinematic tree once it is derived
 `b3DynamicTree` write functions do not accept, and every function that writes one (proxy create
 and destroy, single and bulk, move, enlarge, refit, rebuild, moved bits, the migration's placement)
 is a function in that file, so `solver.c`'s enlarge and refit calls and
-`b3World_RebuildStaticTree`'s rebuild (`physics_world.c`) move there. A compound shape's own
+`b3World_RebuildStaticTree`'s rebuild (`physics_world.c`) move there, and the serializer's tree
+load (`b3DesTree`, `world_snapshot.c`), which replaces a tree's arrays and scalars in place, becomes
+a load function of that file, the one route by which a deserialize writes a tree. A compound shape's own
 child tree, built in `compound.c`, is borrowed geometry (`docs/designs/20260929-002-rewind-only-history-ring.md` §10), not world state, and stays a plain
 tree. The journal call lives inside the choke points, so every caller is covered: shape create and
 destroy, `b3ResetProxy` (`shape.c`), which destroys and recreates a shape's proxy, possibly in a
 different tree, on a filter or body-type change, and the migration's placement, which destroys
 every moved leaf and then creates it in its destination tree; the same document's §5.2 table lists `b3ResetProxy` as
 a `shapes[id]` write-accessor caller for the same reason. Undoing a proxy's destruction is a real
-tree insert, not a bare id reservation, and in every caller the `shapes[id]` write follows the
-proxy operation (`proxyKey` is assigned from the create's return value or the bulk ids), so a
-destroy entry carries its own payload: the tree, the proxy id, the leaf's box, the category bits
+tree insert, not a bare id reservation, and in every caller the `proxyKey` write follows the proxy
+operation, assigned from the create's return value or the bulk ids (`b3ResetProxy` writes the
+shape's other fields and its fat AABB before the proxy operation, `shape.c`), so a destroy entry carries its own payload: the tree, the proxy id, the leaf's box, the category bits
 and the shape id. A create entry carries the tree and the id. The undo insert is unmarked, and its
 height test is the one every insert into the sleeping tree makes.
 

@@ -9,3 +9,10 @@ the text was reviewed: §5.4 and §7.4 as §3 to §9, the parent's §12 tree-ord
 §16 bullet-enlarge question as §11, and its seven tree decisions from §17 as §12. Citations of the
 parent's sections are by path and `§N`. Requirements 1 to 3 are new text restating what the moved
 sections already required.
+
+## Revision 2 (2026-10-15, after round 1)
+
+Round 1: 2 findings (0H-1M-1L), 2 applied, 0 declined.
+
+- §7: the serializer's tree load becomes a load function of `broad_phase.c`; the claim that every
+  shape write follows the proxy operation is narrowed to the `proxyKey` write.
