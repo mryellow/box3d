@@ -36,8 +36,8 @@ query of that document's §14; the semantics of every field there are decided he
    are reported separately (§6). Retained memory is the image charge of every imaged tick in the
    window plus the journal, header and directory charge of every retained tick and the blocks
    their entries own (§6), not the per-tick figure alone; at interval 1 it is the per-tick slot
-   times the window: on the all-awake stress scenes (5 to 51 MB per
-   image, `docs/designs/20260929-002-rewind-only-history-ring.md` §5.1) a 60-tick window at interval 1 holds 0.3 to 3 GB, so on those scenes
+   times the window's `tickCount` + 1 slots (§7): on the all-awake stress scenes (5 to 51 MB per
+   image, `docs/designs/20260929-002-rewind-only-history-ring.md` §5.1) a 60-tick window at interval 1 holds 61 slots, 0.3 to 3 GB, so on those scenes
    `maxBytes` is what keeps the ring in the hundreds of megabytes, at the price of a wider interval
    and fewer restorable ticks.
 3. **Nothing to invalidate.** Every retained tick is on the current timeline, by construction
@@ -51,10 +51,11 @@ its two ends only:
 
 - **The new end.** Capture appends the slot for the next tick. `Rewind(T)` removes every slot
   after T and moves the write position back to the end of slot T.
-- **The old end.** When the writer wraps into the oldest slot, that slot is evicted (the blocks
-  its entries own are freed), together with the non-imaged slots after it up to the next imaged
-  slot, which no rewind can reach, and the retained window shrinks by those ticks. The writer never
-  wraps into a slot of the minimum window (§6); the arena grows instead, so a young ring's sole image and the segments after
+- **The old end.** Eviction is decided by the window (§7) and the budget (§6) alone, never by
+  the arena: the oldest slot is evicted (the blocks its entries own are freed) together with the
+  non-imaged slots after it up to the next imaged slot, which no rewind can reach, and the
+  retained window shrinks by those ticks. When the slots those rules retain and the slot being
+  written do not fit the arena, the arena grows (§6), so a young ring's sole image and the segments after
   it are retained until a second image is captured. Segments are only
   walked from the current tick back to an imaged tick T, so the segments of ticks at or before
   the oldest retained imaged tick are never read; `oldestImageTick` is that imaged tick, and
@@ -92,7 +93,8 @@ A tick is imaged when at least the effective interval has passed since the last 
      the next older imaged tick and the slots between the two when the window bound retains it.
   3. This tick's slot is sized at the effective interval, and the charges of the minimum window,
      that slot counted once, are summed. When the sum is within `maxBytes`, slots are evicted from
-     the old end only as far as this slot needs, and it is written.
+     the old end, oldest first and never into the minimum window, until the retained charges plus
+     this slot's are within `maxBytes`, and it is written.
   4. Otherwise the effective interval becomes `min(2 × interval, tickCount)` (tested as
      `interval ≤ tickCount − interval`, so it cannot overflow), as the recording player's keyframe
      ring doubles (`replay.c`); the slot is sized again, as a journal segment alone when the new
@@ -118,10 +120,13 @@ A tick is imaged when at least the effective interval has passed since the last 
   `bytesUsed` and outside the budget, held until the next step closes the segment or a rewind undoes
   them. Evicting the slot frees the blocks and releases the charge; removing the slot in a
   rewind releases the charge, the blocks having gone back to the world.
-- Capacity growth (a scene grows) allocates the larger arena, copies the retained slots at their
-  offsets and frees the old one, through `b3Alloc` and `b3Free` (`core.c`), which take `size_t`
+- Capacity growth (a scene grows) allocates the larger arena, copies the retained slots into it
+  in tick order from offset 0, rewrites the directory's offsets, sets the write position after the
+  newest slot and frees the old one, through `b3Alloc` and `b3Free` (`core.c`), which take `size_t`
   sizes (`b3GrowAlloc` takes `int` sizes and is not used); the old and new arenas coexist during
-  the copy, and `arenaCapacityBytes` reports the new one. Rare after warm-up.
+  the copy, and `arenaCapacityBytes` reports the new one. Rare after warm-up. `b3Alloc` adds
+  `(int)size` to the allocator's byte count while `b3Free` subtracts the full size (`core.c`); the
+  add takes the full `size_t` before an arena can exceed `INT_MAX` bytes.
 - Once the arena has warmed up, the ring slot is carved from existing capacity and nothing is
   allocated for it: its size is only known at step end
   (image bytes from the `docs/designs/20260929-002-rewind-only-history-ring.md` §6 count, journal bytes from the staging buffer's final size, §6),
@@ -135,9 +140,10 @@ A tick is imaged when at least the effective interval has passed since the last 
 ## 7. Window
 
 `tickCount` bounds the window independently of `maxBytes`: after each capture,
-slots are evicted from the oldest end while the ticks from the oldest retained imaged tick to
-`historyTick` exceed `tickCount` and a later imaged tick remains, so an unbounded byte budget
-still retains only the ticks from the oldest retained imaged tick, at most `tickCount` before `historyTick`, to `historyTick`.
+slots are evicted from the oldest end while the oldest retained imaged tick is more than
+`tickCount` ticks before `historyTick` and a later imaged tick remains, so an unbounded byte budget
+still retains only the ticks from the oldest retained imaged tick, at most `tickCount` before
+`historyTick`, to `historyTick`: at most `tickCount` + 1 slots.
 
 ## 8. Enable and disable
 

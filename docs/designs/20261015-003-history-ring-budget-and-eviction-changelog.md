@@ -37,3 +37,17 @@ Round 3: 2 findings (0H-1M-1L), 2 applied, 0 declined.
   ordered procedure with the same rules (the U-S4 cut after three rounds on the section).
 - §2: retained memory sums image charges over imaged ticks and journal, header and directory
   charges over every retained tick.
+
+## Revision 5 (2026-10-15, after round 4)
+
+Round 4: 4 findings (2H-1M-1L), 4 applied, 0 declined.
+
+- §3, §6: eviction is decided by the window and the budget alone, never by the arena wrapping;
+  the arena grows when the retained slots and the slot being written do not fit. Budget eviction
+  goes oldest first, never into the minimum window, until the retained charges plus this slot's
+  are within `maxBytes`.
+- §6: capacity growth copies the retained slots in tick order from offset 0, rewrites the
+  directory's offsets and sets the write position after the newest slot. `b3Alloc`'s byte-count
+  add takes the full `size_t` (today `(int)size`, `core.c`) before an arena can exceed `INT_MAX`.
+- §2, §7: the window is at most `tickCount` + 1 slots; the 60-tick example is 61 slots.
+- Series stopped: §6 produced findings in the first round after its cut (U-S4).
