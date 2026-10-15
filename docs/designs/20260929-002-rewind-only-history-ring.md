@@ -269,9 +269,12 @@ accessor and the sim through its set's array `set` at the record's `localIndex`,
 itself; the set's array is the one the record names at the time of an in-place write, since nothing
 has moved the sim. A sim moves between sets only by the array push, removeswap and set destroy
 entries, which hold its bytes (§7.1), so no entry reads a sim through a record's coordinates after
-a structural function has moved it. API
-setters between steps (`b3Body_SetLinearVelocity`, the explosion callback) reach an awake owner's
-record through its setter entry, which writes it in place without a journal entry (§7.1).
+a structural function has moved it. API setters
+between steps that write an awake body's velocity (`b3Body_SetLinearVelocity`, the explosion's
+impulse) write its `bodyStates` element through the awake set's array, which is imaged and makes
+no entry (Containers, below); the wake such a setter makes first is structural and journaled. A
+setter that writes an awake owner's record reaches it through the setter entry, in place and
+without a journal entry (§7.1).
 
 The second is the hot accessor, which the step's own stages use: it asserts the world is inside a
 step and that the record's owner is awake, and returns a writable pointer to one element, either a
@@ -296,7 +299,8 @@ writes through it and the containers' own file-local loads from phase 1 (§13), 
 history (§10).
 
 A shape's `userShape` renderer handle is host-owned: one function in `shape.c` writes it, for
-debug-draw creation between steps and for the release of §10, and it does not journal; a record
+debug-draw creation between steps (the debug draw's own assignments in `physics_world.c` migrate
+to it) and for the release of §10, and it does not journal; a record
 write never carries it (§9 step 3).
 
 **Owned blocks.** A record field that points to a heap block the record owns (a contact's
@@ -398,7 +402,7 @@ migration's starting worklist; the compiler, not the table, says when the migrat
 |---|---|
 | `bodies[id]` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), `b3PlaceBodies` (`broad_phase.c`: the parked and moving flags of each placed body, §7.4), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
 | `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3CreateShapeProxy` (`proxyKey`), `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), `b3PlaceBodies` (`broad_phase.c`: `proxyKey`, single and bulk placement), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
-| `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices` (`body.c`), island link, unlink, merge and split (`island.c`: the contact's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
+| `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices`, `b3UpdateBodyMassData` and `b3Body_SetMassData` (`body.c`: the attached contacts' `b3_relativeTransformValid` flag, read by contact recycling in `physics_world.c`), island link, unlink, merge and split (`island.c`: the contact's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `joints[id]` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c`) |
 | solver sets: create/destroy | `b3CreateSolverSet` (new), `b3DestroySolverSet`; each makes its own journal entry |

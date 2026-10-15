@@ -325,3 +325,12 @@ doc's round 2 re-raised the `version` omission in text the split had moved. Appl
 
 Revision 41 differs from the revision rounds 40 and 41 passed, so the series is not settled; a
 fresh clean round and its confirmation are needed (U-S8).
+
+## Revision 42 (2026-10-15, after round 42)
+
+Round 42: 3 findings (0H-2M-1L), 3 applied, 0 declined.
+
+- §5.2: `b3UpdateBodyMassData` and `b3Body_SetMassData` join the contacts worklist (the attached
+  contacts' recycling flag); the debug draw's `userShape` assignments migrate to the `shape.c`
+  writer; velocity setters on an awake body write its `bodyStates` element through the awake set's
+  array.
