@@ -378,7 +378,9 @@ and `fatAABBs` for the shape pool, one array for each other pool — so a bump-a
 array and its undo truncates every array in one operation), `b3JournaledPairSet`,
 `b3JournaledBitSet` and `b3JournaledArray`. Their only mutators take the world's journal, and take
 completed values: `b3JournaledArray` offers push(value), removeswap, clear and set(index, value), except that the
-instance holding `world->sensors` offers only push and removeswap, and no pointer-returning `b3Array_Emplace` and no writable `count`, so every element is complete
+instance holding `world->sensors` offers only push and removeswap and the awake set's and the graph
+colours' instances offer no generic push, their push being the function that moves a record into
+the awake set (§7.1), and no pointer-returning `b3Array_Emplace` and no writable `count`, so every element is complete
 when it enters the array, except in an awake set's arrays and the graph colours' arrays, which are
 the same container type but are imaged and make no entry. They are distinct types from the generic
 `b3IdPool`, `b3HashSet`, `b3BitSet` and `b3Array` primitives, which stay unjournaled and keep
@@ -622,9 +624,14 @@ write.
 every transition into the awake set (`setIndex`, `localIndex`, `colorIndex`), so their pre-wake
 bytes are journaled by the rule above, and a woken body's and joint's sims stay in the destroyed
 sleeping set's arrays, which the set destroy entry owns. Each kind of record has one function that
-moves it into the awake set (factored out of the wake, merge and transfer paths, as `b3CreateSolverSet`
-is), and that function journals the record's pre-wake bytes itself before it writes any field of it,
-so a later write to the record through the hot accessor needs no entry of its own. Shape records
+moves it into the awake set: the push onto the awake set's arrays, and for a contact or joint onto a
+colour's arrays, is that function, held in the container's file, and those instances offer no other
+push (§5.2), so the wake, merge, transfer, create and graph-add paths append through it and an append
+any other way does not compile. It journals the record's pre-wake bytes before it appends, so a later
+write to the record through the hot accessor needs no entry of its own. A record moving between the
+awake set's arrays and a colour (begin and end touch) is in the image: that move
+is one container operation, a removeswap from the one awake array and a push onto the other, which
+makes no entry and asserts the record is in the array it leaves. Shape records
 (`aabb`, `fatAABBs[id]`), contact manifold blocks and mesh triangle caches are different: they are
 written in place by the step's hot path once their owner is awake, and none of a wake's own record
 writes covers them. The body function and the contact function therefore also journal, through

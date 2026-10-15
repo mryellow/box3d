@@ -71,3 +71,15 @@ stop on §6. No edit. Confirmation round (U-P9) to follow.
 
 Round 7: 0 findings (0H-0M-0L). The confirmation round (U-P9) of round 6, on revision 6. No
 edit. Settled at revision 6; canonical is the owner's edit after re-running U-G1.
+
+## Gate re-run before Canonical (2026-10-15, U-G4 and U-G1, no revision)
+
+- AC-1 to AC-4 re-checked by the author against revision 6, all pass. AC-1: the slot directory
+  indexes the ring's own slots, not an engine population, and an entry's ownership handle is the
+  block's only owner. AC-2: capture, eviction, enable and disable are each one operation of the
+  ring, with no caller list. AC-3: `bytesUsed` is the sum of charges fixed at capture, maintained
+  at the two ends and never reconciled against the arena. AC-4: every retained tick is on the
+  current timeline by construction (§4), the budget and window procedures are rules on sums, and
+  the enable-time conditions are assertions. The parent's gate revision 57 changes none of the
+  sections this document cites (its §6, §7.1 entry table, §9, §12, §14).
+- Status stays Draft; Canonical is the owner's edit.

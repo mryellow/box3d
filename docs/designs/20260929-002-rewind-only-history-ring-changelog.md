@@ -474,3 +474,25 @@ Round 58: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The confirmation round of round 57, clean; the series is settled at
   revision 56 and the status word remains Draft.
+
+## Revision 57 (2026-10-15, gate re-run before Canonical, U-G4 and U-G1)
+
+- AC-1 to AC-4 re-checked by the author against revision 56. AC-2 flagged §7.1's function that
+  moves a record into the awake set: it was "factored out of the wake, merge and transfer paths",
+  which is "those paths must call it", and a path that pushed onto the awake set's arrays any
+  other way compiled and skipped the pre-wake shape and manifold entries (today `b3WakeSolverSet`,
+  `b3TransferBody` and `b3CreateBody` each append to those arrays, `solver_set.c`, `body.c`).
+  Fix, §5.2 and §7.1: the awake set's and the graph colours' array instances offer no generic
+  push; their push is that function, held in the container's file, and it journals the pre-wake
+  bytes before it appends, so an append any other way does not compile. A move between the awake
+  set's arrays and a colour (begin and end touch) is one container operation that makes no entry
+  and asserts the record is in the array it leaves. No new entry kind; §7.2's cost is unchanged.
+- AC-1 passes: the image and the journal are history the ring owns and discards, the migration
+  queue is live engine state, and the ownership handles in entries move a block out of the world
+  rather than mirroring it. AC-3 passes: tree layout is derived at restore, the staging buffer is
+  moved into the slot, and nothing is reconciled with a live structure. AC-4 passes: the rewind
+  tick check is API argument validation, the validation-build checks and the pair-set, hot
+  accessor and enable asserts are assertions, and the setter entry's wake-state rule states what
+  the image covers rather than guarding a case the structure permits.
+- Status stays Draft: a fresh clean round and its confirmation are required on this revision
+  (U-S8) before Canonical.
