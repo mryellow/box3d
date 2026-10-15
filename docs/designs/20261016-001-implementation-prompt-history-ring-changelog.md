@@ -120,3 +120,20 @@ Round 4: 6 findings (H3-M3-L0), 6 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
 - The slot reader returns the charge's parts (image, journal, owned-block bytes), which §7's
   measurements read.
 - Length 1309 -> 1329 lines.
+
+## Revision 6: after review round 5
+
+Round 5: 4 findings (H2-M1-L1), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> pending.
+
+- H3a, H3b, H3c and H4 list `src/CMakeLists.txt`, which enumerates sources and headers by name.
+- §2 lists, from the source, the API calls that wake a body (`b3Body_SetTransform`, `b3Body_SetType`,
+  the destroy and disable of a body with neighbours, a joint with an awake body, a filter change
+  with contacts, a shape created on a sleeping body) and the cold ones; the three direct-walk
+  journal cases use the cold list only, and the wake, sleep and bulk placement stay with the
+  rewinding tests.
+- `ProxyIdentityCase` uses a lone sleeping body's destroy for the sleeping-tree entry; the id reuse
+  across a step is a named `HistoryRewindTest` case.
+- §2 counts eighteen `Create*` in `shared/benchmarks.h` and seventeen table rows; the rewind test
+  runs the table's seventeen.
+- Length 1329 -> 1351 lines.

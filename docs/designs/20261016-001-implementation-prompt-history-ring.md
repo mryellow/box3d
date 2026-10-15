@@ -229,6 +229,20 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   design §12 test 2's two filter cases are therefore `invokeContacts` false (the proxy untouched)
   and true (the proxy recreated); the always-recreate under true is an observation for the closure
   doc (U-I4), and the behaviour is not changed by this task.
+- API calls that wake a body, and so move its proxies into the awake tree, which the journal does
+  not cover (the trees doc §5): `b3Body_SetTransform` on any non-static body (`src/body.c`),
+  `b3Body_SetType`, `b3Body_SetAwake( true )`, `b3Body_Enable`, `b3DestroyBody` and `b3Body_Disable`
+  for the bodies touching or jointed to the destroyed or disabled one, `b3CreateJoint` when either
+  body is awake, `b3DestroyJoint` with `wakeAttached` true, `b3Shape_SetFilter` with
+  `invokeContacts` true (`b3ResetProxy` recreates the leaf in the awake tree and queues the body),
+  and a shape created on a sleeping body (its proxy is created in the awake tree, marked, and the
+  body queued, `src/shape.c`). Cold, touching no awake structure: a static shape's create with
+  `invokeContactCreation` false and destroy, a sensor's create and destroy on a static body,
+  `b3Shape_SetFilter` with `invokeContacts` false, the four material setters, `b3CreateJoint`
+  between two sleeping bodies (a set merge when their sets differ, `src/joint.c`), `b3DestroyJoint`
+  with `wakeAttached` false, `b3DestroyBody` and `b3Body_Disable` of a sleeping body with no
+  contact and no joint, and every `userData` setter. The journal tests of H4 use the cold list
+  only.
 
 **Serializer, recording and replay.**
 
@@ -314,7 +328,8 @@ validates the dynamic, kinematic and sleeping trees; `b3DynamicTree_Validate` is
   player and asserts `b3HashWorldState` equality after seeks to `{ 80, 40, 5, 79, 0, 1 }`; it is the
   design §1's evidence that keyframe restore plus re-step reproduces transforms, with a hash that
   covers transforms and velocities only.
-- `shared/benchmarks.c` provides `Create*` for seventeen scenes, `Step*` for `junkyard`, `rain`,
+- `shared/benchmarks.c` provides eighteen `Create*` (`shared/benchmarks.h`; seventeen are in the
+  benchmark's table, `CreateWidePyramid` is not), `Step*` for `junkyard`, `rain`,
   `large_world`, `sleep`, `sleeping_grid`, `post_field` and `village`, `Get*Capacity` for ten, and
   `Destroy*` for six; the benchmark's table (`benchmark/main.c`) gives each scene's step count. No
   benchmark scene uses height fields, sensors or `b3World_Explode`; the `Destroy*` functions free
@@ -620,8 +635,8 @@ in full are the specification. Mechanics that follow from them:
       body, a sensor destroy and the hull shape's destroy (the hull's last reference), each on its
       own fresh step: each `Rewind( P )` returns the hash to the one recorded at P.
   Fails before H1 by not building.
-- `HistoryRewindTest` (the design §12 test 2). For each benchmark scene with a `Create*` in
-  `shared/benchmarks.h` (the seventeen of `benchmark/main.c`'s table), created with its capacity
+- `HistoryRewindTest` (the design §12 test 2). For each of the seventeen scenes of
+  `benchmark/main.c`'s table (§2), created with its capacity
   function where one exists and `workerCount` 4: step to a steady state (the scene's benchmark step
   count capped at 200, with its `Step*` where one exists), enable history with `tickCount` 60 and
   interval 1, then for N random (T, P) pairs, seeded per scene, each drawn after the previous
@@ -650,6 +665,8 @@ in full are the specification. Mechanics that follow from them:
   touching and rewound; a shape whose geometry is replaced after T (`b3Shape_SetHull`) and
   debug-drawn before and after a rewind with `b3World_Draw` under test callbacks that count
   creates and destroys; a step that grows a tree's proxy capacity followed by a rewind across it;
+  a sleeping body destroyed between steps whose sleeping-tree id is taken by a body falling asleep
+  in the next step, rewound across;
   steps with two different time steps followed by a rewind and `b3Joint_GetConstraintForce` before
   any step; a body put to sleep in the imaged tick while its proxy is still marked, whose pairs
   the next step must find; a shape created on a sleeping body with a rewind before and after the
@@ -733,7 +750,7 @@ error for the second and an unknown-member error for the third.
 
 **Files.** `src/body.h`, `src/body.c`, `src/shape.h`, `src/shape.c`, new `src/body_array.h` and
 `src/shape_array.h` (the storage headers, each included by its own file only),
-`src/physics_world.h`, `src/physics_world.c`, `src/solver.c`, `src/solver_set.c`, `src/island.c`,
+`src/CMakeLists.txt`, `src/physics_world.h`, `src/physics_world.c`, `src/solver.c`, `src/solver_set.c`, `src/island.c`,
 `src/contact.c`, `src/joint.c`, `src/sensor.c`, `src/broad_phase.c`, `src/world_snapshot.c`,
 `src/world_hash.c`, `test/test_awake_tree.c`, `test/test_tree_order.c`, `test/test_broad_phase.c`,
 `test/test_world.c`, `test/test_body.c`, `test/test_restitution.c`, `test/test_history.c`, and any
@@ -799,7 +816,7 @@ no before run, the getters being new.
 ### H3b. Contact write accessor, manifold blocks and mesh caches
 
 **Files.** `src/contact.h`, `src/contact.c`, new `src/contact_array.h`, `src/container.h`,
-`src/mesh_contact.c`, `src/contact_solver.c`, `src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.c`,
+`src/CMakeLists.txt`, `src/mesh_contact.c`, `src/contact_solver.c`, `src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.c`,
 `src/island.c`, `src/solver_set.c`, `src/body.c`, `src/shape.c`, `src/world_snapshot.c`,
 `src/world_hash.c`, `test/test_history.c`, and any file the compiler names (§3).
 
@@ -841,7 +858,7 @@ fail at H3b with the discarded-qualifier error and have no before run.
 **Files.** `src/joint.h`, `src/joint.c`, new `src/joint_array.h`, the eight joint files,
 `src/island.h`, `src/island.c`, new `src/island_array.h`, `src/solver_set.h`, `src/solver_set.c`,
 new `src/solver_set_array.h`, `src/sensor.h`, `src/sensor.c`, new `src/sensor_array.h`, new
-`src/graph_storage.h`, `src/shape.c`, `src/body.c`,
+`src/graph_storage.h`, `src/CMakeLists.txt`, `src/shape.c`, `src/body.c`,
 `src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.h`, `src/constraint_graph.c`,
 `src/solver.c`, `src/world_snapshot.c`, `src/world_hash.c`, `test/test_history.c`, and any file
 the compiler names (§3).
@@ -897,7 +914,7 @@ before run.
 
 **Files.** New `src/journal.h`, new `src/journal.c`, `src/world_history.h`, `src/world_history.c`,
 new `src/slot_pool.h` and `src/slot_pool.c` (the `b3JournaledSlotPool` over the six pools and their
-arrays), `src/container.h`, `src/body.c`, `src/shape.c`, `src/contact.c`, `src/joint.c`,
+arrays), `src/CMakeLists.txt`, `src/container.h`, `src/body.c`, `src/shape.c`, `src/contact.c`, `src/joint.c`,
 `src/island.c`, `src/solver_set.c`, `src/constraint_graph.h`, `src/constraint_graph.c`,
 `src/sensor.c`, `src/broad_phase.h`, `src/broad_phase.c`, `src/dynamic_tree.h`, `src/solver.c`,
 `src/physics_world.h`, `src/physics_world.c`, `src/world_snapshot.c`, `src/id_pool.h`,
@@ -985,22 +1002,24 @@ suggestions; the functions are the two halves of the design §9 step 2 and exist
 not for the test), on worlds whose every change between the recorded hash and the walk is a cold
 write, so the walk alone must restore the hash:
 
-1. `ColdChurnUndoCase`: a scene of sleeping islands (two piles created asleep, one of sixteen
-   bodies), four static shapes, one sleeping kinematic body, two sensors on static bodies with
-   nothing overlapping them, a multi-material static shape, a mesh contact between a sleeping body
-   and a static mesh (made by dropping the body awake and letting it sleep before enabling history),
-   a hull referenced once; history enabled, hash recorded; then between steps: `b3Body_SetTransform`
-   on sleeping bodies; a static shape created with `invokeContactCreation` false and one destroyed;
-   `b3Shape_SetFilter` on a sleeping body's shape; a joint created between two sleeping bodies and
-   one destroyed; a body created asleep and a sleeping body destroyed; a sensor created on a static
-   body and the other destroyed; the hull shape destroyed and a shape with the same hull content
-   created; `b3Shape_SetFriction`, `b3Shape_SetRestitution`, `b3Shape_SetSurfaceMaterial` and
-   `b3Shape_SetMeshMaterial` on the static shapes;
-   `b3Body_SetType` of a sleeping body to kinematic; `b3Body_SetAwake( true )` on one pile followed by
-   `b3Body_SetAwake( false )` (a wake and a sleep, the set destroy and create entries, the bulk
-   placement for the sixteen-body pile). Then `b3History_UndoPending`: `ENSURE` the hash equals the
-   recorded one, every sleeping body's shape `proxyKey` equals its recorded value, and
-   `pendingBytes` is 0. Fails before H4 by not building.
+1. `ColdChurnUndoCase`: a scene of sleeping islands (two piles created asleep), four static shapes,
+   one sleeping kinematic body, two sensors on static bodies with nothing overlapping them, a
+   multi-material static shape, a mesh contact between a sleeping body and a static mesh (made by
+   dropping the body awake and letting it sleep before enabling history), two lone sleeping bodies
+   with no contact, each in its own set, and a hull referenced once by a static shape, stepped once
+   before the enable so every sleeping proxy is in the sleeping tree; history enabled, hash
+   recorded; then between steps, cold operations only (§2): a static shape created with
+   `invokeContactCreation` false and one destroyed; `b3Shape_SetFilter` with `invokeContacts` false
+   on a sleeping body's shape and on a static shape; a joint created between the two lone sleeping
+   bodies (a set merge) and destroyed with `wakeAttached` false, and a joint created between two
+   bodies of one pile; one lone sleeping body destroyed and the other disabled; a sensor created
+   on a static body and the other destroyed; the hull shape destroyed and a shape with the same
+   hull content created; `b3Shape_SetFriction`, `b3Shape_SetRestitution`,
+   `b3Shape_SetSurfaceMaterial` and `b3Shape_SetMeshMaterial` on the static shapes and on a
+   sleeping body's shape; the body with the mesh contact destroyed (its contact, island and set
+   with it). Then `b3History_UndoPending`: `ENSURE` the hash equals the recorded one, every
+   sleeping body's shape `proxyKey` equals its recorded value, and `pendingBytes` is 0. Fails before
+   H4 by not building.
 2. `SegmentWalkCase`: the same scene with no awake body at all (the piles asleep, the kinematic
    body asleep, no sensor), stepped once at the test's time step before the enable; history
    enabled with `tickCount` 16; 12 ticks stepped with one cold op from case 1 before each step
@@ -1013,23 +1032,26 @@ write, so the walk alone must restore the hash:
    and the sensor pass has nothing, so beyond the scalars no hot write occurs and the segments
    alone carry every change (§2). Fails before H4 by not building.
 3. `OwnershipCase`: on case 1's scene, with `n0` the sum of `allocationCount` over
-   `world->manifoldAllocators` read after the enable: a wake (set
-   destroy), a merge of two sleeping islands by a joint, a sleeping body's filter change that
-   destroys its mesh contact, the multi-material shape destroyed, a sensor destroyed, the hull's
-   last reference released; `ENSURE` `pendingBytes` grew by at least the sum of the destroyed set's
-   five array byte counts, the island's three, the manifold block's, the material block's, the
-   sensor's three and the hull's `byteCount`, read before each destroy; `b3History_UndoPending`:
+   `world->manifoldAllocators` read after the enable: a joint between the two lone sleeping bodies
+   (the merge destroys one set and one island), the body with the mesh contact destroyed (its
+   manifold block, cache, island and set), the multi-material shape destroyed, a sensor destroyed,
+   the hull's last reference released; `ENSURE` `pendingBytes` grew by at least the sum of each
+   destroyed set's five array byte counts, each destroyed island's three, the manifold block's,
+   the cache's, the material block's, the sensor's three and the hull's `byteCount`, read before
+   each destroy; `b3History_UndoPending`:
    `ENSURE` the hash equals the recorded one and the manifold allocators' count equals `n0`. Then
    the same churn followed by a step (the segment closes), `ENSURE` `bytesUsed` includes those
    bytes and `pendingBytes` is 0; then enough steps on a `tickCount` 4 ring to evict the slot:
    `ENSURE` the manifold allocators' count fell by one; then disable, destroy the world and
    `ENSURE( b3GetByteCount() == base )` with `base` from before the world was created, which is
    the check that every other evicted block was freed. Fails before H4 by not building.
-4. `ProxyIdentityCase`: a sleeping body whose shape's filter is changed (destroy and create in the
-   sleeping tree, a different id possible), then `b3History_UndoPending`: `proxyKey` equals its
-   recorded value and the sleeping tree's proxy-pool hash (section 2 of H0's walk, exposed for the
-   test by hashing the world) is restored; then a static shape created, another destroyed, a third
-   created (the free list reordered), undone: hash restored. Fails before H4 by not building.
+4. `ProxyIdentityCase`: a lone sleeping body destroyed between steps (its sleeping-tree proxy
+   destroy entry), then `b3History_UndoPending`: `proxyKey` equals its recorded value and the hash
+   is restored, section 2 of H0's walk (the sleeping tree's proxy pool) included; then a static
+   shape created, another destroyed, a third created (the free list reordered), undone: hash
+   restored. The id reuse across a step, a destroyed sleeping body's sleeping-tree id taken by a
+   body falling asleep in the next step, is `HistoryRewindTest`'s case, since the awake tree takes
+   part. Fails before H4 by not building.
 
 `HistoryRingTest` gains, in the same commit, the ring doc §9 test 1 items that need the journal: a
 rewind with no step since a sensor destruction and since a hull release now checks
