@@ -33,7 +33,7 @@ query of that document's §14; the semantics of every field there are decided he
    overrun is limited to the retained minimum window's own slots: a single tick whose own image
    and journal segment exceed the budget is still admitted rather than rejected, since rejecting
    it would violate requirement 1. `maxBytes` bounds retained history; arena and staging capacity
-   are reported separately (§5). Retained memory is the per-tick slot multiplied by the imaged ticks
+   are reported separately (§6). Retained memory is the per-tick slot multiplied by the imaged ticks
    in the window, not the per-tick figure alone: on the all-awake stress scenes (5 to 51 MB per
    image, `docs/designs/20260929-002-rewind-only-history-ring.md` §5.1) a 60-tick window at interval 1 holds 0.3 to 3 GB, so on those scenes
    `maxBytes` is what keeps the ring in the hundreds of megabytes, at the price of a wider interval

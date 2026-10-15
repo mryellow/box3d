@@ -268,3 +268,9 @@ to `docs/designs/20261015-003-history-ring-budget-and-eviction.md`, which decide
 §8 keeps its number and becomes the cross-reference, so every `§8` citation resolves to the ring
 doc. Requirement 5 shrinks to its requirement; §6's capture-interval paragraph, §12 test 6 and
 test 5's budget acceptance move with the ring. No decision changed.
+
+## Round 37 (2026-10-15, no revision)
+
+Round 37: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The first clean round after the split; the confirmation round follows.
