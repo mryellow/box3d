@@ -105,10 +105,13 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   triangleCache; b3AABB queryBounds }`, the tail scalars and `generation`. The flag is
   `b3_simMeshContact`. Manifold blocks come from per-count `b3BlockAllocator`s in
   `world->manifoldAllocators` behind `manifoldAllocatorMutex` through `b3AllocateManifolds` and
-  `b3FreeManifolds` (`src/physics_world.h`); `manifoldCount` changes in `b3ComputeConvexManifold`,
-  `b3UpdateConvexContact` (`src/contact.c`) and `b3ComputeMeshManifolds` (`src/mesh_contact.c`), and
-  the triangle cache is resized in `b3RefreshCache` (`src/mesh_contact.c`). `b3DestroyContact` frees
-  the manifolds and the cache itself, which the design §5.2 moves into the pool free entry.
+  `b3FreeManifolds` (`src/physics_world.h`); `manifoldCount` and `manifolds` are zeroed by
+  `b3CreateContact`'s record initialisation and by `b3DestroyContact` after its free, and change in
+  `b3ComputeConvexManifold`, `b3UpdateConvexContact` (`src/contact.c`) and `b3ComputeMeshManifolds`
+  (`src/mesh_contact.c`, which also frees and zeroes them when no triangle manifold is accepted),
+  and the triangle cache is resized in `b3RefreshCache` (`src/mesh_contact.c`). `b3DestroyContact`
+  frees the manifolds and the cache itself and zeroes the pointer and count, which the design §5.2
+  moves into the pool free entry (H3b).
   `b3BlockAllocator` carries an `allocationCount` field with no getter (`src/block_allocator.h`).
 - `b3Joint` (`src/joint.h`): `userData`, `setIndex`, `colorIndex`, `localIndex`, the two edges,
   `jointId`, `islandId`, `islandIndex`, `drawScale`, `type`, `generation`, `collideConnected`. No heap
@@ -577,9 +580,13 @@ in full are the specification. Mechanics that follow from them:
   `contactEndEvents[endEventArrayIndex]` and `sensorEndEvents[endEventArrayIndex]` are empty (the
   ring doc §8); allocates the ring; sets `historyTick` 0; writes the slot for tick 0 as the world
   stands, imaged, through the capture path's slot writer.
-- `b3World_DisableHistory`: no-op when disabled; otherwise frees the arena, the directory, the
-  registry and reader and the staging state, and nulls `world->history`. `b3DestroyWorld` calls it
-  immediately after `b3StopRecordingInternal`.
+- `b3World_DisableHistory`: takes the world through `b3GetUnlockedWorldFromId` and calls
+  `b3DisableHistoryInternal( b3World* )` of `src/world_history.c`, declared in
+  `src/world_history.h`: no-op when disabled; otherwise frees the arena, the directory, the
+  registry and reader and the staging state, and nulls `world->history`. `b3DestroyWorld` calls
+  the internal function immediately after `b3StopRecordingInternal`: `world->locked` is already
+  set there (`src/physics_world.c`), so the public lookup would assert, which is why the recording
+  has the same split.
 - `b3World_GetHistoryInfo`: all zero when disabled; else `currentTick` = `historyTick`,
   `oldestImageTick` = the oldest retained imaged slot's tick, the effective interval, `bytesUsed`,
   the arena's capacity, 0 for the staging capacity and `pendingBytes` in phase 0 (H4 fills them).
@@ -593,8 +600,9 @@ in full are the specification. Mechanics that follow from them:
   than `historyTick`; step 2 is empty in phase 0; step 3 is `b3DeserializeIntoShell` of slot T's
   image through the ring's reader with the release-user-shapes option on, then the migration queue
   copied back into `broadPhase.migrationQueue` and each listed mesh, height-field and compound shape
-  repointed at its recorded geometry pointer through its record's restore writer, so no shape
-  points into the ring's registry; step 4 is empty (the trees are in the image); step 5
+  repointed at its recorded geometry pointer (written into the record directly in this commit,
+  `world->shapes` being a plain mutable array until H3a, whose `b3Shape_Restore` takes the write
+  over), so no shape points into the ring's registry; step 4 is empty (the trees are in the image); step 5
   clears `bodyMoveEvents`, `sensorBeginEvents`, `contactBeginEvents`, `contactHitEvents`,
   `jointEvents` and both `sensorEndEvents` and both `contactEndEvents` buffers, sets `bodyMoveIndex`
   to `B3_NULL_INDEX` on every body of the awake set, removes the slots after T (the write position
@@ -868,11 +876,17 @@ the specification. Mechanics that follow from them:
   cacheCount, cache )` in `src/contact.c` is the one writer of the pointer, the count and the cache
   header for a non-awake contact (journals from H4).
 - The hot accessor `b3Contact* b3Contact_Hot( world, id )` asserts the step mark and an awake
-  owner and returns the record together with writable access to its manifold block and, for a mesh
-  contact, a writable `b3Array( b3TriangleCache )*` view of the cache; the narrow phase
-  (`src/contact.c`, `src/mesh_contact.c`), the collide pass's flag writes (`src/physics_world.c`) and
-  store impulses (`src/contact_solver.c`) use it, allocating and freeing manifold blocks in place
-  through `b3AllocateManifolds` and `b3FreeManifolds` as today.
+  owner and returns the record. Its `manifolds` is pointer-to-const, so writes through it come
+  from two companions in `src/contact.c` under the same assertions: `b3Manifold*
+  b3Contact_HotManifolds( world, contact )` returning the current block and, for a mesh contact,
+  `b3Array( b3TriangleCache )* b3Contact_HotCache( world, contact )` returning the cache header
+  (the casts live in that file and nowhere else), re-read after the hot path replaces the block
+  (`b3UpdateConvexContact`, `b3ComputeMeshManifolds`). The narrow phase (`src/contact.c`,
+  `src/mesh_contact.c`), the collide pass's flag writes (`src/physics_world.c`) and store impulses
+  (`src/contact_solver.c`, which writes `b3Manifold*` into the block) use them, allocating and
+  freeing manifold blocks in place through `b3AllocateManifolds` and `b3FreeManifolds` as today;
+  assigning the record's pointer and count is a write to the record and goes through the hot
+  record, only a write through the pointer needs the companion.
 - `b3DestroyContact` no longer frees the manifold block or the cache: they stay on the record for
   the pool's free (H4's pool free entry); in this commit the pool's free function in
   `src/contact.c` frees them, so no leak is introduced between H3b and H4.
@@ -1001,12 +1015,17 @@ specification. Mechanics that follow from them:
   (`src/world_snapshot.c`) use these in place of the journaling functions from this commit, so a
   phase-0 rewind makes no entry of its own; H5's scatter uses them too.
 - Entering the awake set: `b3SolverSet_PushAwakeBody( world, body, sim, state )`,
-  `b3SolverSet_PushAwakeJoint`, `b3Graph_PushContact( world, contact )` and `b3Graph_PushJoint` are
-  the only pushes onto the awake set's and the colours' arrays; each journals the record's pre-wake
-  bytes through the structural entry before appending, the body one also every shape's record and
-  `fatAABBs` entry, the contact one a manifold block entry (count 0 when there is none) and a cache
-  entry for a mesh contact. The move between the awake set's arrays and a colour (begin and end
-  touch) is one container operation that asserts the record is where it says and makes no entry.
+  `b3SolverSet_PushAwakeJoint`, `b3SolverSet_PushAwakeContact( world, contact )` (the awake set's
+  `contactIndices`, for a non-touching contact: `b3CreateContact`'s push when the set is the awake
+  set and `b3WakeSolverSet`'s non-touching loop, `src/contact.c` and `src/solver_set.c`),
+  `b3Graph_PushContact( world, contact )` and `b3Graph_PushJoint` are the only pushes onto the
+  awake set's and the colours' arrays; each journals the record's pre-wake bytes through the
+  structural entry before appending, the body one also every shape's record and `fatAABBs` entry,
+  the two contact ones a manifold block entry (count 0 when there is none, which the non-touching
+  push asserts) and a cache entry for a mesh contact. The move between the awake set's arrays and
+  a colour (begin and end touch, `b3AddNonTouchingContact` in `src/physics_world.c` the end-touch
+  half) is one container operation that asserts the record is where it says and makes no entry; a
+  merge or transfer between two non-awake sets is the `b3JournaledArray` push.
 - Trees (the trees doc §7): `b3BroadPhase.trees` becomes `const b3DynamicTree* trees`, pointing at
   storage `src/broad_phase.c` allocates and converts back; every tree write is a function of that
   file: `b3BroadPhase_RefitTrees( world )` and `b3BroadPhase_EnlargeProxy( world, proxyKey, aabb )`
@@ -1182,9 +1201,15 @@ them:
   perturbation helper rebuilds every tree after the rewind): a bullet sweep with several competing
   candidates, some awake and some asleep, one of them a nearer hit that a `preSolve` rejects; a
   sweep with more than eight sensor candidates; an explosion hitting several shapes of one body; an
-  explosion waking bodies in several sleeping sets, some connected by joints. Each: record the hash
+  explosion waking bodies in several sleeping sets, some connected by joints. Each case's
+  candidates sit in a named tree: the sleeping tree for the bullet sweep and the second explosion,
+  the static tree for the sensor sweep (sensors on static bodies) and the first explosion (a static
+  body with several shapes). Each: record the hash
   and event digest per tick over 30 ticks with history enabled at `tickCount` 30, rewind to 10,
-  perturb, replay to 30 with the op log, and
+  record the leaf visit order of a query over the named tree (as `RecordVisitOrder` in
+  `test/test_tree_order.c` does), perturb, record it again and `ENSURE` the two differ (as
+  `WitnessDiffers` there does; a full rebuild can reproduce the layout it replaces, and a case
+  whose rebuild does is rebuilt with more candidates), then replay to 30 with the op log, and
   `ENSURE` equality at every tick. Passes before H5 (layout independence is the engine's, the design
   §3); it guards the restore pass.
 - `HistoryCostTest` case 1, `SleepingDynamicCostCase`: 20,000 single-box dynamic bodies created
@@ -1319,7 +1344,11 @@ Measurements the closure doc needs:
   image, journal and owned-block bytes per tick (the parts `b3History_GetSlot` returns); `bytesUsed`, the
   retained window and the effective interval at `tickCount` 60 under an unbounded budget and under
   `maxBytes` of a quarter of the unbounded steady-state `bytesUsed`; restore milliseconds for
-  `Rewind` 1, 5 and 9 ticks back; replay milliseconds for 9 ticks. Acceptance as the design states:
+  `Rewind` 1, 5 and 9 ticks back on the unbounded ring, where interval 1 holds and each target is
+  imaged, and under the quarter budget, where the interval widens (the ring doc §6), one rewind to
+  `b3World_GetRestorableTick( currentTick − 9 )` with the actual distance reported beside the
+  time, so no figure times a `b3_historyTickUnavailable` return; replay milliseconds for 9 ticks.
+  Acceptance as the design states:
   capture under 15% of the step at eight workers on the all-awake scenes and under 1 µs per awake
   body on `large_world` and the million-body scene; restore proportional to awake plus sensors and
   journal (reported as microseconds per awake body across the scenes); replay equal to N steps

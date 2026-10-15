@@ -215,3 +215,25 @@ Round 10: 3 findings (H1-M1-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - Length 1390 -> 1411 lines.
 - Tenth round without a clean round: the project's criteria review threshold. Recorded in the
   round record's Status for the owner.
+
+## Revision 12: after review round 11
+
+Round 11: 7 findings (H2-M4-L1), 7 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> pending. The owner chose to
+continue the series at the same scope after round 10's threshold (B8).
+
+- H1's rewind writes the recorded geometry pointer into the shape record directly; H3a's
+  `b3Shape_Restore` takes the write over.
+- `b3World_DisableHistory` and `b3DestroyWorld` share `b3DisableHistoryInternal( b3World* )`, since
+  the destructor has already locked the world when it stops the recording.
+- H3b's `b3Contact_Hot` returns the record alone; `b3Contact_HotManifolds` and `b3Contact_HotCache`
+  return the writable block and cache views the narrow phase and store impulses need.
+- H4 names `b3SolverSet_PushAwakeContact` as the push onto the awake set's `contactIndices`, with
+  its two callers; the end-touch move is named as one of the no-entry container moves and a merge
+  between non-awake sets as the journaled push.
+- `HistoryTreeTest` records a visit-order witness over the case's tree before and after the
+  perturbation and asserts the two differ; each case names its tree.
+- §7 times the fixed-offset rewinds on the unbounded ring and one resolved-tick rewind under the
+  quarter budget.
+- §2's `manifoldCount` inventory adds creation, destruction and the mesh path's reset.
+- Length 1411 -> 1440 lines.
