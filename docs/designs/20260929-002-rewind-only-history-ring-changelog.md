@@ -242,3 +242,10 @@ Round 34: 2 findings (0H-1M-1L), 2 applied, 0 declined.
 
 - No change to the design. Both findings are recorded and unfolded; the series is stopped for an
   owner decision on how a body's or joint's sim is journaled (U-S3, U-S4).
+
+## Revision 35 (2026-10-15, after round 35)
+
+Round 35: 1 findings (0H-1M-0L), 1 applied, 0 declined.
+
+- §14: the correction example replays the API calls made after step `now`, which the rewind undid,
+  after the catch-up loop.

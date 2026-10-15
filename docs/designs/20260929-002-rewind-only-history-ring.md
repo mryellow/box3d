@@ -1309,6 +1309,7 @@ if ( serverTick <= now )
 			b3World_Step( w, dt, sub );
 			if ( t == serverTick ) { apply the server correction; }
 		}
+		replay API calls made after step now (inputs for now + 1, which the rewind undid);
 	}
 }
 ```
