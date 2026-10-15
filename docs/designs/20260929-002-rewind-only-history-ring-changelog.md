@@ -424,3 +424,9 @@ Round 51: 2 findings (1H-0M-1L), 2 applied, 0 declined.
   a record write carries an array header unchanged and only the container's file writes one.
 - §3: custom filter calls follow layout order in pair discovery and sensor queries, sorted
   candidate order with worker interleaving in continuous sweeps, as §10 says.
+
+## Revision 52 (2026-10-15, after round 52)
+
+Round 52: 1 findings (0H-0M-1L), 1 applied, 0 declined.
+
+- §5.1: ~232 B per awake shape, the record and its `fatAABBs` entry.

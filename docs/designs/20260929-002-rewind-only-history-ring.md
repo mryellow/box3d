@@ -234,8 +234,8 @@ the body record is already imaged whole, a shape's non-hot fields would be uncov
 image and journal if only `aabb`/`fatAABBs` were imaged. Imaging the whole record removes the gap
 without adding a wake-state-conditional journal path for shape setters.
 
-Estimated bytes per tick: ~470 B per awake body, ~208 B per awake shape (whole record, up from
-the ~50 B of `aabb`/`fatAABBs` alone), ~220 B per awake non-touching
+Estimated bytes per tick: ~470 B per awake body, ~232 B per awake shape (whole record and its
+`fatAABBs` entry, up from the ~50 B of `aabb`/`fatAABBs` alone), ~220 B per awake non-touching
 contact, ~490 B per touching convex contact (more with multiple manifolds), ~520 B per awake
 joint, and about 100 B per proxy slot of the awake tree's high-water mark (§7.4). For the fully-awake stress scenes this is the same order as the whole-world figures in
 §11.1 (5–51 MB/tick); for `large_world` it is a few KB after its first step (its tick-0 image holds a million static
