@@ -5022,11 +5022,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:1">
           <path data-graph-role="automatic-crossover-underlay" d="M 516 72 L 676 72" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="step" data-edge-to="accessors" data-edge-label="structural writes" data-edge-key="1" data-edge-id="step-to-accessors" data-composition-points="516,72;676,72" data-composition-crossover="halo" data-composition-independent="true" d="M 516 72 L 676 72" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="step" data-edge-to="boundary" data-edge-label="structural writes" data-edge-key="1" data-edge-id="step-to-boundary" data-composition-points="516,72;676,72" data-composition-crossover="halo" data-composition-independent="true" d="M 516 72 L 676 72" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:2">
           <path data-graph-role="automatic-crossover-underlay" d="M 846 72 L 1006 72" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="accessors" data-edge-to="cold" data-edge-label="journaled write" data-edge-key="2" data-edge-id="accessors-to-cold" data-composition-points="846,72;1006,72" data-composition-crossover="halo" data-composition-independent="true" d="M 846 72 L 1006 72" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="boundary" data-edge-to="cold" data-edge-label="journaled write" data-edge-key="2" data-edge-id="boundary-to-cold" data-composition-points="846,72;1006,72" data-composition-crossover="halo" data-composition-independent="true" d="M 846 72 L 1006 72" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:3">
           <path data-graph-role="automatic-crossover-underlay" d="M 125 104 L 125 210" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5038,7 +5038,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:5">
           <path data-graph-role="automatic-crossover-underlay" d="M 761 104 L 761 210" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="accessors" data-edge-to="staging" data-edge-label="journal entry" data-edge-key="5" data-edge-id="accessors-to-staging" data-composition-points="761,104;761,210" data-composition-crossover="halo" data-composition-independent="true" d="M 761 104 L 761 210" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="boundary" data-edge-to="staging" data-edge-label="old bytes" data-edge-key="5" data-edge-id="boundary-to-staging" data-composition-points="761,104;761,210" data-composition-crossover="halo" data-composition-independent="true" d="M 761 104 L 761 210" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:6">
           <path data-graph-role="automatic-crossover-underlay" d="M 676 235 L 516 235" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5058,7 +5058,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:10">
           <path data-graph-role="automatic-crossover-underlay" d="M 431 444 L 431 550" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="ring" data-edge-to="restore" data-edge-label="read slot" data-edge-key="10" data-edge-id="ring-to-restore" data-composition-points="431,444;431,550" data-composition-crossover="halo" data-composition-independent="true" d="M 431 444 L 431 550" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="ring" data-edge-to="restore" data-edge-label="read slots" data-edge-key="10" data-edge-id="ring-to-restore" data-composition-points="431,444;431,550" data-composition-crossover="halo" data-composition-independent="true" d="M 431 444 L 431 550" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:11">
           <path data-graph-role="automatic-crossover-underlay" d="M 422.95 720 L 422.95 614" fill="none" stroke="var(--mask)" stroke-width="5.8" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5074,7 +5074,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         </g>
         <g data-graph-role="automatic-crossover" style="--step:14">
           <path data-graph-role="automatic-crossover-underlay" d="M 516 589 L 1083 589 Q 1091 589 1091 581 L 1091 444" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
-          <path data-edge-from="restore" data-edge-to="derived_trees" data-edge-label="proxy undo, move pass" data-edge-key="14" data-edge-id="restore-to-derived" data-composition-points="516,589;1091,589;1091,444" data-composition-crossover="halo" data-composition-independent="true" d="M 516 589 L 1083 589 Q 1091 589 1091 581 L 1091 444" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+          <path data-edge-from="restore" data-edge-to="derived_trees" data-edge-label="proxy undo, rebuild" data-edge-key="14" data-edge-id="restore-to-derived" data-composition-points="516,589;1091,589;1091,444" data-composition-crossover="halo" data-composition-independent="true" d="M 516 589 L 1083 589 Q 1091 589 1091 581 L 1091 444" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         </g>
         <g data-graph-role="automatic-crossover" style="--step:15">
           <path data-graph-role="automatic-crossover-underlay" d="M 438 614 L 438 630 Q 438 638 446 638 L 1192 638 Q 1200 638 1200 630 L 1200 80 Q 1200 72 1192 72 L 1176 72" fill="none" stroke="var(--mask)" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" pointer-events="none"/>
@@ -5105,21 +5105,21 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="context" x="431" y="86" class="t-muted" font-size="9" text-anchor="middle">solver, pairs, migrations</text>
         </g>
 
-        <g id="node-accessors" data-node-id="accessors" data-node-label="Write accessors" tabindex="0" role="button" aria-label="Focus Write accessors, containers, proxy choke points, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="containers, proxy choke points" data-node-tag="undo entries only" data-node-context="Architecture component">
-          <title>Write accessors · containers, proxy choke points · Architecture component · undo entries only</title>
+        <g id="node-boundary" data-node-id="boundary" data-node-label="Write boundary" tabindex="0" role="button" aria-label="Focus Write boundary, accessors, journaled types, Architecture component" aria-pressed="false" data-node-kind="security" data-node-sublabel="accessors, journaled types" data-node-tag="types, not lists" data-node-context="Architecture component">
+          <title>Write boundary · accessors, journaled types · Architecture component · types, not lists</title>
           <rect x="676" y="40" width="170" height="64" rx="6" class="c-mask"/>
           <rect x="676" y="40" width="170" height="64" rx="6" class="c-security" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="security" class="semantic-sigil s-security" transform="translate(682 46) scale(0.6875)">
             <path d="M8 2.2 13 4v3.5c0 3.1-1.8 5.4-5 6.5-3.2-1.1-5-3.4-5-6.5V4Z"/>
             <path d="m5.8 8 1.5 1.5 3-3"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="761" y="70" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Write accessors</text>
-        <text data-detail="context" x="761" y="86" class="t-muted" font-size="9" text-anchor="middle">containers, proxy choke points</text>
-        <text data-detail="fine" x="761" y="96" class="t-security" font-size="7" text-anchor="middle">undo entries only</text>
+          <text data-node-label="" data-detail-anchor="" x="761" y="70" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Write boundary</text>
+        <text data-detail="context" x="761" y="86" class="t-muted" font-size="9" text-anchor="middle">accessors, journaled types</text>
+        <text data-detail="fine" x="761" y="96" class="t-security" font-size="7" text-anchor="middle">types, not lists</text>
         </g>
 
-        <g id="node-cold" data-node-id="cold" data-node-label="Cold state" tabindex="0" role="button" aria-label="Focus Cold state, sleeping, static, proxy ids, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="sleeping, static, proxy ids" data-node-context="Architecture component">
-          <title>Cold state · sleeping, static, proxy ids · Architecture component</title>
+        <g id="node-cold" data-node-id="cold" data-node-label="Cold state" tabindex="0" role="button" aria-label="Focus Cold state, sleeping sets, pools, proxies, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="sleeping sets, pools, proxies" data-node-context="Architecture component">
+          <title>Cold state · sleeping sets, pools, proxies · Architecture component</title>
           <rect x="1006" y="40" width="170" height="64" rx="6" class="c-mask"/>
           <rect x="1006" y="40" width="170" height="64" rx="6" class="c-database" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(1012 46) scale(0.6875)">
@@ -5127,7 +5127,56 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="1091" y="70" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Cold state</text>
-        <text data-detail="context" x="1091" y="86" class="t-muted" font-size="9" text-anchor="middle">sleeping, static, proxy ids</text>
+        <text data-detail="context" x="1091" y="86" class="t-muted" font-size="9" text-anchor="middle">sleeping sets, pools, proxies</text>
+        </g>
+
+        <g id="node-hot" data-node-id="hot" data-node-label="Hot state" tabindex="0" role="button" aria-label="Focus Hot state, awake sets, colours, records, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="awake sets, colours, records" data-node-context="Architecture component">
+          <title>Hot state · awake sets, colours, records · Architecture component</title>
+          <rect x="40" y="210" width="170" height="64" rx="6" class="c-mask"/>
+          <rect x="40" y="210" width="170" height="64" rx="6" class="c-database" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(46 216) scale(0.6875)">
+            <ellipse cx="8" cy="4" rx="5" ry="2"/>
+            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="125" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Hot state</text>
+        <text data-detail="context" x="125" y="256" class="t-muted" font-size="9" text-anchor="middle">awake sets, colours, records</text>
+        </g>
+
+        <g id="node-capture" data-node-id="capture" data-node-label="Capture" tabindex="0" role="button" aria-label="Focus Capture, count, gather, close segment, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="count, gather, close segment" data-node-context="Architecture component">
+          <title>Capture · count, gather, close segment · Architecture component</title>
+          <rect x="346" y="210" width="170" height="64" rx="6" class="c-mask"/>
+          <rect x="346" y="210" width="170" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(352 216) scale(0.6875)">
+            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="431" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Capture</text>
+        <text data-detail="context" x="431" y="256" class="t-muted" font-size="9" text-anchor="middle">count, gather, close segment</text>
+        </g>
+
+        <g id="node-staging" data-node-id="staging" data-node-label="Journal staging" tabindex="0" role="button" aria-label="Focus Journal staging, undo entries, per tick, Architecture component" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="undo entries, per tick" data-node-context="Architecture component">
+          <title>Journal staging · undo entries, per tick · Architecture component</title>
+          <rect x="676" y="210" width="170" height="64" rx="6" class="c-mask"/>
+          <rect x="676" y="210" width="170" height="64" rx="6" class="c-messagebus" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(682 216) scale(0.6875)">
+            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
+            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
+            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
+            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="761" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Journal staging</text>
+        <text data-detail="context" x="761" y="256" class="t-muted" font-size="9" text-anchor="middle">undo entries, per tick</text>
+        </g>
+
+        <g id="node-ring" data-node-id="ring" data-node-label="History ring" tabindex="0" role="button" aria-label="Focus History ring, slot = image + segment, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="slot = image + segment" data-node-tag="two ends only" data-node-context="Architecture component">
+          <title>History ring · slot = image + segment · Architecture component · two ends only</title>
+          <rect x="346" y="380" width="170" height="64" rx="6" class="c-mask"/>
+          <rect x="346" y="380" width="170" height="64" rx="6" class="c-cloud" stroke-width="1.5"/>
+          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(352 386) scale(0.6875)">
+            <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
+          </g>
+          <text data-node-label="" data-detail-anchor="" x="431" y="410" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">History ring</text>
+        <text data-detail="context" x="431" y="426" class="t-muted" font-size="9" text-anchor="middle">slot = image + segment</text>
+        <text data-detail="fine" x="431" y="436" class="t-cloud" font-size="7" text-anchor="middle">two ends only</text>
         </g>
 
         <g id="node-awake_tree" data-node-id="awake_tree" data-node-label="Awake tree" tabindex="0" role="button" aria-label="Focus Awake tree, + migration queue, imaged, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="+ migration queue, imaged" data-node-tag="parked leaves" data-node-context="Architecture component">
@@ -5143,55 +5192,6 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="761" y="436" class="t-database" font-size="7" text-anchor="middle">parked leaves</text>
         </g>
 
-        <g id="node-capture" data-node-id="capture" data-node-label="Capture" tabindex="0" role="button" aria-label="Focus Capture, gather image, close segment, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="gather image, close segment" data-node-context="Architecture component">
-          <title>Capture · gather image, close segment · Architecture component</title>
-          <rect x="346" y="210" width="170" height="64" rx="6" class="c-mask"/>
-          <rect x="346" y="210" width="170" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(352 216) scale(0.6875)">
-            <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="431" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Capture</text>
-        <text data-detail="context" x="431" y="256" class="t-muted" font-size="9" text-anchor="middle">gather image, close segment</text>
-        </g>
-
-        <g id="node-staging" data-node-id="staging" data-node-label="Journal staging" tabindex="0" role="button" aria-label="Focus Journal staging, per-tick undo entries, Architecture component" aria-pressed="false" data-node-kind="messagebus" data-node-sublabel="per-tick undo entries" data-node-context="Architecture component">
-          <title>Journal staging · per-tick undo entries · Architecture component</title>
-          <rect x="676" y="210" width="170" height="64" rx="6" class="c-mask"/>
-          <rect x="676" y="210" width="170" height="64" rx="6" class="c-messagebus" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="messagebus" class="semantic-sigil s-messagebus" transform="translate(682 216) scale(0.6875)">
-            <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"/>
-            <circle cx="5" cy="4.5" r="1" class="sigil-fill"/>
-            <circle cx="10.5" cy="8" r="1" class="sigil-fill"/>
-            <circle cx="7" cy="11.5" r="1" class="sigil-fill"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="761" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Journal staging</text>
-        <text data-detail="context" x="761" y="256" class="t-muted" font-size="9" text-anchor="middle">per-tick undo entries</text>
-        </g>
-
-        <g id="node-hot" data-node-id="hot" data-node-label="Hot state" tabindex="0" role="button" aria-label="Focus Hot state, awake sets, contacts, bodies, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="awake sets, contacts, bodies" data-node-context="Architecture component">
-          <title>Hot state · awake sets, contacts, bodies · Architecture component</title>
-          <rect x="40" y="210" width="170" height="64" rx="6" class="c-mask"/>
-          <rect x="40" y="210" width="170" height="64" rx="6" class="c-database" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="database" class="semantic-sigil s-database" transform="translate(46 216) scale(0.6875)">
-            <ellipse cx="8" cy="4" rx="5" ry="2"/>
-            <path d="M3 4v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="125" y="240" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Hot state</text>
-        <text data-detail="context" x="125" y="256" class="t-muted" font-size="9" text-anchor="middle">awake sets, contacts, bodies</text>
-        </g>
-
-        <g id="node-ring" data-node-id="ring" data-node-label="History ring" tabindex="0" role="button" aria-label="Focus History ring, slot = image + undo segment, Architecture component" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="slot = image + undo segment" data-node-tag="two ends only" data-node-context="Architecture component">
-          <title>History ring · slot = image + undo segment · Architecture component · two ends only</title>
-          <rect x="346" y="380" width="170" height="64" rx="6" class="c-mask"/>
-          <rect x="346" y="380" width="170" height="64" rx="6" class="c-cloud" stroke-width="1.5"/>
-          <g aria-hidden="true" data-semantic-sigil="cloud" class="semantic-sigil s-cloud" transform="translate(352 386) scale(0.6875)">
-            <path d="M4.3 12.5h7.3a2.4 2.4 0 0 0 .2-4.8 4 4 0 0 0-7.5-1.3A3.1 3.1 0 0 0 4.3 12.5Z"/>
-          </g>
-          <text data-node-label="" data-detail-anchor="" x="431" y="410" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">History ring</text>
-        <text data-detail="context" x="431" y="426" class="t-muted" font-size="9" text-anchor="middle">slot = image + undo segment</text>
-        <text data-detail="fine" x="431" y="436" class="t-cloud" font-size="7" text-anchor="middle">two ends only</text>
-        </g>
-
         <g id="node-derived_trees" data-node-id="derived_trees" data-node-label="Derived trees" tabindex="0" role="button" aria-label="Focus Derived trees, static, kinematic, sleeping, Architecture component" aria-pressed="false" data-node-kind="database" data-node-sublabel="static, kinematic, sleeping" data-node-tag="layout rebuilt" data-node-context="Architecture component">
           <title>Derived trees · static, kinematic, sleeping · Architecture component · layout rebuilt</title>
           <rect x="1006" y="380" width="170" height="64" rx="6" class="c-mask"/>
@@ -5205,20 +5205,20 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
         <text data-detail="fine" x="1091" y="436" class="t-database" font-size="7" text-anchor="middle">layout rebuilt</text>
         </g>
 
-        <g id="node-restore" data-node-id="restore" data-node-label="b3World_Rewind" tabindex="0" role="button" aria-label="Focus b3World_Rewind, undo, image copy, trees, trim, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="undo, image copy, trees, trim" data-node-tag="one-way" data-node-context="Architecture component">
-          <title>b3World_Rewind · undo, image copy, trees, trim · Architecture component · one-way</title>
+        <g id="node-restore" data-node-id="restore" data-node-label="b3World_Rewind" tabindex="0" role="button" aria-label="Focus b3World_Rewind, undo, image, trees, trim, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="undo, image, trees, trim" data-node-tag="one-way" data-node-context="Architecture component">
+          <title>b3World_Rewind · undo, image, trees, trim · Architecture component · one-way</title>
           <rect x="346" y="550" width="170" height="64" rx="6" class="c-mask"/>
           <rect x="346" y="550" width="170" height="64" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(352 556) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="431" y="580" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">b3World_Rewind</text>
-        <text data-detail="context" x="431" y="596" class="t-muted" font-size="9" text-anchor="middle">undo, image copy, trees, trim</text>
+        <text data-detail="context" x="431" y="596" class="t-muted" font-size="9" text-anchor="middle">undo, image, trees, trim</text>
         <text data-detail="fine" x="431" y="606" class="t-backend" font-size="7" text-anchor="middle">one-way</text>
         </g>
 
-        <g id="node-reconciler" data-node-id="reconciler" data-node-label="Reconciler" tabindex="0" role="button" aria-label="Focus Reconciler, server correction at tick T, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="server correction at tick T" data-node-context="Architecture component">
-          <title>Reconciler · server correction at tick T · Architecture component</title>
+        <g id="node-reconciler" data-node-id="reconciler" data-node-label="Reconciler" tabindex="0" role="button" aria-label="Focus Reconciler, correction at T, replay to now, Architecture component" aria-pressed="false" data-node-kind="external" data-node-sublabel="correction at T, replay to now" data-node-context="Architecture component">
+          <title>Reconciler · correction at T, replay to now · Architecture component</title>
           <rect x="346" y="720" width="170" height="64" rx="6" class="c-mask"/>
           <rect x="346" y="720" width="170" height="64" rx="6" class="c-external" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="external" class="semantic-sigil s-external" transform="translate(352 726) scale(0.6875)">
@@ -5226,7 +5226,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
             <path d="M8 2.5h5.5V8M13.5 2.5 7.5 8.5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="431" y="750" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Reconciler</text>
-        <text data-detail="context" x="431" y="766" class="t-muted" font-size="9" text-anchor="middle">server correction at tick T</text>
+        <text data-detail="context" x="431" y="766" class="t-muted" font-size="9" text-anchor="middle">correction at T, replay to now</text>
         </g>
 
         <!-- Connection labels -->
@@ -5234,11 +5234,11 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="253.8" y="52" width="48.4" height="14" rx="3" class="c-mask"/>
           <text x="278" y="62" class="t-edge-emphasis" font-size="8" text-anchor="middle">Step(dt)</text>
         </g>
-        <g data-detail="context" data-edge-from="step" data-edge-to="accessors" data-edge-label="structural writes" data-edge-key="1" data-edge-id="step-to-accessors">
+        <g data-detail="context" data-edge-from="step" data-edge-to="boundary" data-edge-label="structural writes" data-edge-key="1" data-edge-id="step-to-boundary">
           <rect x="550.2" y="52" width="91.6" height="14" rx="3" class="c-mask"/>
           <text x="596" y="62" class="t-edge-default" font-size="8" text-anchor="middle">structural writes</text>
         </g>
-        <g data-detail="context" data-edge-from="accessors" data-edge-to="cold" data-edge-label="journaled write" data-edge-key="2" data-edge-id="accessors-to-cold">
+        <g data-detail="context" data-edge-from="boundary" data-edge-to="cold" data-edge-label="journaled write" data-edge-key="2" data-edge-id="boundary-to-cold">
           <rect x="885" y="52" width="82" height="14" rx="3" class="c-mask"/>
           <text x="926" y="62" class="t-edge-default" font-size="8" text-anchor="middle">journaled write</text>
         </g>
@@ -5250,9 +5250,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="362.20000000000005" y="150" width="62.8" height="14" rx="3" class="c-mask"/>
           <text x="393.6" y="160" class="t-edge-default" font-size="8" text-anchor="middle">end of step</text>
         </g>
-        <g data-detail="context" data-edge-from="accessors" data-edge-to="staging" data-edge-label="journal entry" data-edge-key="5" data-edge-id="accessors-to-staging">
-          <rect x="682.5999999999999" y="150" width="72.4" height="14" rx="3" class="c-mask"/>
-          <text x="718.8" y="160" class="t-edge-default" font-size="8" text-anchor="middle">journal entry</text>
+        <g data-detail="context" data-edge-from="boundary" data-edge-to="staging" data-edge-label="old bytes" data-edge-key="5" data-edge-id="boundary-to-staging">
+          <rect x="701.8" y="150" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
+          <text x="728.4" y="160" class="t-edge-default" font-size="8" text-anchor="middle">old bytes</text>
         </g>
         <g data-detail="context" data-edge-from="staging" data-edge-to="capture" data-edge-label="segment bytes" data-edge-key="6" data-edge-id="staging-to-capture">
           <rect x="559.8" y="215" width="72.4" height="14" rx="3" class="c-mask"/>
@@ -5270,9 +5270,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="343" y="320" width="82" height="14" rx="3" class="c-mask"/>
           <text x="384" y="330" class="t-edge-emphasis" font-size="8" text-anchor="middle">image + segment</text>
         </g>
-        <g data-detail="context" data-edge-from="ring" data-edge-to="restore" data-edge-label="read slot" data-edge-key="10" data-edge-id="ring-to-restore">
-          <rect x="371.79999999999995" y="490" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
-          <text x="398.4" y="500" class="t-edge-default" font-size="8" text-anchor="middle">read slot</text>
+        <g data-detail="context" data-edge-from="ring" data-edge-to="restore" data-edge-label="read slots" data-edge-key="10" data-edge-id="ring-to-restore">
+          <rect x="367" y="490" width="58" height="14" rx="3" class="c-mask"/>
+          <text x="396" y="500" class="t-edge-default" font-size="8" text-anchor="middle">read slots</text>
         </g>
         <g data-detail="context" data-edge-from="reconciler" data-edge-to="restore" data-edge-label="Rewind(T)" data-edge-key="11" data-edge-id="reconciler-to-restore">
           <rect x="396.34999999999997" y="700" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
@@ -5286,9 +5286,9 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
           <rect x="712.8" y="489.5" width="96.39999999999999" height="14" rx="3" class="c-mask"/>
           <text x="761" y="499.5" class="t-edge-default" font-size="8" text-anchor="middle">tree image + queue</text>
         </g>
-        <g data-detail="context" data-edge-from="restore" data-edge-to="derived_trees" data-edge-label="proxy undo, move pass" data-edge-key="14" data-edge-id="restore-to-derived">
-          <rect x="1035.6" y="496.5" width="110.8" height="14" rx="3" class="c-mask"/>
-          <text x="1091" y="506.5" class="t-edge-default" font-size="8" text-anchor="middle">proxy undo, move pass</text>
+        <g data-detail="context" data-edge-from="restore" data-edge-to="derived_trees" data-edge-label="proxy undo, rebuild" data-edge-key="14" data-edge-id="restore-to-derived">
+          <rect x="1040.4" y="496.5" width="101.2" height="14" rx="3" class="c-mask"/>
+          <text x="1091" y="506.5" class="t-edge-default" font-size="8" text-anchor="middle">proxy undo, rebuild</text>
         </g>
         <g data-detail="context" data-edge-from="restore" data-edge-to="cold" data-edge-label="undo walk" data-edge-key="15" data-edge-id="restore-to-cold">
           <rect x="792.4" y="618" width="53.199999999999996" height="14" rx="3" class="c-mask"/>
@@ -5505,52 +5505,63 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>Journal</h3>
+          <h3>Write boundary (§5.2)</h3>
         </div>
         <ul>
-          <li>Written only inside accessors, journaled containers and the broad phase&#39;s proxy create and destroy, single and bulk</li>
-          <li>Entries log old bytes only: undo backward, no redo</li>
-          <li>Proxy ids of the static and sleeping trees: one entry per create or destroy, undone in reverse so the free list is as it was</li>
-          <li>Awake-owner writes are not journaled: the image covers them</li>
+          <li>Three routes to a record: the write accessor (structural entry always journals, setter entry journals unless the owner is awake), the hot accessor for awake owners inside a step, and restore&#39;s writer</li>
+          <li>Owned blocks, counts and array headers change only through the block mutators, the journaled array mutators and the pool free entry; a record write leaves them in place</li>
+          <li>Containers are incomplete types held by pointer; the awake set&#39;s and colours&#39; arrays offer no generic push, their push is the move into the awake set and journals the pre-wake bytes</li>
+          <li>The compiler, not a caller list, says when the migration is complete</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
-          <h3>Rewind(T)</h3>
+          <h3>Journal and Rewind(T)</h3>
         </div>
         <ul>
-          <li>T must be an imaged tick in the window, else unavailable</li>
-          <li>Undo segments P..T+1, then copy image T over hot state, the awake tree and the migration queue</li>
-          <li>Static, kinematic and sleeping trees: proxies moved to restored fat AABBs, moved bits cleared then marked from image T</li>
-          <li>Slots after T are dropped; the only way forward is b3World_Step</li>
+          <li>Entries hold old bytes only: undo backward, no redo; ownership moves one way, a destroyed set&#39;s, island&#39;s, contact&#39;s, shape&#39;s or sensor&#39;s blocks and a released hull ride in the entry until undone or evicted</li>
+          <li>T must be an imaged tick in the window at or before the current tick, else unavailable; no other failure</li>
+          <li>Undo the pending entries and segments P..T+1, copy image T over hot state, the awake tree and the migration queue, rebuild derived tree layout, clear events, remove slots after T</li>
+          <li>Host configuration (callbacks, contexts, world userData) is the caller&#39;s to set back; userShape is released and never restored</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot violet"></div>
-          <h3>Trees</h3>
+          <h3>Trees (trees doc)</h3>
         </div>
         <ul>
           <li>Four trees: static, kinematic, awake dynamic, sleeping dynamic; a proxy&#39;s tree follows its body</li>
           <li>A sleeping body&#39;s marked leaf parks in the awake tree; its body waits in the migration queue</li>
           <li>Awake tree imaged whole, about 100 B per proxy slot of its high-water mark</li>
-          <li>Layout is not state: the step sorts pair keys, continuous candidates and explosion hits; leaf boxes are state</li>
+          <li>Layout is not state: pair keys, continuous candidates and explosion hits are sorted; leaf boxes and proxy ids are state</li>
         </ul>
       </div>
 
       <div class="card">
         <div class="card-header">
           <div class="card-dot amber"></div>
-          <h3>Not in this design</h3>
+          <h3>Ring (ring doc)</h3>
         </div>
         <ul>
-          <li>No forward scrub or peek-and-return</li>
-          <li>No redo half of any entry, no stale-slot marks</li>
-          <li>No entries for leaving the awake set, no byte journal of any tree</li>
-          <li>Resimulation is N whole-world steps</li>
+          <li>Window of tickCount ticks, at most tickCount + 1 slots; eviction by window and budget only, oldest first, never into the minimum window; the arena grows instead</li>
+          <li>maxBytes widens the effective interval, never narrows it; a tick whose slot exceeds the budget is still admitted and bytesUsed reports the overrun</li>
+          <li>A slot&#39;s charge is fixed at capture and the slot is evicted whole</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="card-dot slate"></div>
+          <h3>Delivery</h3>
+        </div>
+        <ul>
+          <li>Phase 0: the API over serialized images, with serializer options for userData and userShape, the migration queue beside each image, and restore step 5 after each deserialize</li>
+          <li>Phase 1: write accessors, journaled containers, in-place image restore; the build fails on any remaining direct write</li>
+          <li>Phase 2: derived kinematic tree; no forward scrub, no redo, resimulation is N whole-world steps</li>
         </ul>
       </div>
     </div>
