@@ -199,7 +199,9 @@ The sleeping tree is rebuilt in full when an insert
 takes its root height past `B3_SLEEPING_TREE_MAX_HEIGHT`, and the awake tree when a bulk join
 does (`broad_phase.c`). A rebuild changes no leaf box, no proxy id and no moved bit, so neither
 makes an entry; after a rewind the sleeping tree's layout differs from T's and the trigger can
-fire on a different insert, which nothing reads.
+fire on a different insert, which no physics result reads; the height and rebuild count
+`b3World_GetCounters` reports (`sleepingTreeHeight`, `sleepingTreeRebuildCount`, `physics_world.c`)
+are diagnostics and can differ after a rewind.
 
 ## 9. Phases
 
@@ -207,7 +209,7 @@ Until the restore pass covers the kinematic tree (phase 2), it is imaged raw as 
 O(kinematic proxies) ring memory, which fails requirement 2 for a world with many sleeping
 kinematic bodies and is fine for everything in `benchmark/`, where the kinematic tree starts at 16
 slots and stays small. The static and sleeping trees are world-sized and never imaged by the ring, so their
-proxy entries and the restore pass are required in every phase from phase 1; phase 0 restores all
+proxy entries, and for the static tree the restore pass, are required from phase 1 (§6); phase 0 restores all
 four trees from the serialized whole-world image (`docs/designs/20260929-002-rewind-only-history-ring.md` §13).
 
 ## 10. Verification
@@ -250,7 +252,7 @@ four trees from the serialized whole-world image (`docs/designs/20260929-002-rew
   would leave the same bodies queued and add a write to the world outside a step.
 - **The sleeping tree is derived, not imaged and not byte-journaled.** It is proportional to the
   sleeping population, which requirement 2 forbids imaging. A byte journal of its writes would
-  restore its exact layout, which is needed only where a tree's layout is read, and nothing reads
+  restore its exact layout, which is needed only where a tree's layout is read, and no physics result reads
   this tree's layout (`docs/designs/20260929-002-rewind-only-history-ring.md` §3).
 - **Proxy-pool growth needs no entry for a journaled tree.** A slot is allocated or on the free
   list, undo in reverse keeps that, and growth happens only on an empty list, appending the new

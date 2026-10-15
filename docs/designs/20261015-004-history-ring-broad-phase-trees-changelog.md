@@ -24,3 +24,10 @@ Round 2: 2 findings (0H-1M-1L), 2 applied, 0 declined.
 - §9: the static and sleeping trees' proxy entries and restore pass are required from phase 1;
   phase 0 restores all four trees from the serialized image.
 - §5: the awake-tree image is the serializer's fields less the fixed `version`.
+
+## Revision 4 (2026-10-15, after round 3)
+
+Round 3: 2 findings (0H-0M-2L), 2 applied, 0 declined.
+
+- §9: proxy entries for the static and sleeping trees, the restore pass for the static tree only.
+- §8, §12: no physics result reads the sleeping tree's layout; the counters are diagnostics.
