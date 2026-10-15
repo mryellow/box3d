@@ -290,7 +290,10 @@ not one per element; no accessor returns a writable base pointer of a sparse rec
 entries include cold records.
 
 The third is restore's writer, used by the journal walk's undo and by the image scatter: it takes
-recorded bytes, asserts the world is inside `b3World_Rewind`, and does not journal.
+recorded bytes, asserts the world is inside `b3World_Rewind` or inside `b3DeserializeIntoShell`,
+and does not journal. The serializer's reader (`world_snapshot.c`) is a restore of the same kind and
+writes through it and the containers' own file-local loads from phase 1 (§13), on a world without
+history (§10).
 
 A shape's `userShape` renderer handle is host-owned: one function in `shape.c` writes it, for
 debug-draw creation between steps and for the release of §10, and it does not journal; a record
@@ -906,7 +909,11 @@ before P.
   does not flag replay; the caller knows it is replaying.
 - **Recording.** `b3World_StartRecording` and `b3World_EnableHistory` are mutually exclusive: the
   recording's operation list has no rewind, so playback of a recording that continued after a
-  rewind would follow the discarded timeline. Each asserts the other is not active.
+  rewind would follow the discarded timeline. Each asserts the other is not active. A recording player's world (`b3RecPlayer_GetWorldId`) is
+  the same case: `b3World_EnableHistory` asserts the world is not a player's, and a player's seek
+  (`b3RecPlayer_SeekFrame`, which restores a keyframe through `b3DeserializeIntoShell`, `replay.c`)
+  asserts history is not enabled, since a seek rewrites the world with no journal entry and no
+  image.
 - **Worker count** need not match between capture and replay (tested property), but the
   process-global length scale and the build must.
 - **Host handles.** `userShape` is never restored. Every restore-time write of a shape record
@@ -1132,7 +1139,8 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
   phase 1's in-place restore replaces the serializer.
 - **Phase 1, hot image + undo journal.** Per-structure write accessors (§5.2) with the existing
   callers migrated to them and the direct-write access removed from every other translation unit (the
-  build fails on any remaining direct write; the phase is not complete until it does), ring arena
+  build fails on any remaining direct write; the phase is not complete until it does, and the
+  serializer's reader is migrated to restore's writer in the same phase, §5.2), ring arena
   and in-place image restore. The awake tree is imaged, with the migration queue (§7.4). The
   kinematic tree is imaged raw the same way as the temporary fallback, which already includes its
   proxy free list and moved bits, so no proxy entry is made for it and no tree pass runs on it;
@@ -1336,4 +1344,5 @@ follows the old timeline bit for bit when it replays the same API calls, time st
   only, and every ownership rule in §7 and §8 follows from that.
 - **The recording player keeps its own keyframe ring.** The recording system is a separate
   subsystem with its own serialized images and operation list; whether to rebuild its backward
-  seeks on this ring is a later question for that system, not a decision of this design.
+  seeks on this ring is a later question for that system, not a decision of this design; until
+  then a player's world and history exclude each other (§10).

@@ -281,3 +281,12 @@ Round 38: 1 findings (0H-1M-0L), 1 applied, 0 declined.
 
 - §14: the correction example sets the host state its callbacks read back to its value at T before
   the correction and the replay.
+
+## Revision 39 (2026-10-15, after round 39)
+
+Round 39: 1 findings (1H-0M-0L), 1 applied, 0 declined.
+
+- §10, §17: a recording player's world and history exclude each other, asserted at enable and at
+  the player's seek.
+- §5.2, §13: restore's writer also serves `b3DeserializeIntoShell`; the serializer's reader
+  migrates to it in phase 1.
