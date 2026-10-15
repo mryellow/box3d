@@ -25,7 +25,7 @@ query of that document's §14; the semantics of every field there are decided he
 ## 2. Requirements
 
 1. **Restore never rejected** for any restorable tick: an imaged tick inside the retained window
-   and at or before the current tick, every tick when the capture interval is 1. The ring never
+   and at or before the current tick, every tick when the effective interval (§6) is 1. The ring never
    evicts a tick a caller can still name as restorable except by the window and budget rules below,
    and never leaves a retained segment without an image to walk back to.
 2. **Budgeted memory with graceful degradation.** A byte budget widens the capture interval
@@ -75,7 +75,8 @@ happened and without any slot carrying a mark of which timeline it belongs to.
 
 ## 5. Capture interval and restorable ticks
 
-`captureInterval = K` images every K-th tick; journal segments are still recorded every tick
+`captureInterval = K` is the effective interval at enable, which images every K-th tick until §6
+widens it; journal segments are still recorded every tick
 because they are needed to walk back to an image. Restorable ticks are the imaged ones;
 `b3World_GetRestorableTick(T)` returns the newest imaged tick ≤ T, and the caller replays from
 there. K divides image bytes and image-capture cost by K; journal bytes are per-tick regardless
@@ -125,8 +126,9 @@ A tick is imaged when at least the effective interval has passed since the last 
   newest slot and frees the old one, through `b3Alloc` and `b3Free` (`core.c`), which take `size_t`
   sizes (`b3GrowAlloc` takes `int` sizes and is not used); the old and new arenas coexist during
   the copy, and `arenaCapacityBytes` reports the new one. Rare after warm-up. `b3Alloc` adds
-  `(int)size` to the allocator's byte count while `b3Free` subtracts the full size (`core.c`); the
-  add takes the full `size_t` before an arena can exceed `INT_MAX` bytes.
+  `(int)size` to the allocator's byte count while `b3Free` subtracts the full size (`core.c`); that
+  add becomes a full `size_t` add, a `core.c` change this design requires before an arena can
+  exceed `INT_MAX` bytes.
 - Once the arena has warmed up, the ring slot is carved from existing capacity and nothing is
   allocated for it: its size is only known at step end
   (image bytes from the `docs/designs/20260929-002-rewind-only-history-ring.md` §6 count, journal bytes from the staging buffer's final size, §6),

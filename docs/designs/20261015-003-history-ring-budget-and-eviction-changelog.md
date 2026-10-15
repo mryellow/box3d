@@ -51,3 +51,13 @@ Round 4: 4 findings (2H-1M-1L), 4 applied, 0 declined.
   add takes the full `size_t` (today `(int)size`, `core.c`) before an arena can exceed `INT_MAX`.
 - §2, §7: the window is at most `tickCount` + 1 slots; the 60-tick example is 61 slots.
 - Series stopped: §6 produced findings in the first round after its cut (U-S4).
+
+## Revision 6 (2026-10-15, after round 5)
+
+Round 5: 2 findings (0H-2M-0L), 2 applied, 0 declined.
+
+- §2, §5: restorable every tick when the effective interval is 1; `captureInterval` is the
+  effective interval at enable, until §6 widens it.
+- §6: the allocator byte-count add becoming a full `size_t` add is stated as the `core.c` change
+  the design requires, not as the code today.
+- Series stopped again: §6 produced findings in the second round after its cut (U-S4).
