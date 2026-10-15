@@ -61,3 +61,8 @@ Round 5: 2 findings (0H-2M-0L), 2 applied, 0 declined.
 - §6: the allocator byte-count add becoming a full `size_t` add is stated as the `core.c` change
   the design requires, not as the code today.
 - Series stopped again: §6 produced findings in the second round after its cut (U-S4).
+
+## Round 6 (2026-10-15, no revision)
+
+Round 6: 0 findings (0H-0M-0L). The first clean round, on revision 6; the owner waived the U-S4
+stop on §6. No edit. Confirmation round (U-P9) to follow.
