@@ -1,7 +1,7 @@
 ---
 
 title: Rewind-only bit-exact world history for box3d (hot image + undo journal ring)
-status: Draft
+status: Canonical
   Derived from docs/designs/20260927-002-bit-exact-history-ring.md. This document removes forward
   scrub, which changes the journal payloads, the ownership of heap blocks, the ring's discard rule
   and the sleep-side journal entries. The document is self-contained and does not rely on the

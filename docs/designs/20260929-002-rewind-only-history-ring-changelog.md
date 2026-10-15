@@ -576,3 +576,11 @@ Round 64: 0 findings (0H-0M-0L), 0 applied, 0 declined.
   state what the image covers and what construction guarantees, not a guard against a case the
   structure permits; the journal's null check with history disabled is the enable gate.
 - Status stays Draft; Canonical is the owner's edit.
+
+## Canonical (2026-10-16)
+
+- Status set to Canonical on revision 60, after the clean round 63, its confirmation round 64 and
+  the gate re-run of 2026-10-16. 64 rounds, 123 findings (25H-60M-38L).
+- U-R10: U-S4, §5.2. The three-rounds-running stop at round 44 and its cut (the caller column)
+  did not change what the section produced: the seven later findings there (rounds 50, 51, 53,
+  55, 56, 61, 62) were defects in the write boundary, not consequences of the section's length.
