@@ -379,3 +379,9 @@ than staying internal.
   image carries and the reader restores every body, shape and joint `userData` word, and the
   reader releases a live `userShape` and carries none across a restore. Tests 2, 3 and 4 are
   written in full from phase 0.
+
+## Round 46 (2026-10-15, no revision)
+
+Round 46: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The first clean round on revision 46; round 47 is its confirmation.
