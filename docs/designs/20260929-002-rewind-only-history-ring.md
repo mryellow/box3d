@@ -551,7 +551,7 @@ undoing its mutation needs, and nothing about the value the mutation wrote. Entr
 | array push | array tag (a solver set's `bodySims`/`bodyStates`/`jointSims`/`contactIndices`/`islandSims`, an island's link arrays, or `world->sensors`), owner id (set index or island id), old length | truncate to the old length; for `world->sensors`, first free the `hits`, `overlaps1` and `overlaps2` arrays the pushed element holds |
 | array removeswap | array tag, owner id, old length, index, and the full old bytes of the removed element (that slot's content is gone once the last element is copied over it, not captured by any record write); for `world->sensors` also the ownership handles and byte sizes of the removed sensor's `hits`, `overlaps1` and `overlaps2` arrays | grow to the old length, copy the element now at the index (the mover) back to the last slot, then write the removed element's bytes at the index (no mover copy when the index was the last slot); for `world->sensors`, hand the arrays back to the element |
 | array clear / set | clear: array tag, owner id, old length and all old bytes; set: array tag, owner id, index and old bytes | restore the length and bytes / write the old bytes |
-| material block | shape id, the old `materialCount`, and for an element write (`b3Shape_SetSurfaceMaterial`, `b3Shape_SetMeshMaterial`, and every other material write, all made through one `b3Shape_WriteMaterial` accessor) the index and old element bytes, for a resize or replacement the old `materials` array bytes; either way for a write that leaves a block on both sides (inline single-material shapes have no block and are covered by the shape's own record write, which `b3Shape_WriteMaterial` makes through `b3Shape_Write`; journaled whatever the owner's wake state, because an image carries no pointees). A block created or destroyed with its shape is not copied: a destroyed one rides in that shape's pool free entry as an ownership handle, and a created one is freed by the pool alloc's undo | reallocate and copy old, and set `materialCount` |
+| material block | shape id, the old `materialCount`, and for an element write (`b3Shape_SetSurfaceMaterial`, `b3Shape_SetMeshMaterial`, and every other material write, all made through one `b3Shape_WriteMaterial` accessor) the index and old element bytes, for a resize or replacement the old `materials` array bytes; either way for a write that leaves a block on both sides (inline single-material shapes have no block and are covered by the shape's own record write, which `b3Shape_WriteMaterial` makes through `b3Shape_Write`; journaled whatever the owner's wake state, because an image carries no pointees). A block created or destroyed with its shape is not copied: a destroyed one rides in that shape's pool free entry as an ownership handle, and a created one is freed by the pool alloc's undo | element write: write the old element back at the index; resize or replacement: reallocate and copy old; either way set `materialCount` |
 | manifold block, mesh triangle cache | contact id, which of the two, count, old bytes, for a write that leaves a block on both sides (the wake transition's pre-wake bytes, below, are entries of this kind, made for a contact that has no block too, with count 0 and no bytes; its undo frees whatever block the contact holds live); a block or cache destroyed with its contact rides in that contact's pool free entry as an ownership handle; and, for a mesh contact, one cache entry made by `b3CreateContact` after its record write, whose undo frees the live cache and clears the array header, so a reused slot never holds a live cache in its union storage when an older record's bytes are copied over it | reallocate and copy old |
 | proxy create | tree, proxy id, for the static and sleeping trees (§7.4) | destroy the proxy id |
 | proxy destroy | tree, proxy id, the leaf's box, category bits, shape id, for the static and sleeping trees (§7.4) | re-insert the recorded proxy at the recorded id, unmarked |
@@ -745,8 +745,9 @@ then parks or wakes the body (`b3ResetProxy` keeping the proxy), is moved back b
 after the undone migration has put it back.
 
 Cost O((restored shape records + moved proxies) · log n). Ring cost for the three layouts: zero.
-A kinematic tree the pass moved a proxy in is left unordered (`dfsOrdered`, `dynamic_tree.c`), so
-the next step rebuilds it even if nothing moves, at O(that tree's nodes), which is the engine's
+A kinematic tree the pass moved a proxy in can be left unordered (a move clears `dfsOrdered` when it
+breaks the order, `dynamic_tree.c`) or with its root marked moved, and the next step then rebuilds it
+even if nothing moves, at O(that tree's nodes), which is the engine's
 own per-step cost while its proxies move (§5.4). That rebuild is part of the first replayed step,
 not of `Rewind`. An undone wake inserts into the sleeping tree through the ordinary create, whose
 height test can fire that tree's full rebuild inside `Rewind`, as the same insert can in a step.
@@ -1162,7 +1163,7 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    dynamic and kinematic bodies with few awake; restore proportional to awake plus
    sensors and journal; replay equals N × step within noise, with the first replayed step after a
    rewind that moved a kinematic proxy reported separately on the sleeping dynamic and kinematic
-   scene, since it also pays that tree's rebuild (§7.4), the same O(nodes) rebuild the engine
+   scene, since it can also pay that tree's rebuild (§7.4), the same O(nodes) rebuild the engine
    performs whenever that tree's proxies move, and a rewind whose undone wake fires the sleeping
    tree's full rebuild reported separately too; neither has a fixed bound because each scales with
    the scene's proxy count, and the measured figure is what a caller weighs against its frame

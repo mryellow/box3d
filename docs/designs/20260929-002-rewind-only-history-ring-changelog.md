@@ -156,3 +156,12 @@ Round 27: 2 findings (1H-0M-1L), 2 applied, 0 declined.
   must not call the API, as at an ordinary destroy. §17 records why the destruction is not deferred.
 - §1, §15: pair discovery's cost is stated for the awake and sleeping trees (moved siblings and cross
   passes, whole world when all move).
+
+## Revision 31 (2026-10-15, after round 28)
+
+Round 28: 2 findings (0H-1M-1L), 2 applied, 0 declined.
+
+- §7.1: the material-block undo for an element write writes the old element back at the index; a
+  resize or replacement reallocates and copies.
+- §7.4, §12: a restore-pass kinematic move can leave the tree unordered or its root marked moved;
+  the first replayed step can pay the rebuild.
