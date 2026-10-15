@@ -9,3 +9,14 @@ verbatim where the text was reviewed, with the parent's requirement 5, its §6 c
 paragraph, its §12 ring-transitions test and test 5's budget acceptance; the sole-image case joins
 the transitions test. Citations of the parent's sections are by path and `§N`. A Provenance section
 records the three decisions the moved text already gave reasons for.
+
+## Revision 2 (2026-10-15, after round 1)
+
+Round 1: 5 findings (1H-3M-1L), 5 applied, 0 declined.
+
+- §6: the slot is sized and the interval decided before any eviction; eviction then goes only as
+  far as the final slot needs. The interval becomes `min(2 × interval, tickCount)`. A slot's charge
+  includes its directory entry. Arena growth is allocate, copy, free through `b3Alloc`/`b3Free`.
+- §3, §6: the minimum window is the two newest imaged ticks and every slot from the older of them
+  through `historyTick`.
+- §5/§6: the duplicated sentence on when a tick is imaged kept in §5 only.
