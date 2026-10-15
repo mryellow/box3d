@@ -430,3 +430,10 @@ Round 51: 2 findings (1H-0M-1L), 2 applied, 0 declined.
 Round 52: 1 findings (0H-0M-1L), 1 applied, 0 declined.
 
 - §5.1: ~232 B per awake shape, the record and its `fatAABBs` entry.
+
+## Revision 53 (2026-10-15, after round 53)
+
+Round 53: 1 findings (1H-0M-0L), 1 applied, 0 declined.
+
+- §7.1, §5.2: the proxy create and destroy entries and the trees write route cover the kinematic
+  tree once it is derived (§13), as the trees doc already does.
