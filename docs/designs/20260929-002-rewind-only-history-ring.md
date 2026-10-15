@@ -873,7 +873,7 @@ happened and without any slot carrying a mark of which timeline it belongs to.
   capacity is outside `maxBytes`, `bytesUsed` counts retained history and not arena capacity, and
   both capacities are reported separately (`b3HistoryInfo`).
 
-`b3World_EnableHistory` is called at a step boundary with no end events queued by API calls since
+`b3World_EnableHistory` is called at a step boundary, with no broad-phase traversal open, and with no end events queued by API calls since
 the last step (it asserts this; tick 0's image carries no event state, and `Rewind(0)` clears both
 end-event buffers). It sets `historyTick` to 0 and images the world as it stands as the slot for
 tick 0, with an empty journal segment; `Rewind(0)` restores that world, and the ticks after it count
@@ -889,7 +889,9 @@ allocators, the hull database).
 
 ## 9. Restore
 
-`b3World_Rewind( worldId, T )`, at a step boundary, world not locked. The world is locked for the call, as a step and shape
+`b3World_Rewind( worldId, T )`, at a step boundary, world not locked, and with no broad-phase
+traversal open (`traversalDepth` is zero, so not from a query or cast callback; asserted, as for
+`b3World_EnableHistory`). The world is locked for the call, as a step and shape
 destruction lock it, so the host's `destroyDebugShape` callback cannot re-enter it. P is `historyTick` on entry.
 
 1. **Check** T is imaged, inside the window, and not later than P; else
@@ -1269,7 +1271,7 @@ typedef enum b3HistoryResult
 
 // Restore the whole world to the end of `tick`, which is at or before the current tick.
 // O(awake + sensors + journal, with a tree insert or removal per proxy entry, and a full sleeping-tree rebuild when an undone insert takes its height past the trigger). Discards every tick after `tick`: the way forward is b3World_Step.
-// Returns b3_historyTickUnavailable on a world with history disabled.
+// Returns b3_historyTickUnavailable on a world with history disabled. Asserts no query or cast callback is running.
 B3_API b3HistoryResult b3World_Rewind( b3WorldId worldId, uint64_t tick );
 
 // Deterministic hash of all simulation-affecting state. Same across the platforms the engine's determinism guarantee covers, and any worker count.
@@ -1300,8 +1302,8 @@ if ( serverTick <= now )
 A call made after step t and before step t+1 is an input to tick t+1, so a rewind to t, or to an
 earlier imaged tick when t is not imaged, undoes it and the replay applies it again.
 
-There is no begin/end bracket and no scope. If the caller replays nothing and steps, the world
-follows the old timeline bit for bit; that is the property everything else rests on.
+There is no begin/end bracket and no scope. If the caller replays its recorded inputs and steps, the world
+follows the old timeline bit for bit when it replays the same API calls, time steps and host inputs; that is the property everything else rests on.
 
 ## 15. Alternatives considered
 
@@ -1369,6 +1371,9 @@ follows the old timeline bit for bit; that is the property everything else rests
   at once. A compaction would renumber the proxies, and `shape->proxyKey` and the free list's id
   sequence (which a rewound timeline must hand out again) are keyed by those ids; the exception is
   stated in requirement 2 beside the other non-awake-proportional term.
+- **Tick 0 images the migration queue as stored, without a drain first.** A queued body whose leaf
+  is marked cannot be placed before the next pair update has searched the leaf, so a drain at enable
+  would leave the same bodies queued and add a write to the world outside a step.
 - **The sleeping tree is derived, not imaged and not byte-journaled.** It is proportional to the
   sleeping population, which requirement 2 forbids imaging. A byte journal of its writes would
   restore its exact layout, which is needed only where a tree's layout is read, and nothing reads

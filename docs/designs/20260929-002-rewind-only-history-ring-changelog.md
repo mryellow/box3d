@@ -139,3 +139,11 @@ Round 25: 2 findings (1H-1M-0L), 2 applied, 0 declined.
   serialized image and copied back on restore (the serializer does not write it).
 - §7.4, §17: the queue is imaged by stored count and order; each body once holds after a step's
   drain, and the tick-0 image can hold repeats and destroyed bodies' ids.
+
+## Revision 29 (2026-10-15, after round 26)
+
+Round 26: 2 findings (1H-1M-0L), 2 applied, 0 declined.
+
+- §9, §14: `Rewind` and `EnableHistory` assert no broad-phase traversal is open (not callable from a
+  query or cast callback). §17 records that tick 0 images the queue as stored.
+- §14: the closing guarantee holds when the same API calls, time steps and host inputs are replayed.
