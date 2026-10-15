@@ -237,3 +237,20 @@ continue the series at the same scope after round 10's threshold (B8).
   quarter budget.
 - §2's `manifoldCount` inventory adds creation, destruction and the mesh path's reset.
 - Length 1411 -> 1440 lines.
+
+## Revision 13: after review round 12
+
+Round 12: 4 findings (H1-M3-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> pending.
+
+- H4's segment walk discards each slot as it undoes its segment (entry, charge, write position,
+  `historyTick`), since the undo hands the slot's blocks back to the world; the design §9 step 5's
+  slot removal is thereby done in step 2. `SegmentWalkCase` checks the ring agrees with the world
+  after the walk.
+- §9's hook stop admits the two halves of the walk H4 names.
+- §5 and §7's scratch harness compare the event digest beside the state hash, base against branch
+  and enabled against disabled, since H0's hash excludes the event arrays.
+- §7's restore figure is absolute microseconds beside awake count, sensor overlap count and undone
+  segment bytes; the million-body scene gains 64 static sensors so the sensor column is not zero
+  everywhere.
+- Length 1440 -> 1460 lines.

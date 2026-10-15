@@ -1053,7 +1053,12 @@ specification. Mechanics that follow from them:
   slots' entries once and frees the blocks they own; disable frees the blocks owned by every
   retained slot and by the staging buffer before the arena. `b3World_Rewind` step 2: undo the
   staging buffer's entries in reverse and reset it (also when T == P), then each retained segment
-  from `historyTick` down to T+1 in reverse; then step 3 as in H1. In this commit the serializer
+  from `historyTick` down to T+1 in reverse, each slot leaving the ring as its segment is undone
+  (its directory entry and charge removed, the write position moved back, and `historyTick` set
+  to the tick before it), since the undo hands the blocks the slot owned back to the world and a
+  slot that still claimed them would be freed twice by eviction or disable (the design §7.1's
+  ownership rule); the slot removal the design §9 step 5 names is therefore done by the walk, and
+  step 5 keeps its event and `bodyMoveIndex` clears; then step 3 as in H1. In this commit the serializer
   image then overwrites what the walk restored; the walk is nonetheless exercised and its blocks
   change hands, and `b3DeserializeIntoShell`'s `b3FreeLiveSimElements` frees whatever the walk
   handed back, so no block leaks between H4 and H5.
@@ -1062,7 +1067,8 @@ specification. Mechanics that follow from them:
 **Test** `HistoryJournalTest`, exercising the walk directly through `src/world_history.h`'s
 `b3History_UndoPending( world )` and `b3History_UndoSegments( world, tick )` (names are
 suggestions; the functions are the two halves of the design §9 step 2 and exist for `b3World_Rewind`,
-not for the test), on worlds whose every change between the recorded hash and the walk is a cold
+not for the test; both leave the ring consistent with the world, the first resetting the staging
+buffer and the second discarding the slots it undid, so a test may call either and then disable), on worlds whose every change between the recorded hash and the walk is a cold
 write, so the walk alone must restore the hash:
 
 1. `ColdChurnUndoCase`: a scene of sleeping islands (two piles created asleep), four static shapes,
@@ -1089,7 +1095,10 @@ write, so the walk alone must restore the hash:
    hash and a copy of `*world->scalars` recorded per tick; then `b3History_UndoSegments( world, 6 )`,
    the tick-6 scalars copied back through `b3World_WriteScalars` (the scalars are imaged, never
    journaled, the design §5.1; `endEventArrayIndex` flips every step), and `ENSURE` the hash equals
-   the hash at tick 6. The same on a fresh run of the scene with the target tick 0 (the walk starts
+   the hash at tick 6, `currentTick` is 6, the directory's newest slot is tick 6's and `bytesUsed`
+   equals the retained slots' charges (the walk discarded the slots it undid, above, so the world
+   and the ring agree on who owns what; the case ends with disable, destroy and the byte-count
+   check like every other). The same on a fresh run of the scene with the target tick 0 (the walk starts
    at `historyTick`, which only `b3World_Rewind` moves). With no awake body `b3Solve` returns early
    and the sensor pass has nothing, so beyond the scalars no hot write occurs and the segments
    alone carry every change (§2). Fails before H4 by not building.
@@ -1257,10 +1266,13 @@ null-checked journal call, or code that runs only while history is enabled. So:
 
 - Every value in `test/test_determinism.c` is unchanged at every commit, in both precisions. A
   change is a defect: stop and report.
-- The benchmark scene hashes (§7's scratch harness, base against branch, history disabled) are
-  equal every step for every scene. One unequal step is a stop.
+- The benchmark scene hashes and event digests (§7's scratch harness, base against branch,
+  history disabled) are equal every step for every scene; the digest is compared because H0's
+  hash excludes the event arrays, so an event-order or event-content change would pass the hash
+  alone. One unequal step is a stop.
 - With history enabled at interval 1 and an unbounded budget, the same harness gives the same
-  per-step hashes as with it disabled: capture reads and never writes. A difference is a stop.
+  per-step hashes and digests as with it disabled: capture reads and never writes. A difference
+  is a stop.
 - The `HISTORY_GOLDEN_HASH_*` values recorded in H1 are unchanged by H2 to H6. A change means a
   boundary commit changed state or the in-place restore differs from the serializer's: stop.
 
@@ -1329,7 +1341,9 @@ Measurements the closure doc needs:
   eight threads, outside the run-to-run spread of four repeats, is a stop (§9).
 - **Scene hashes** (§5): a scratch harness, uncommitted, that creates each benchmark scene through
   `shared/benchmarks.c` with its capacity function, steps it for its benchmark length at one worker
-  with its step function, and prints `b3World_ComputeStateHash` per step; base against branch with
+  with its step function, and prints `b3World_ComputeStateHash` and the event digest (the
+  field-wise digest `HistoryReplayTest` uses, built into the harness from the public event getters,
+  so the base build has it too) per step; base against branch with
   history disabled (the base build gets the H0 function alone, cherry-picked into a scratch
   worktree), and branch against branch with history enabled at interval 1 and unbounded budget.
 - **Cost** (the design §12 test 5; the ring doc §9 test 2), a scratch harness in a Release build,
@@ -1351,7 +1365,12 @@ Measurements the closure doc needs:
   Acceptance as the design states:
   capture under 15% of the step at eight workers on the all-awake scenes and under 1 µs per awake
   body on `large_world` and the million-body scene; restore proportional to awake plus sensors and
-  journal (reported as microseconds per awake body across the scenes); replay equal to N steps
+  journal, reported per scene as absolute restore microseconds beside the awake body count, the
+  sensors' overlap count summed over the public sensor overlap query and the undone segments'
+  bytes, with the table scenes (which have no sensor, `shared/benchmarks.c`) joined by the
+  million-body scene carrying 64 static sensor shapes each overlapping a few of the sixteen awake
+  boxes, so the sensor term has a column that is not zero everywhere, and the proportionality is
+  read across those columns rather than from one ratio; replay equal to N steps
   within noise, with the first replayed step after a rewind that moved a kinematic proxy reported
   separately on the million-body scene, and a rewind whose undone wake fires the sleeping tree's
   full rebuild reported separately. Each is measured at H5 (phase 1) and again at H6 (phase 2); the
@@ -1391,7 +1410,8 @@ document.
   disabled; a phase-0 restore exactness failure is traced to a serializer field the serializer
   itself does not restore verbatim (fixing the serializer is in scope only as restoring the field
   verbatim; anything else is a report); a test needs a hook in `src/` beyond the read-only
-  functions §4 H1 and H4 name and what the internal headers expose; a boundary commit cannot remove a direct write without
+  functions §4 H1 and H4 name, the two halves of the rewind's journal walk H4 names (which exist
+  for `b3World_Rewind`) and what the internal headers expose; a boundary commit cannot remove a direct write without
   module-boundary work the design does not describe (the design §5.2 calls that a finding against
   the surrounding code, to report); the step's stage loops cannot take their elements through the
   hot accessor without a measurable cost (§7's threshold); or a design is silent on a decision the
