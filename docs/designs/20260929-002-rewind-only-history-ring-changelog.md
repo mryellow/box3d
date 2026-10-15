@@ -297,3 +297,10 @@ Split again under the split check (U-T6): §5.4 and §7.4 move to
 `docs/designs/20261015-004-history-ring-broad-phase-trees.md`, with §12 test 7, §16 question 2
 and the seven tree decisions of §17. Both section numbers stay as cross-references, so every
 `§5.4` and `§7.4` citation resolves to the trees doc. No decision changed.
+
+## Round 40 (2026-10-15, no revision)
+
+Round 40: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The first clean round after the second split; the confirmation round
+  follows.
