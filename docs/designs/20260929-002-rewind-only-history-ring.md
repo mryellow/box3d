@@ -980,20 +980,19 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
 - **Phase 0, semantics with existing code.** Put the new API in front of a ring of serialized
   images produced by `b3SerializeWorld` and restored by `b3DeserializeIntoShell`; a rewind
   restores image T and drops the later ones. This is
-  O(world) and allocates, but it exists, it is tested, and it lets tests 2, 3 and 4 be written,
-  without their `userData` clauses and test 2's geometry-replacement debug-draw clause, which apply
-  from phase 1, and the full-state hash be validated before any engine change. It also answers
-  whether the game's correction path works end to end. Three things this needs beyond the ring
-  plumbing itself: interned geometry (hull/mesh/height-field/compound shapes) goes through a
-  recording registry (`world_snapshot.c`) that the ring's images must share and keep alive for the
-  retained window; and the reader zeroes host
-  `userData` on bodies/joints/shapes rather than restoring it (`world_snapshot.c`), so a host
-  whose callbacks depend on `userData` needs to rebind it after every phase-0 restore; and it
-  carries a live shape's renderer handle across a restore whenever the slot and generation match,
-  even if the geometry was replaced; and the serializer neither writes nor reads the migration
-  queue, so each slot carries the queue array beside its image and a restore copies it back, which
-  keeps a parked leaf's body placed by the next drain in the original order. None applies once
-  phase 1's in-place restore replaces the serializer.
+  O(world) and allocates, but it exists, it is tested, and it lets tests 2, 3 and 4 be written in
+  full and the full-state hash be validated before any engine change. It also answers whether the
+  game's correction path works end to end. A phase-0 restore meets §10: the serializer takes two
+  options, both off for a recording and both on for the ring, under which the writer carries every
+  body, shape and joint `userData` word in the image and the reader restores it, and the reader
+  releases a live shape's `userShape` through `destroyDebugShape` and clears it, carrying none
+  across a restore (`world_snapshot.c`). Two things this needs beyond the ring plumbing itself:
+  interned geometry (hull/mesh/height-field/compound shapes) goes through a recording registry
+  (`world_snapshot.c`) that the ring's images must share and keep alive for the retained window;
+  and the serializer neither writes nor reads the migration queue, so each slot carries the queue
+  array beside its image and a restore copies it back, which keeps a parked leaf's body placed by
+  the next drain in the original order. Neither applies once phase 1's in-place restore replaces
+  the serializer.
 - **Phase 1, hot image + undo journal.** Per-structure write accessors (§5.2) with the existing
   callers migrated to them and the direct-write access removed from every translation unit but each
   container's own (§5.2; the

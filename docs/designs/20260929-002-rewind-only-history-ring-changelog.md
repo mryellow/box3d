@@ -369,3 +369,13 @@ decides whether phase 0's restore is public before it meets §10).
   write function; phase 1 removes direct-write access from every translation unit but each
   container's own.
 - Series stopped: §5.2 produced a finding in the first round after its cut (U-S4).
+
+## Revision 46 (2026-10-15, owner decision, no round)
+
+The fork round 45 carried forward, resolved by the owner: phase 0's restore meets §10 rather
+than staying internal.
+
+- §13: the serializer takes two options, off for a recording and on for the ring, under which the
+  image carries and the reader restores every body, shape and joint `userData` word, and the
+  reader releases a live `userShape` and carries none across a restore. Tests 2, 3 and 4 are
+  written in full from phase 0.
