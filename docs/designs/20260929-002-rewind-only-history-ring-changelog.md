@@ -349,3 +349,12 @@ Round 44: 2 findings (1H-0M-1L), 2 applied, 0 declined.
 - §5.2, §7.3: the sim getters of `body.h` and `joint.h` become const-returning; `b3SyncBodyFlags`
   joins the in-place sim writers.
 - §2: the callback-order exception covers worker interleaving as well as layout.
+
+## Revision 45 (2026-10-15, before round 45, the U-S4 cut)
+
+No round. §5.2 produced findings in rounds 42, 43 and 44, each a caller missing from the
+migration worklist table; the owner chose the cut on offer.
+
+- §5.2: the worklist table loses its caller column and keeps each structure's write route. The
+  prose that pointed at the list (`body.c`'s sim-writing functions "listed below", the table as
+  the migration's starting worklist) now names the route instead.

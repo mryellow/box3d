@@ -265,8 +265,8 @@ the new value in, so no caller has a journal call; it never returns a pointer to
 two entry points: the structural one, which every structural function calls, always journals, and
 the setter one, which API setters call, journals unless the record's owner is awake. A record
 entry never holds a sim. A function that writes a record and its sim (`b3Body_SetTransform`,
-`b3Body_SetMassData`, `b3UpdateBodyMassData` and the rest of `body.c`'s sim-writing functions
-listed below; the joint setters in every joint file) makes two writes, the record through its
+`b3Body_SetMassData`, `b3UpdateBodyMassData`, `b3SyncBodyFlags` and `body.c`'s other sim-writing
+functions; the joint setters in every joint file) makes two writes, the record through its
 accessor and the sim through its set's array `set` at the record's `localIndex`, each journaling
 itself; the set's array is the one the record names at the time of an in-place write, since nothing
 has moved the sim. A sim moves between sets only by the array push, removeswap and set destroy
@@ -397,23 +397,23 @@ const-qualified and incomplete types then remove direct-write access from every 
 unit. Where a structure's storage cannot be moved out of reach of direct assignment without
 further module-boundary work — joint setters, for instance, are spread across every joint type's
 own file — that is a finding against the surrounding code to fix there, not a reason to enumerate
-call sites and check afterward that none were missed. The table lists the callers found today, as the
-migration's starting worklist; the compiler, not the table, says when the migration is complete.
+call sites and check afterward that none were missed. The table names each structure's write
+route; the compiler, not a list of callers, says when the migration is complete.
 
-| Structure | Current direct-write callers, to migrate |
+| Structure | Write route |
 |---|---|
-| `bodies[id]` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), `b3PlaceBodies` (`broad_phase.c`: the parked and moving flags of each placed body, §7.4), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
-| `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3CreateShapeProxy` (`proxyKey`), `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), `b3PlaceBodies` (`broad_phase.c`: `proxyKey`, single and bulk placement), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
-| `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices`, `b3UpdateBodyMassData` and `b3Body_SetMassData` (`body.c`: the attached contacts' `b3_relativeTransformValid` flag, read by contact recycling in `physics_world.c`), island link, unlink, merge and split (`island.c`: the contact's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
-| `joints[id]` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
-| `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c`); `b3RemoveBodyFromIsland` (`body.c`: the island's `bodies` array removeswap, a `b3JournaledArray` operation); the wake, sleep and merge transitions (`solver_set.c`: the island's `setIndex` and `localIndex`, through `b3Island_Write`) |
+| `bodies[id]` | `b3Body_Write` |
+| `shapes[id]`, `fatAABBs` | `b3Shape_Write`, the record and its `fatAABBs` entry together |
+| `contacts[id]` | `b3Contact_Write` |
+| `joints[id]` | `b3Joint_Write` |
+| `islands[id]` | `b3Island_Write`; its link arrays by `b3JournaledArray` push and removeswap |
 | solver sets: create/destroy | `b3CreateSolverSet` (new), `b3DestroySolverSet`; each makes its own journal entry |
-| solver sets: `bodySims`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | every push, removeswap and in-place element write goes through `b3JournaledArray`; the in-place writes are a non-awake body's or joint's sim, by `b3UpdateBodyMassData`, `b3SyncBodyFlags`, `b3Body_SetTransform`, `b3Body_SetMassData` and the other sim-writing setters in `body.c`, and the joint setters in every joint file |
+| solver sets: `bodySims`/`jointSims`/`contactIndices`/`islandSims` array contents (non-awake owner) | `b3JournaledArray` push, removeswap and set |
 | id pools ×6 | `b3JournaledSlotPool` alloc and free |
 | the static and sleeping trees' proxy ids, and the sleeping tree's leaf boxes | the proxy create and destroy functions of `broad_phase.c`, single and bulk, and `b3BroadPhase_MoveProxy` (§7.4); outside `broad_phase.c` the trees are pointer-to-const |
 | `broadPhase.pairSet` | `b3JournaledPairSet` add and remove; only membership is ever queried, so slot layout is not state |
 | colour `bodySet` bitsets | `b3JournaledBitSet` set and clear |
-| `world->sensors` push/removeswap | `b3JournaledArray` — dense array, swap-compacted on removal like the solver-set arrays; the moved sensor's owning shape's `sensorIndex` field update is an ordinary `b3Shape_Write` record write, the array's own length change is the array push/removeswap entry |
+| `world->sensors` | `b3JournaledArray` push and removeswap; the moved sensor's owning shape's `sensorIndex` update is a `b3Shape_Write` record write |
 
 Swap-compaction on removal (awake rows, colour arrays, set `contactIndices`, island arrays,
 `islandSims`) rewrites *another* element's `localIndex`/`islandIndex` and, for bodies,
