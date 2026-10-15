@@ -23,7 +23,7 @@ apply a correction, and re-step to now. `docs/faq.md` says box3d has no such mec
 
 One way to build it is to restore and resimulate only the predicted islands, with every other
 body frozen during resimulation (`docs/designs/20260927-001-client-prediction-rollback.md`). That
-keeps capture and the collide and solve work of resimulation proportional to the predicted subset (broad-phase pair discovery scans the whole dynamic tree and the sensor pass scans every sensor, so those two stages stay proportional to the world), and pays for it twice: the
+keeps capture and the collide and solve work of resimulation proportional to the predicted subset (broad-phase pair discovery gathers the awake tree's moved siblings and queries the other trees from the moved proxies, so with every body moving it stays proportional to the world, and the sensor pass scans every sensor), and pays for it twice: the
 result is *consistent* but not bit-exact, and the scoped-resimulation machinery is large.
 
 This document asks a different question: what is the smallest, fastest, most robust design if
@@ -892,7 +892,7 @@ allocators, the hull database).
 `b3World_Rewind( worldId, T )`, at a step boundary, world not locked, and with no broad-phase
 traversal open (`traversalDepth` is zero, so not from a query or cast callback; asserted, as for
 `b3World_EnableHistory`). The world is locked for the call, as a step and shape
-destruction lock it, so the host's `destroyDebugShape` callback cannot re-enter it. P is `historyTick` on entry.
+destruction lock it, so a world-level API call made from the host's `destroyDebugShape` callback is refused, as at an ordinary destroy; that callback must not call the API (§10). P is `historyTick` on entry.
 
 1. **Check** T is imaged, inside the window, and not later than P; else
    `b3_historyTickUnavailable`. No other failure exists.
@@ -980,7 +980,8 @@ before P.
 - **Host handles.** `userShape` is never restored. Every restore-time write of a shape record
   (journal undo, image scatter) releases the live `userShape` through `destroyDebugShape` and
   clears it, as an ordinary destroy does, so a handle built for geometry the write replaces never
-  survives; the debug draw creates a new one on demand. A body, shape or joint `userData` is restored to its value at T (`world->userData` is host configuration, §2),
+  survives; the debug draw creates a new one on demand. `destroyDebugShape` runs during the restore and
+  must not call the API, as at an ordinary destroy. A body, shape or joint `userData` is restored to its value at T (`world->userData` is host configuration, §2),
   and what it points to is the caller's, valid for as long as a retained tick can restore the
   owner.
 - **Borrowed geometry.** Mesh, height-field and compound data are borrowed by the shape, not
@@ -1325,7 +1326,7 @@ follows the old timeline bit for bit when it replays the same API calls, time st
 - **Scoped, consistent rollback.** Restore and resimulate only the predicted islands, with the
   rest of the world frozen (`docs/designs/20260927-001-client-prediction-rollback.md`). Kept as
   the option for worlds that cannot sleep and must correct inside a frame. Its complexity is the
-  price of O(predicted) collide and solve in resim, with broad-phase pair discovery and the sensor pass still O(world); this design does not pay it and does not get it.
+  price of O(predicted) collide and solve in resim, with broad-phase pair discovery (proportional to the moved proxies, the whole world when all move) and the sensor pass still O(world); this design does not pay it and does not get it.
 - **Reuse the serializer as-is for the ring.** Correct and already tested (phase 0), but
   O(world) per tick with allocation: 650 MB/tick on `large_world`. It is the prototype, not the
   product.
@@ -1374,6 +1375,10 @@ follows the old timeline bit for bit when it replays the same API calls, time st
 - **Tick 0 images the migration queue as stored, without a drain first.** A queued body whose leaf
   is marked cannot be placed before the next pair update has searched the leaf, so a drain at enable
   would leave the same bodies queued and add a write to the world outside a step.
+- **`destroyDebugShape` is called during the restore, not queued until after it.** An ordinary
+  shape destroy calls it under the same lock with the same contract, so the callback's restriction
+  is the engine's existing one; a deferred-destruction list would be a second structure holding
+  handles whose shape records the restore has already replaced.
 - **The sleeping tree is derived, not imaged and not byte-journaled.** It is proportional to the
   sleeping population, which requirement 2 forbids imaging. A byte journal of its writes would
   restore its exact layout, which is needed only where a tree's layout is read, and nothing reads

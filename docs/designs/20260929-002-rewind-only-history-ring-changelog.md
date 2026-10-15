@@ -147,3 +147,12 @@ Round 26: 2 findings (1H-1M-0L), 2 applied, 0 declined.
 - §9, §14: `Rewind` and `EnableHistory` assert no broad-phase traversal is open (not callable from a
   query or cast callback). §17 records that tick 0 images the queue as stored.
 - §14: the closing guarantee holds when the same API calls, time steps and host inputs are replayed.
+
+## Revision 30 (2026-10-15, after round 27)
+
+Round 27: 2 findings (1H-0M-1L), 2 applied, 0 declined.
+
+- §9, §10: the lock refuses world-level API entries; `destroyDebugShape` runs during the restore and
+  must not call the API, as at an ordinary destroy. §17 records why the destruction is not deferred.
+- §1, §15: pair discovery's cost is stated for the awake and sleeping trees (moved siblings and cross
+  passes, whole world when all move).
