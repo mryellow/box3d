@@ -66,3 +66,8 @@ Round 5: 2 findings (0H-2M-0L), 2 applied, 0 declined.
 
 Round 6: 0 findings (0H-0M-0L). The first clean round, on revision 6; the owner waived the U-S4
 stop on §6. No edit. Confirmation round (U-P9) to follow.
+
+## Round 7 (2026-10-15, no revision)
+
+Round 7: 0 findings (0H-0M-0L). The confirmation round (U-P9) of round 6, on revision 6. No
+edit. Settled at revision 6; canonical is the owner's edit after re-running U-G1.
