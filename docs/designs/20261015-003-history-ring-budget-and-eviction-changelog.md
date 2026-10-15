@@ -28,3 +28,12 @@ Round 2: 2 findings (1H-1M-0L), 2 applied, 0 declined.
 - §6, §3: the minimum window is the newest image and every slot after it through the current tick,
   plus the next older image and the slots between when the window bound retains it; the window
   bound is applied first. The budget comparison counts the candidate slot once.
+
+## Revision 4 (2026-10-15, after round 3)
+
+Round 3: 2 findings (0H-1M-1L), 2 applied, 0 declined.
+
+- §6: `maxBytes` = 0 is unbounded and bypasses the budget. The budget bullet is rewritten as an
+  ordered procedure with the same rules (the U-S4 cut after three rounds on the section).
+- §2: retained memory sums image charges over imaged ticks and journal, header and directory
+  charges over every retained tick.

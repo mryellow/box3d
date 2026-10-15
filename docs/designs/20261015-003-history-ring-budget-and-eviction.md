@@ -33,8 +33,10 @@ query of that document's §14; the semantics of every field there are decided he
    overrun is limited to the retained minimum window's own slots: a single tick whose own image
    and journal segment exceed the budget is still admitted rather than rejected, since rejecting
    it would violate requirement 1. `maxBytes` bounds retained history; arena and staging capacity
-   are reported separately (§6). Retained memory is the per-tick slot multiplied by the imaged ticks
-   in the window, not the per-tick figure alone: on the all-awake stress scenes (5 to 51 MB per
+   are reported separately (§6). Retained memory is the image charge of every imaged tick in the
+   window plus the journal, header and directory charge of every retained tick and the blocks
+   their entries own (§6), not the per-tick figure alone; at interval 1 it is the per-tick slot
+   times the window: on the all-awake stress scenes (5 to 51 MB per
    image, `docs/designs/20260929-002-rewind-only-history-ring.md` §5.1) a 60-tick window at interval 1 holds 0.3 to 3 GB, so on those scenes
    `maxBytes` is what keeps the ring in the hundreds of megabytes, at the price of a wider interval
    and fewer restorable ticks.
@@ -83,28 +85,26 @@ A tick is imaged when at least the effective interval has passed since the last 
 
 ## 6. Budget, charge and capacity
 
-- `maxBytes` is the target for retained bytes. The minimum window is the newest imaged tick and
-  every slot after it through the current tick, plus the next older imaged tick and the slots
-  between the two when the window bound (§7) retains it; the window bound is applied first, so a
-  tick it evicts is never protected. Before any slot is evicted for the budget, the tick's slot is
-  sized at the current interval and the bytes the minimum window would then retain, that slot
-  counted once, are compared with `maxBytes`. When they would not fit, the effective interval becomes `min(2 × interval, tickCount)`
-  (tested as `interval ≤ tickCount − interval`, so the doubling cannot overflow), as the recording
-  player's keyframe ring doubles (`replay.c`), and the slot is sized again, as a journal segment
-  alone when the new interval says no image is due; `tickCount` is a separate limit that can
-  leave fewer ticks, and it never widens the interval. Only then are slots evicted from the old
-  end, and only as far as the final slot needs. Widening takes effect at the tick that triggers it: that tick's image is skipped when
-  the doubled interval says it is not due, and its slot is then the journal segment alone. Slots
-  already retained are untouched, the effective interval is not narrowed again, and a rewind
-  leaves it as it is. `b3World_GetHistoryInfo` reports the effective
-  interval and window. Doubling the interval trades how *often* an image is taken; it does not
-  shrink any single tick's own image or journal segment, so it cannot help when one tick's own
-  slot — awake state that size, or a burst of structural churn — exceeds `maxBytes` outright.
-  That tick's slot is admitted anyway, and so is a minimum window whose slots each fit but do not fit
-  together (journal bytes are not reduced by widening), growing the arena past `maxBytes` for as
-  long as those slots are retained; `b3World_GetHistoryInfo`'s `bytesUsed` reports the overrun
-  rather than hiding it. `maxBytes` is therefore a target the ring holds to under normal churn,
-  not a hard ceiling.
+- `maxBytes` is the target for retained bytes; 0 is unbounded, and then nothing in this bullet
+  applies and only the window bound (§7) evicts. At each capture, in order:
+  1. The window bound (§7) is applied.
+  2. The minimum window is the newest imaged tick and every slot after it through this tick, plus
+     the next older imaged tick and the slots between the two when the window bound retains it.
+  3. This tick's slot is sized at the effective interval, and the charges of the minimum window,
+     that slot counted once, are summed. When the sum is within `maxBytes`, slots are evicted from
+     the old end only as far as this slot needs, and it is written.
+  4. Otherwise the effective interval becomes `min(2 × interval, tickCount)` (tested as
+     `interval ≤ tickCount − interval`, so it cannot overflow), as the recording player's keyframe
+     ring doubles (`replay.c`); the slot is sized again, as a journal segment alone when the new
+     interval says no image is due; slots are evicted as in step 3; and the slot is written even
+     when the sum is still over `maxBytes`.
+  A tick is imaged when at least the effective interval has passed since the last imaged tick
+  (tick 0 is imaged). Slots already retained are untouched by widening, the effective interval is
+  never narrowed again, and a rewind leaves it as it is; `b3World_GetHistoryInfo` reports it with
+  the window. Widening changes how often an image is taken, not any one tick's own slot, so a tick
+  whose own slot exceeds `maxBytes`, and a minimum window whose slots each fit but not together,
+  are written over budget, growing the arena for as long as those slots are retained;
+  `bytesUsed` reports the overrun. `maxBytes` is a target held under normal churn, not a ceiling.
 - A slot's charge against `maxBytes`, and its share of `bytesUsed`, is its header, its slot-directory entry, its image and
   journal bytes plus the byte size of every heap block its journal entries own (a destroyed
   sleeping set's, island's or contact's arrays, a destroyed shape's `materials` block, a destroyed
