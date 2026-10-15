@@ -290,3 +290,10 @@ Round 39: 1 findings (1H-0M-0L), 1 applied, 0 declined.
   the player's seek.
 - §5.2, §13: restore's writer also serves `b3DeserializeIntoShell`; the serializer's reader
   migrates to it in phase 1.
+
+## Revision 40 (2026-10-15, after round 39, second split)
+
+Split again under the split check (U-T6): §5.4 and §7.4 move to
+`docs/designs/20261015-004-history-ring-broad-phase-trees.md`, with §12 test 7, §16 question 2
+and the seven tree decisions of §17. Both section numbers stay as cross-references, so every
+`§5.4` and `§7.4` citation resolves to the trees doc. No decision changed.
