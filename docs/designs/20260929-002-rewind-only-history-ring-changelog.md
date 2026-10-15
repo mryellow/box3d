@@ -165,3 +165,9 @@ Round 28: 2 findings (0H-1M-1L), 2 applied, 0 declined.
   resize or replacement reallocates and copies.
 - §7.4, §12: a restore-pass kinematic move can leave the tree unordered or its root marked moved;
   the first replayed step can pay the rebuild.
+
+## Round 29 (2026-10-15, no revision)
+
+Round 29: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The first clean round on revision 30; the confirmation round follows.
