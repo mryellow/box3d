@@ -214,8 +214,12 @@ and structural sites; the three write routes of the design §5.2 do not exist.
 - Every leaf-box write in the static and kinematic trees passes the shape's `fatAABBs` entry:
   `b3Body_SetTransform` (`src/body.c`), `b3CreateShapeProxy` and `b3ResetProxy` (`src/shape.c`), the
   finalize mark through `b3BroadPhase_MarkProxyMoved` (`src/solver.c`). The trees doc §6 relies on
-  this; H4 asserts it in the broad phase's static and kinematic leaf writers in the validation build
-  (the gate observation of 2026-10-16 in the trees doc's changelog).
+  this; H4 asserts it in the broad phase's static and kinematic leaf writers on those forward
+  writes in the validation build. An undo insertion writes the entry's recorded box while the
+  record's `fatAABBs` entry may still be the later value (the entries of `b3Shape_SetHull` are the
+  record write, the proxy destroy and the proxy create, undone in reverse), so the undo asserts the
+  recorded id and nothing of the entry; H5's restore pass runs after the records are restored and
+  its validation asserts every static and kinematic leaf equals its entry.
 - `b3DynamicTree_CreateProxies`, `b3DynamicTree_MarkProxyMovedSerial`, `b3DynamicTree_ClearMoved`,
   `b3DynamicTree_GatherMovedProxies` (`src/dynamic_tree.h`) and `b3DynamicTree_EnlargeProxy`
   (`include/box3d/collision.h`) exist with the signatures the trees doc assumes.
@@ -230,12 +234,15 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   design §12 test 2's two filter cases are therefore `invokeContacts` false (the proxy untouched)
   and true (the proxy recreated); the always-recreate under true is an observation for the closure
   doc (U-I4), and the behaviour is not changed by this task.
-- API calls that wake a body, and so move its proxies into the awake tree, which the journal does
-  not cover (the trees doc §5): `b3Body_SetTransform` on any non-static body (`src/body.c`),
+- API calls that wake a body and so, for a dynamic body, move its proxies from the sleeping tree
+  into the awake tree, which the journal does not cover (the trees doc §5; a kinematic body's
+  proxies stay in the kinematic tree awake or asleep, a static body never wakes, a disabled body
+  has no proxy): `b3Body_SetTransform` on any non-static body (`src/body.c`),
   `b3Body_SetType`, `b3Body_SetAwake( true )`, `b3Body_Enable`, `b3DestroyBody` and `b3Body_Disable`
   for the bodies touching or jointed to the destroyed or disabled one, `b3CreateJoint` when either
   body is awake, `b3DestroyJoint` with `wakeAttached` true, `b3Shape_SetFilter` with
-  `invokeContacts` true (`b3ResetProxy` recreates the leaf in the awake tree and queues the body),
+  `invokeContacts` true (`b3ResetProxy` recreates the leaf in the shape's own tree, which for a
+  sleeping dynamic body's shape is the awake tree, and queues the body),
   and a shape created on a sleeping body (its proxy is created in the awake tree, marked, and the
   body queued, `src/shape.c`). Cold, touching no awake structure: a static shape's create with
   `invokeContactCreation` false and destroy, a sensor's create and destroy on a static body,
@@ -284,8 +291,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
 - `b3HashWorldState` (`src/recording.c`) is FNV-1a 64 over live bodies' transforms and, for awake
   bodies, velocities. It is the recording's divergence check (`b3RecWrite_StateHash` in the step,
   `b3RecDispatch_StateHash` in replay). It is not changed: the design §12 test 1's
-  `b3World_ComputeStateHash` is a new function, and a recording written before this branch replays
-  with the same per-frame hashes.
+  `b3World_ComputeStateHash` is a new function, and a recording written on this branch carries the
+  same per-frame hashes as one written before it (a version-11 recording is rejected by the
+  version-12 reader, above).
 - `b3DestroyWorld` (`src/physics_world.c`) stops the recording, then destroys, in order, the
   scheduler and worker contexts, the event arrays, sensors and bodies, each live shape's
   allocations, each contact's triangle cache, the hull database (asserting it is empty), the name
@@ -654,7 +662,8 @@ in full are the specification. Mechanics that follow from them:
   tick; `Rewind( T )`; `ENSURE( hash == hash[T] )` and the words equal those recorded at T; then
   step on to a fresh P. N is 1,000 when the environment variable `BOX3D_HISTORY_SOAK` is set and 25
   otherwise; the closure doc quotes the soak run. The churn draws from: body create (awake and
-  asleep) and destroy; `b3Shape_SetFilter` with `invokeContacts` false (the proxy untouched) and
+  asleep) and destroy; `b3Shape_SetFilter` on an awake and a sleeping dynamic body's shape, a
+  kinematic body's and a static shape, with `invokeContacts` false (the proxy untouched) and
   true (the proxy recreated, §2); `b3Body_SetType` to kinematic and back on a sleeping body; `b3Body_SetType` and
   destroy of a sleeping body; `b3Body_SetAwake( false )` immediately after each rewind;
   `b3World_SetUserData` (the test sets it back itself before comparing, since it is host state,
@@ -958,9 +967,10 @@ specification. Mechanics that follow from them:
   `world->sensors` offering push and removeswap only and the awake set's and the colours' instances
   offering no generic push; `b3JournaledPairSet` add and remove in `src/broad_phase.c`;
   `b3JournaledBitSet` set and clear in `src/constraint_graph.c`, which `b3TrySleepIsland`'s four
-  clears call (§2); `b3BroadPhase.pairSet` becomes `const b3HashSet* pairSet` pointing at storage
-  `src/broad_phase.c` allocates and converts back, as the trees are, so `src/contact.c`'s add and
-  remove become the journaled ones and the two reads in `src/physics_world.c` stay. The generic
+  clears call (§2); `b3BroadPhase.pairSet` becomes `b3JournaledPairSet* pairSet`, an incomplete
+  type whose definition (a `b3HashSet` inside) sits in `src/broad_phase.c`, with `b3PairSet_Contains`,
+  `b3PairSet_Count` and `b3PairSet_Bytes` as its readers for `src/physics_world.c`'s two uses, so
+  `src/contact.c`'s add and remove become the journaled ones. The generic
   `b3IdPool`, `b3HashSet`, `b3BitSet` and `b3Array` are untouched and keep serving scratch.
 - The accessors journal: the structural entry always, the setter entry unless the owner is awake
   (a body or joint by `setIndex`, a shape by its body's, a contact by its `setIndex`), the block
@@ -993,7 +1003,8 @@ specification. Mechanics that follow from them:
   trees; `b3BroadPhase_MoveProxy` makes the proxy move entry for the sleeping tree. The undo insert
   is the tree's ordinary create, unmarked, asserting the popped id equals the recorded one; the undo
   of a create is the ordinary destroy. In the validation build the static and kinematic leaf writers
-  assert the box they write equals `fatAABBs[shapeId]` (§2).
+  assert, on forward writes and never in an undo, that the box they write equals
+  `fatAABBs[shapeId]` (§2).
 - The ring (`src/world_history.c`): a slot is header, image (still the phase-0 serializer image
   in this commit), queue copy and the journal segment moved in from the staging buffer at capture;
   a slot's charge adds the byte sizes of the blocks its entries own; `pendingBytes` is the staging
@@ -1229,12 +1240,12 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | design §6 capture steps 1 to 4; §9 steps 3 to 6 in place | `HistoryCostTest` case 1; the H1 tests unchanged under the new path; inspection | Yes, the 256 KB bound (H5) |
 | design §12 test 8 | `HistoryUndoSufficiencyTest` | No, regression (H5) |
 | trees doc §5 awake tree and queue imaged; §6 restore list, pass, moved lists, sleeping tree untouched; §7 proxy entries and identity; §8 rebuilds make no entry | `HistoryJournalTest` case 4; `HistoryRewindTest`'s tree cases; `HistoryTreeTest`; `HistoryHashTest` case 3; inspection | Case 4: build failure (H4) |
-| trees doc §7 every tree write a function of `broad_phase.c`, trees const outside; design §5.2 the pair set's file | H4 compile-boundary check: `b3DynamicTree_Rebuild( world->broadPhase.trees, true )` and `b3AddKey( &world->broadPhase.pairSet, 0 );` compile at H3c and fail at H4 (discarded qualifier; incompatible pointer type) | n/a (boundary) |
+| trees doc §7 every tree write a function of `broad_phase.c`, trees const outside; design §5.2 the pair set's file | H4 compile-boundary check: `b3DynamicTree_Rebuild( world->broadPhase.trees, true )` and `b3AddKey( &world->broadPhase.pairSet, 0 );` compile at H3c and fail at H4 (discarded qualifier; incompatible pointer type, the operand being a pointer to a pointer to an incomplete type) | n/a (boundary) |
 | trees doc §9 phase 2 | `HistoryCostTest` case 2; `HistoryTreeTest`'s kinematic cases | Yes, the 256 KB bound (H6) |
 | trees doc §10 test 1 | `HistoryTreeTest` | No, regression |
 | design §12 test 5 and the ring doc §9 test 2, cost | §7 measurements | n/a |
 | design §2 requirement 2 (met from phase 2) | `HistoryCostTest` cases 1 and 2; the `large_world` figures in §7 | Yes (H5, H6) |
-| WORKFLOW AC-1 to AC-4 on the code | §8's checklist, item by item against the gate entries of the three changelogs | n/a |
+| WORKFLOW AC-1 to AC-4 on the code | §8's checklist, one line per structure the three designs add | n/a |
 
 ## 7. Verification and measurements
 
@@ -1272,7 +1283,7 @@ Measurements the closure doc needs:
   history disabled (the base build gets the H0 function alone, cherry-picked into a scratch
   worktree), and branch against branch with history enabled at interval 1 and unbounded budget.
 - **Cost** (the design §12 test 5; the ring doc §9 test 2), a scratch harness in a Release build,
-  eight workers, per scene of the benchmark table plus `large_world` and a scene of one million
+  eight workers, per scene of the benchmark table (`large_world` among them) and a scene of one million
   sleeping dynamic and kinematic bodies with sixteen awake (built in the harness: a grid of boxes
   created asleep, half kinematic, in batches with a step after each as `HistoryCostTest` case 1
   does, so the awake tree's capacity stays small, awake boxes falling elsewhere): capture
@@ -1309,9 +1320,8 @@ every out-of-scope observation, `b3Shape_SetFilter`'s always-recreate under `inv
 H4; the two outputs of each fail-before test (H0, H1, H4 build failures; H5 and H6 bound failures);
 the `HISTORY_GOLDEN_HASH_*` values and the determinism goldens unchanged; the public additions; the
 snapshot version change; the §7 measurements with the acceptance verdict per scene; and a checklist
-of WORKFLOW AC-1 to AC-4 against the shipped code, one line per structure the gate entries of the
-three changelogs name. It stays outside the nine commits; the owner commits it to the design branch
-separately if at all. The implementer does not change the status of any design doc or of this
+of WORKFLOW AC-1 to AC-4 against the shipped code, one line per structure the three designs add.
+It stays outside the nine commits; the owner commits it to the design branch separately if at all. The implementer does not change the status of any design doc or of this
 document.
 
 ## 9. Out of scope and stop conditions

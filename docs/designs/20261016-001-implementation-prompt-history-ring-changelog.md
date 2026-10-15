@@ -165,3 +165,22 @@ Round 7: 3 findings (H1-M1-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
   material ids and the `userData` words included.
 - §2 names all four `splitIslandId` writers; H2 refers to them.
 - Length 1361 -> 1370 lines.
+
+## Revision 9: after review round 8
+
+Round 8: 5 findings (H2-M2-L1), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> pending.
+
+- `b3BroadPhase.pairSet` is the design's `b3JournaledPairSet*`, incomplete outside
+  `src/broad_phase.c`, with contains, count and bytes readers, in place of a pointer-to-const
+  generic set.
+- The static and kinematic leaf assertion applies to forward writes only, since an undo inserts
+  the recorded box before the record's entry is restored; H5's validation checks the leaves after
+  the restore pass. The sentence's citation into the trees doc's changelog and §6's and §8's
+  references to the changelogs' gate entries are removed.
+- §2's wake bullet is qualified by body type; the rewind test's filter churn names the shape
+  kinds it runs on.
+- §2 no longer claims a pre-branch recording replays; a version-11 recording is rejected by the
+  version-12 reader.
+- §7 names `large_world` as a table row, not an addition.
+- Length 1370 -> 1380 lines.
