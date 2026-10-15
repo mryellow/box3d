@@ -478,7 +478,8 @@ Journal entries are written throughout the step, as each journaled mutator runs 
 only at step end — so they need somewhere to go before the ring even knows this tick's total
 size. Each world keeps one small per-tick staging buffer for this (growable, reused tick to
 tick, not part of the ring arena); a journal call appends to it directly. At the end of every
-`b3World_Step`, after sensors and the end-event flip:
+`b3World_Step`, after sensors, the end-event flip and the step's final migration drain
+(`b3BroadPhase_EndTraversal`, `physics_world.c`):
 
 1. The staging buffer's size is now final. Reserve a slot in the ring (§8) sized from the image's
    exact byte count, which is zero on a tick that is not imaged, plus the staging buffer's byte
@@ -1048,7 +1049,7 @@ typedef enum b3HistoryResult
 // Returns b3_historyTickUnavailable on a world with history disabled. Asserts no query or cast callback is running.
 B3_API b3HistoryResult b3World_Rewind( b3WorldId worldId, uint64_t tick );
 
-// Deterministic hash of all simulation-affecting state. Same across the platforms the engine's determinism guarantee covers, and any worker count.
+// Deterministic hash of engine state (§12); host state a callback reads is the caller's to hash (§10). Same across the platforms the engine's determinism guarantee covers, and any worker count.
 B3_API uint64_t b3World_ComputeStateHash( b3WorldId worldId );
 ```
 

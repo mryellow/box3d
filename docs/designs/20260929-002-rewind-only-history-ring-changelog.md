@@ -311,3 +311,17 @@ Round 41: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The confirmation round of round 40, clean; the series is settled at
   revision 40 and the status word remains Draft.
+
+## Revision 41 (2026-10-15, after round 41, correction)
+
+Round 34's three fixes were never written: its script failed before the first edit, its commit
+holds only the changelog and the record, and the record's resolution sections are round 33's
+text. The revision 34 entry above is therefore wrong about what changed. Found when the trees
+doc's round 2 re-raised the `version` omission in text the split had moved. Applied now:
+
+- §14: the hash's comment says engine state, host state being the caller's to hash.
+- §6: capture runs after the step's final migration drain, not only after the end-event flip.
+- The `version` clause is in the trees doc (its revision 3).
+
+Revision 41 differs from the revision rounds 40 and 41 passed, so the series is not settled; a
+fresh clean round and its confirmation are needed (U-S8).

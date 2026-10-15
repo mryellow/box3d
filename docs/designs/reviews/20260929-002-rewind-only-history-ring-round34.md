@@ -10,6 +10,15 @@ session: 01a13e41-d8d0-7681-9fe4-a51d576a2504, resumed once to finalize
 
 # Round 34
 
+> **Correction (revision 41):** the "Post-review verification" and "Status" sections below are
+> round 33's text, copied into this record by a scripting fault that also failed before writing
+> any of round 34's three fixes to the document; the commit for this round touched only the
+> changelog and this file. The exact request and the review report above are round 34's. Its
+> findings were verified and applied later: #2 (`version`) in the trees doc's revision 3, #1 (the
+> hash comment) and the §6 capture point in the parent's revision 41, which lapses the settled
+> status rounds 40 and 41 gave revision 40. The round's tally line is counted as it stands.
+
+
 ## Exact request sent to Codex
 
 Identical to round 22 (same prompt text, same scope).
