@@ -38,3 +38,9 @@ Round 4: 1 findings (0H-0M-1L), 1 applied, 0 declined.
 
 - §6: the in-place move of a sleeping-tree leaf is named as `b3Body_SetTransform` from a query
   callback; the move entry covers every such move.
+
+## Round 5 (2026-10-15, no revision)
+
+Round 5: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The first clean round; the confirmation round follows.
