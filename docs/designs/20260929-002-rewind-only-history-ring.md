@@ -323,8 +323,9 @@ The pointer, its count and an array header are written in storage only by the co
 record write copies the record's other fields and leaves them as they are, so a local copy's
 change to one never reaches storage, and the routes that change one each make their own entry:
 the block entries of §7.1 (material block, manifold block, mesh triangle cache), made by a
-mutator addressed by (block tag, owner id) that swaps the pointer and count and holds the old
-block; `b3JournaledArray`'s push, removeswap, clear and set by (array tag, owner id); and the pool
+mutator addressed by (block tag, owner id) that records the old bytes the entry holds (§7.1) and
+writes the pointer and count; `b3JournaledArray`'s push, removeswap, clear and set by (array tag,
+owner id); and the pool
 free entry, which moves a destroyed record's blocks out. A block's elements are converted back in
 its defining file alone: `b3Shape_WriteMaterial` for `materials`, with `b3GetShapeMaterials`,
 which returns a writable pointer from a const shape today, replaced by a const-returning

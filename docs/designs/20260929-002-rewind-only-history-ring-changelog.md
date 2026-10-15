@@ -454,3 +454,10 @@ Round 55: 2 findings (1H-1M-0L), 2 applied, 0 declined.
   owned-block pointers, counts and array headers in storage as they are; the §7.1 block entries,
   made by a container-file mutator by (block tag, owner id), the `b3JournaledArray` mutators and
   the pool free entry are the only routes that change one.
+
+## Revision 56 (2026-10-15, after round 56)
+
+Round 56: 1 findings (0H-1M-0L), 1 applied, 0 declined.
+
+- §5.2: the block mutator records the old bytes the entry holds and writes the pointer and
+  count, the one ownership model §7.1 already states.
