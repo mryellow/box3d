@@ -1,7 +1,7 @@
 ---
 
 title: History ring budget, window and eviction for box3d
-status: Draft
+status: Canonical
   Split from docs/designs/20260929-002-rewind-only-history-ring.md, which decides the per-tick image, the undo journal, the restore and the
   public API, and cites this document for the ring that holds them. This document decides the ring
   alone: its slots, its two ends, which ticks are imaged and restorable, the byte budget and how it

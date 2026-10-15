@@ -99,3 +99,11 @@ edit. Settled at revision 6; canonical is the owner's edit after re-running U-G1
   procedures are rules on sums; the enable-time conditions are assertions; a charge never changes
   while its slot is retained.
 - Status stays Draft; Canonical is the owner's edit.
+
+## Canonical (2026-10-16)
+
+- Status set to Canonical on revision 6, after the clean round 6, its confirmation round 7 and
+  the gate re-runs of 2026-10-15 and 2026-10-16. 7 rounds, 15 findings (4H-8M-3L).
+- U-R10: U-S4, §6. The two pauses after rounds 4 and 5 for recurrence after the round-3 cut
+  caught nothing the rounds had not: both rounds' §6 findings were wording consequences of
+  earlier fixes, and the series converged in two rounds once the stop was waived.
