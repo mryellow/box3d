@@ -150,7 +150,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `blockCount`, as the design §7.1's bitset entry assumes. `b3RemoveContactFromGraph` and
   `b3RemoveJointFromGraph` (`src/constraint_graph.c`) clear both bodies' bits unconditionally outside
   the overflow colour, a static body's included; `b3AddContactToGraph` sets bits for dynamic bodies
-  only. The entry records the old value, so the unconditional clear is covered.
+  only; `b3TrySleepIsland` (`src/solver_set.c`) clears both bodies' bits itself, four `b3ClearBit`
+  calls, when it moves a contact or a joint out of a colour. The entry records the old value, so
+  the unconditional clear is covered.
 - `b3BroadPhase.pairSet` is a `b3HashSet` (`src/table.h`), written by `b3AddKey` in
   `b3CreateContact` and `b3RemoveKey` in `b3DestroyContact` only, and by the serializer.
 - `b3SolverSet` (`src/solver_set.h`) holds `bodySims`, `bodyStates`, `jointSims`, `contactIndices`,
@@ -466,11 +468,15 @@ Two internal pieces of test machinery are shared by several entries and are writ
    the perturbation helper, hashed again: equal (a rebuild changes no leaf box, proxy id or moved
    bit, the trees doc §8).
 4. `HashRoundTripCase`: the scene of case 1 recorded through `b3World_StartRecording` for 120
-   ticks and played back in a `b3CreatePlayer` world: the player world's hash after each frame equals
-   the original's after the same tick, and still does after `b3RecPlayer_SeekFrame` to 60 and to
-   119. A mismatch here is the serializer failing to restore something the design's phase 0 relies
-   on: stop and report with the first differing section of the walk above (log each section's
-   partial hash in a scratch build to find it).
+   ticks, the hash and `broadPhase.migrationQueue.count` recorded after each tick, and played back
+   in a `b3CreatePlayer` world: at every frame whose recorded queue count is 0 (the queue is the one
+   thing the hash reads that the serializer does not write, §2) the player world's hash after the
+   frame equals the original's, and still does after `b3RecPlayer_SeekFrame` to the qualifying
+   frames nearest 60 and 119; `ENSURE` at least 100 of the 120 frames qualify. A mismatch at a
+   qualifying frame is the serializer failing to restore something the design's phase 0 relies on:
+   stop and report with the first differing section of the walk above (log each section's partial
+   hash in a scratch build to find it). The queue's own copy beside the image is H1's and is shown
+   by `HistoryRewindTest`'s parked-proxy case.
 
 Fails before H0 by not building: the function does not exist. The closure doc quotes the first
 error.
@@ -499,8 +505,9 @@ in full are the specification. Mechanics that follow from them:
   retained slot), the effective interval, the tick of the last imaged slot, `bytesUsed`,
   `pendingBytes`, and the phase-0 serializer state below. `src/world_history.h` declares, for the
   tests, two read-only functions over the directory: `b3History_GetSlotCount( world )` and
-  `b3History_GetSlot( world, index )` returning the slot's tick, charge and imaged flag in a small
-  struct; the tests read nothing else of the ring.
+  `b3History_GetSlot( world, index )` returning the slot's tick, imaged flag, charge and the charge's
+  parts (image bytes, journal bytes, owned-block bytes, the last two zero in phase 0) in a small
+  struct; the tests and §7's harness read nothing else of the ring.
 - A phase-0 slot is a header, the `b3SerializeWorld` image written into a `b3RecBuffer` with the
   ring's own `b3Recording` as the registry and the user-words option on, the migration queue's
   count and ids copied after it, and an empty journal segment. Its charge is the header, the
@@ -617,8 +624,10 @@ in full are the specification. Mechanics that follow from them:
   `shared/benchmarks.h` (the seventeen of `benchmark/main.c`'s table), created with its capacity
   function where one exists and `workerCount` 4: step to a steady state (the scene's benchmark step
   count capped at 200, with its `Step*` where one exists), enable history with `tickCount` 60 and
-  interval 1, then for N random (T, P) pairs with T ≤ P inside the window, seeded per scene: step
-  from the current tick to P with the churn below applied by the seed between steps and recorded in
+  interval 1, then for N random (T, P) pairs, seeded per scene, each drawn after the previous
+  rewind with P in (current tick, current tick + 60] and T in [max( 0, P − 60 ), P], so T is
+  retained at P: step from the current tick to P with the churn below applied by the seed between
+  steps and recorded in
   the op log, recording the hash and the `userData` words of every body, shape and joint at every
   tick; `Rewind( T )`; `ENSURE( hash == hash[T] )` and the words equal those recorded at T; then
   step on to a fresh P. N is 1,000 when the environment variable `BOX3D_HISTORY_SOAK` is set and 25
@@ -831,7 +840,8 @@ fail at H3b with the discarded-qualifier error and have no before run.
 
 **Files.** `src/joint.h`, `src/joint.c`, new `src/joint_array.h`, the eight joint files,
 `src/island.h`, `src/island.c`, new `src/island_array.h`, `src/solver_set.h`, `src/solver_set.c`,
-new `src/solver_set_array.h`, `src/sensor.h`, `src/sensor.c`, `src/shape.c`, `src/body.c`,
+new `src/solver_set_array.h`, `src/sensor.h`, `src/sensor.c`, new `src/sensor_array.h`, new
+`src/graph_storage.h`, `src/shape.c`, `src/body.c`,
 `src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.h`, `src/constraint_graph.c`,
 `src/solver.c`, `src/world_snapshot.c`, `src/world_hash.c`, `test/test_history.c`, and any file
 the compiler names (§3).
@@ -859,11 +869,16 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   (`b3SolverSet_HotBodySim( world, localIndex )` and the like, inline, asserting the step mark;
   the design §5.2), one element per call, and take a const base pointer once per loop for reads.
   The SIMD-wide stages take their lanes' elements the same way.
-- The graph colours' `jointSims`, `convexContacts` and `contacts` arrays are written only by
+- `world->constraintGraph` becomes a pointer to an incomplete `b3ConstraintGraph` whose definition
+  sits in `src/graph_storage.h`, included by `src/constraint_graph.c` only; outside that file a
+  colour is read through `const b3GraphColor* b3GetGraphColor( world, index )`, so the colours'
+  `bodySet`, `jointSims`, `convexContacts` and `contacts` headers are written only by
   `src/constraint_graph.c`'s functions (H4: the push into a colour is the function that moves a
   contact or joint into the awake set, journaling its pre-wake bytes).
-- Sensors: `world->sensors` is a `b3ConstArray( b3Sensor )` written only by `src/sensor.c`'s create
-  (push) and `b3DestroySensor` (removeswap), which `b3DestroyShapeInternal` now calls, the inline copy
+- Sensors: `world->sensors` becomes a pointer to an incomplete `b3SensorArray` (`src/sensor_array.h`,
+  included by `src/sensor.c` only) with `const b3Sensor* b3GetSensor( world, index )` and a count
+  outside the file, written only by `src/sensor.c`'s create (push) and `b3DestroySensor`
+  (removeswap), which `b3DestroyShapeInternal` now calls, the inline copy
   deleted; a sensor's three arrays are `b3ConstArray` fields; the sensor pass and the continuous
   sensor-hit write take a writable view of one sensor's three arrays by index from the hot accessor
   with no awake-owner assertion (the design §5.2, Sensors); `shapeId` is unreachable for writing.
@@ -871,11 +886,12 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   arrays.
 
 **Evidence.** As H2. Compile-boundary check: `world->joints.data[0].drawScale = 1.0f;`,
-`world->solverSets.data[2].bodySims.data[0].invMass = 1.0f;` and `world->sensors.data[0].shapeId = 0;`
-compile at H3b and fail at H3c (no member `data` on the pointers to the incomplete types for the
-first two; a read-only object for the third); `b3Joint* j = b3GetJointRecord( w, 0 );` and
-`int* ids = b3GetIslandRecord( w, 0 )->bodies.data;` fail at H3c with the discarded-qualifier
-error and have no before run.
+`world->solverSets.data[2].bodySims.data[0].invMass = 1.0f;`, `world->sensors.count = 0;` and
+`world->constraintGraph.colors[0].contacts.count = 0;` compile at H3b and fail at H3c (no such
+member on a pointer to an incomplete type, each); `b3Joint* j = b3GetJointRecord( w, 0 );`,
+`int* ids = b3GetIslandRecord( w, 0 )->bodies.data;` and
+`b3Sensor* sn = b3GetSensor( w, 0 );` fail at H3c with the discarded-qualifier error and have no
+before run.
 
 ### H4. The journal
 
@@ -915,8 +931,11 @@ specification. Mechanics that follow from them:
   clear and set by (array tag, owner id) over the `b3ConstArray` fields of H3c, with
   `world->sensors` offering push and removeswap only and the awake set's and the colours' instances
   offering no generic push; `b3JournaledPairSet` add and remove in `src/broad_phase.c`;
-  `b3JournaledBitSet` set and clear in `src/constraint_graph.c`. The generic `b3IdPool`, `b3HashSet`,
-  `b3BitSet` and `b3Array` are untouched and keep serving scratch.
+  `b3JournaledBitSet` set and clear in `src/constraint_graph.c`, which `b3TrySleepIsland`'s four
+  clears call (§2); `b3BroadPhase.pairSet` becomes `const b3HashSet* pairSet` pointing at storage
+  `src/broad_phase.c` allocates and converts back, as the trees are, so `src/contact.c`'s add and
+  remove become the journaled ones and the two reads in `src/physics_world.c` stay. The generic
+  `b3IdPool`, `b3HashSet`, `b3BitSet` and `b3Array` are untouched and keep serving scratch.
 - The accessors journal: the structural entry always, the setter entry unless the owner is awake
   (a body or joint by `setIndex`, a shape by its body's, a contact by its `setIndex`), the block
   mutators always (the design §7.1, material block). `b3CreateSolverSet`, `b3DestroySolverSet`,
@@ -1082,8 +1101,9 @@ them:
   (T, P]; awake at T and put to sleep in (T, P]; put to sleep in tick T itself; put to sleep at or
   before T and still asleep at P; asleep at T, woken, put to sleep and woken again in (T, P]; moved
   into the awake set by `b3Body_SetType` and by `b3Body_Enable`. Each case `ENSURE`s the hash after
-  `Rewind( T )` equals the recorded one, run with `tickCount` 60 and `captureInterval` 1 and 4 (with 4, T is the
-  imaged tick at or before the scripted one). Passes before H5 under the serializer path; it is the
+  `Rewind( T )` equals the recorded one, run with `tickCount` 60 and `captureInterval` 1 and 4 (with 4, the
+  script places T on a multiple of 4 and `ENSURE`s `b3World_GetRestorableTick( T ) == T` before
+  the rewind). Passes before H5 under the serializer path; it is the
   regression check for the journal's sufficiency once the image is partial, and the closure doc says
   so.
 - `HistoryTreeTest` (the trees doc §10 test 1): restore-and-replay cases built so the static,
@@ -1170,7 +1190,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | design §6 capture steps 1 to 4; §9 steps 3 to 6 in place | `HistoryCostTest` case 1; the H1 tests unchanged under the new path; inspection | Yes, the 256 KB bound (H5) |
 | design §12 test 8 | `HistoryUndoSufficiencyTest` | No, regression (H5) |
 | trees doc §5 awake tree and queue imaged; §6 restore list, pass, moved lists, sleeping tree untouched; §7 proxy entries and identity; §8 rebuilds make no entry | `HistoryJournalTest` case 4; `HistoryRewindTest`'s tree cases; `HistoryTreeTest`; `HistoryHashTest` case 3; inspection | Case 4: build failure (H4) |
-| trees doc §7 every tree write a function of `broad_phase.c`, trees const outside | H4 compile-boundary check: `b3DynamicTree_Rebuild( world->broadPhase.trees, true )` compiles at H3c and fails at H4 (discarded qualifier) | n/a (boundary) |
+| trees doc §7 every tree write a function of `broad_phase.c`, trees const outside; design §5.2 the pair set's file | H4 compile-boundary check: `b3DynamicTree_Rebuild( world->broadPhase.trees, true )` and `b3AddKey( &world->broadPhase.pairSet, 0 );` compile at H3c and fail at H4 (discarded qualifier; incompatible pointer type) | n/a (boundary) |
 | trees doc §9 phase 2 | `HistoryCostTest` case 2; `HistoryTreeTest`'s kinematic cases | Yes, the 256 KB bound (H6) |
 | trees doc §10 test 1 | `HistoryTreeTest` | No, regression |
 | design §12 test 5 and the ring doc §9 test 2, cost | §7 measurements | n/a |
@@ -1219,7 +1239,7 @@ Measurements the closure doc needs:
   of the step (the capture timed around the H1 insertion in a scratch build, the step timed in the
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
   point and is not the denominator);
-  image and journal bytes per tick (the slot's charge split by the directory); `bytesUsed`, the
+  image, journal and owned-block bytes per tick (the parts `b3History_GetSlot` returns); `bytesUsed`, the
   retained window and the effective interval at `tickCount` 60 under an unbounded budget and under
   `maxBytes` of a quarter of the unbounded steady-state `bytesUsed`; restore milliseconds for
   `Rewind` 1, 5 and 9 ticks back; replay milliseconds for 9 ticks. Acceptance as the design states:
@@ -1261,8 +1281,8 @@ document.
   (§3). The design's phase 3, the bullet enlarge question of the trees doc §11, and the design §16's
   per-record mark are not implemented.
 - Stop and report if: a determinism golden or a benchmark scene hash changes (§5); a
-  `HISTORY_GOLDEN_HASH_*` value changes after H1; `HistoryHashTest` case 4 fails (the serializer does
-  not restore something the hash sees); a benchmark scene regresses past §7's threshold with history
+  `HISTORY_GOLDEN_HASH_*` value changes after H1; `HistoryHashTest` case 4 fails at a qualifying
+  frame (the serializer does not restore something the hash sees); a benchmark scene regresses past §7's threshold with history
   disabled; a phase-0 restore exactness failure is traced to a serializer field the serializer
   itself does not restore verbatim (fixing the serializer is in scope only as restoring the field
   verbatim; anything else is a report); a test needs a hook in `src/` beyond the read-only

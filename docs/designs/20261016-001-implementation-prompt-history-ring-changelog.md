@@ -99,3 +99,24 @@ Round 3: 4 findings (H0-M4-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
 - H1 declares two read-only directory functions in `src/world_history.h` for the tests, H4 a third
   for owned blocks; §9's hook stop condition excepts them.
 - Length 1294 -> 1309 lines.
+
+## Revision 5: after review round 4
+
+Round 4: 6 findings (H3-M3-L0), 6 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> pending.
+
+- `HashRoundTripCase` compares only at frames whose recorded migration queue count is 0, since
+  the serializer does not write the queue and the hash reads it; at least 100 of 120 frames must
+  qualify; §9's stop condition names a qualifying frame.
+- §2 names `b3TrySleepIsland`'s four `b3ClearBit` calls on the colours' body sets; H4 routes them
+  through the graph's journaled clear.
+- H3c makes `world->sensors` and `world->constraintGraph` pointers to incomplete types with const
+  element access outside their files; H4 makes `b3BroadPhase.pairSet` a pointer-to-const to
+  storage of `src/broad_phase.c`; the compile-boundary checks gain a header-write statement each.
+- `HistoryRewindTest` states its sampling rule: P in (current, current + 60], T in
+  [max( 0, P − 60 ), P].
+- `HistoryUndoSufficiencyTest`'s interval-4 run places T on a multiple of 4 and checks it is
+  restorable before the rewind.
+- The slot reader returns the charge's parts (image, journal, owned-block bytes), which §7's
+  measurements read.
+- Length 1309 -> 1329 lines.
