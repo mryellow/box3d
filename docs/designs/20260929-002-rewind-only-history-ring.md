@@ -90,7 +90,7 @@ The answer has four parts:
    sensors and few overlaps are unaffected; a scene with many sensors, or sensors with many
    overlaps, on sleeping or static bodies pays for all of it every tick. The awake tree's proxy
    array is the other exception: it is imaged to its capacity, which never shrinks
-   (`dynamic_tree.c`), so that term is proportional to the most that was awake at once, 24 B per
+   (`dynamic_tree.c`), so that term is proportional to the most awake proxies and parked leaves held at once, 24 B per
    slot, not to what is awake now (§7.4), and the ring retains it once per imaged tick in the
    window.
 3. **Restore never rejected** for any restorable tick — an imaged tick inside the retained window
@@ -179,7 +179,7 @@ mutations made during step t and the API calls between step t−1 and step t.
 
 `Rewind(T)` from the current tick P: undo journal segments P…T+1 in reverse, copy image T over
 the hot structures, fix the trees, and discard the slots after T. Cost is
-O(awake at T, the awake tree's slots included, + sensor count and overlaps + journal bytes between T and P + (proxy entries between T and P + restored shape records + moved proxies) · log n).
+O(awake at T, the awake tree's slots included, + sensor count and overlaps + journal bytes between T and P + (proxy entries between T and P + restored shape records + moved proxies) · log n), plus the sleeping tree's full rebuild when an undone insert takes its root height past the trigger (§7.4).
 Nothing is rejected.
 
 Resimulation is ordinary `b3World_Step`. Each replayed step captures a new slot for its tick, so a
@@ -391,7 +391,7 @@ migration's starting worklist; the compiler, not the table, says when the migrat
 | Structure | Current direct-write callers, to migrate |
 |---|---|
 | `bodies[id]` and non-awake `bodySims`/`bodyStates` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), `b3PlaceBodies` (`broad_phase.c`: the parked and moving flags of each placed body, §7.4), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
-| `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
+| `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), `b3PlaceBodies` (`broad_phase.c`: `proxyKey`, single and bulk placement), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices` (`body.c`), island link, unlink, merge and split (`island.c`: the contact's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c`) |
@@ -692,8 +692,9 @@ node array and the rebuild scratch arrays hold no state. About 100 B per proxy s
 the tree's high-water mark, not its live count: `proxyCapacity` never shrinks, and `nodeEnd`
 compacts only in a rebuild, which the step runs on the tick after a remove or a bulk join left the
 tree unordered and which returns at once for an empty tree. The tree starts at the 16-slot floor
-and grows with what is awake, so the mark is set by what was awake at once, not by the capacity
-hint; requirement 2 reads "proportional to the most that was awake at once" for this array. The
+and grows with what the tree holds, awake proxies and parked leaves, so the mark is set by the most
+held at once, not by the capacity hint; requirement 2 reads "proportional to the most awake proxies
+and parked leaves held at once" for this array. The
 migration queue is imaged with it: at a step boundary it holds exactly the sleeping bodies whose
 marked leaves are parked in the awake tree, each once, in the order the next drain places them,
 and that order decides which sleeping-tree ids they receive. Restore frees the live tree's arrays,
@@ -975,7 +976,7 @@ before P.
 - **Host handles.** `userShape` is never restored. Every restore-time write of a shape record
   (journal undo, image scatter) releases the live `userShape` through `destroyDebugShape` and
   clears it, as an ordinary destroy does, so a handle built for geometry the write replaces never
-  survives; the debug draw creates a new one on demand. `userData` is restored to its value at T,
+  survives; the debug draw creates a new one on demand. A body, shape or joint `userData` is restored to its value at T (`world->userData` is host configuration, §2),
   and what it points to is the caller's, valid for as long as a retained tick can restore the
   owner.
 - **Borrowed geometry.** Mesh, height-field and compound data are borrowed by the shape, not
@@ -1263,7 +1264,7 @@ typedef enum b3HistoryResult
 } b3HistoryResult;
 
 // Restore the whole world to the end of `tick`, which is at or before the current tick.
-// O(awake + sensors + journal, with a tree insert or removal per proxy entry). Discards every tick after `tick`: the way forward is b3World_Step.
+// O(awake + sensors + journal, with a tree insert or removal per proxy entry, and a full sleeping-tree rebuild when an undone insert takes its height past the trigger). Discards every tick after `tick`: the way forward is b3World_Step.
 // Returns b3_historyTickUnavailable on a world with history disabled.
 B3_API b3HistoryResult b3World_Rewind( b3WorldId worldId, uint64_t tick );
 
@@ -1360,6 +1361,10 @@ follows the old timeline bit for bit; that is the property everything else rests
   restore pass and the first replayed step's rebuild, work proportional to the awake population
   that the image's flat copy pays once, and the parked leaves and the migration queue would then
   be rebuilt from the sleeping bodies' marks, a second route to what the image holds.
+- **The awake tree's image is not compacted.** Its size is the most proxies and parked leaves it held
+  at once. A compaction would renumber the proxies, and `shape->proxyKey` and the free list's id
+  sequence (which a rewound timeline must hand out again) are keyed by those ids; the exception is
+  stated in requirement 2 beside the other non-awake-proportional term.
 - **The sleeping tree is derived, not imaged and not byte-journaled.** It is proportional to the
   sleeping population, which requirement 2 forbids imaging. A byte journal of its writes would
   restore its exact layout, which is needed only where a tree's layout is read, and nothing reads

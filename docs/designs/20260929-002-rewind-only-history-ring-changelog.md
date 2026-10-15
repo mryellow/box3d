@@ -120,3 +120,13 @@ defect and fixed.
 - §16: question 2 records the engine-side alternative, a bullet enlarge that replaces the leaf
   whenever it differs from the entry, deferred to its own preflight if phase 1 shows the proxy
   move entry worth removing.
+
+## Revision 27 (2026-10-15, after round 24)
+
+Round 24: 4 findings (1H-1M-2L), all applied.
+
+- §2, §7.4: the awake tree's non-awake-proportional term is the most awake proxies and parked leaves
+  held at once. §17 records that the image is not compacted (proxy ids).
+- §4, §14: the restore cost includes the sleeping tree's height-triggered full rebuild.
+- §5.2: `b3PlaceBodies` joins the `shapes[id]` worklist (`proxyKey`).
+- §10: body, shape and joint `userData` restored; `world->userData` is host configuration.
