@@ -245,8 +245,9 @@ per imaged tick in the window, so the retained total is that figure times the im
 Each cold structure below is written one of two ways: a record through its structure's write
 accessor, or a container through its journaled type. Types enforce both, so a write that bypasses
 them does not compile. The same rule holds for every kind of structure, applied below to records,
-the blocks they own, sensors, world scalars and world-owned containers: outside its defining file
-a structure is reachable read-only, and every writable route is a function in that file.
+the blocks they own, sensors, world scalars and world-owned containers: outside the file that
+holds its storage a structure is reachable read-only, and every writable route is a function in
+that file.
 
 **Records.** The record types are `bodies[id]`, `shapes[id]` with `fatAABBs`, `contacts[id]`,
 `joints[id]` and `islands[id]`. A body's or joint's sim is not part of its record: it is an element
@@ -255,7 +256,9 @@ of a solver set's `bodySims` or `jointSims` array, written through that array's 
 one, `body.c`). `b3GetBodySim`, `b3GetBodyState` and `b3GetJointSim` (`body.h`, `joint.h`), which
 return writable pointers into a set's arrays to every file today, become const-returning, as
 `b3GetShapeMaterials` does below; a write through one is then a compile error. Outside its container's file a record array exposes const-qualified element access
-only, so a field assignment through anything but the three functions below is a compile error.
+only, so a field assignment through anything but the three functions below is a compile error;
+the write accessor's own file (`body.c` for `b3Body_Write`) is one of those outside files, so it
+builds the completed value in a local copy and enters the container's write function with it.
 
 The first is the structure's write accessor (`b3Body_Write`, `b3Shape_Write`, `b3Contact_Write`,
 `b3Joint_Write`, `b3Island_Write`), replacing the direct field assignment used at every setter
@@ -992,7 +995,8 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
   keeps a parked leaf's body placed by the next drain in the original order. None applies once
   phase 1's in-place restore replaces the serializer.
 - **Phase 1, hot image + undo journal.** Per-structure write accessors (§5.2) with the existing
-  callers migrated to them and the direct-write access removed from every other translation unit (the
+  callers migrated to them and the direct-write access removed from every translation unit but each
+  container's own (§5.2; the
   build fails on any remaining direct write; the phase is not complete until it does, and the
   serializer's reader is migrated to restore's writer in the same phase, §5.2), ring arena
   and in-place image restore. The awake tree is imaged, with the migration queue (§7.4). The

@@ -358,3 +358,14 @@ migration worklist table; the owner chose the cut on offer.
 - §5.2: the worklist table loses its caller column and keeps each structure's write route. The
   prose that pointed at the list (`body.c`'s sim-writing functions "listed below", the table as
   the migration's starting worklist) now names the route instead.
+
+## Revision 45 (2026-10-15, after round 45)
+
+Round 45: 2 findings (0H-2M-0L), 1 applied, 0 declined, 1 carried forward (U-S3, the owner
+decides whether phase 0's restore is public before it meets §10).
+
+- §5.2, §13: the write boundary is the file that holds a structure's storage; the write accessor's
+  own file is an outside file that builds the value in a local copy and enters the container's
+  write function; phase 1 removes direct-write access from every translation unit but each
+  container's own.
+- Series stopped: §5.2 produced a finding in the first round after its cut (U-S4).
