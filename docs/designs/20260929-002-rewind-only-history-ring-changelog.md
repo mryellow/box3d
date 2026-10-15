@@ -385,3 +385,11 @@ than staying internal.
 Round 46: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The first clean round on revision 46; round 47 is its confirmation.
+
+## Revision 47 (2026-10-15, after round 47)
+
+Round 47: 1 findings (0H-0M-1L), 1 applied, 0 declined.
+
+- §15: the rejected alternative is keeping the adapted serializer as the product, not reusing it
+  as-is; it is correct with §13's phase-0 adaptations. The confirmation of round 46 was not clean,
+  so a fresh clean round and its confirmation follow.

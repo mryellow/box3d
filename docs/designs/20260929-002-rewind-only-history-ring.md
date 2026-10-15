@@ -1113,9 +1113,9 @@ follows the old timeline bit for bit when it replays the same API calls, time st
   rest of the world frozen (`docs/designs/20260927-001-client-prediction-rollback.md`). Kept as
   the option for worlds that cannot sleep and must correct inside a frame. Its complexity is the
   price of O(predicted) collide and solve in resim, with broad-phase pair discovery (proportional to the moved proxies, the whole world when all move) and the sensor pass still O(world); this design does not pay it and does not get it.
-- **Reuse the serializer as-is for the ring.** Correct and already tested (phase 0), but
-  O(world) per tick with allocation: 650 MB/tick on `large_world`. It is the prototype, not the
-  product.
+- **Keep the serializer as the ring's product.** With §13's phase-0 adaptations it is correct,
+  but O(world) per tick with allocation: 650 MB/tick on `large_world`. It is the prototype, not
+  the product.
 - **OS page write-watching / copy-on-write.** Snapshot only dirtied pages of a world arena
   (`GetWriteWatch`, soft-dirty bits, `userfaultfd`, `mprotect` faults). Zero engine audit and
   automatically bit-exact, but platform-specific, page-granular, and either fault-heavy (a
