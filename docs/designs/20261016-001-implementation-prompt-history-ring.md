@@ -215,13 +215,14 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `B3_SLEEPING_TREE_MAX_HEIGHT` is 64 (`src/dynamic_tree.h`). Proxy-pool growth in
   `b3AllocateProxy` (`src/dynamic_tree.c`) happens only on an empty free list and threads the new
   slots in ascending order, as the trees doc §7 states.
-- `b3Shape_SetFilter` (`src/shape.c`) assigns `shape->filter = filter` and only then computes
-  `destroyProxy` by comparing `filter.categoryBits` with `shape->filter.categoryBits`, so the
-  comparison is always true and every filter change destroys and recreates the proxy. The design
-  §12 test 2's "filter change that does not touch the proxy" therefore cannot be produced on this
-  base; the test runs the filter change with both `invokeContacts` values, the proxy is recreated
-  in both, and the closure doc records the observation (U-I4). The behaviour is not changed by this
-  task.
+- `b3Shape_SetFilter` (`src/shape.c`) returns when the filter is unchanged, assigns
+  `shape->filter = filter`, and with `invokeContacts` true calls `b3ResetProxy` with `destroyProxy`
+  computed after the assignment by comparing `filter.categoryBits` with
+  `shape->filter.categoryBits`, so it is always true and that path always destroys and recreates
+  the proxy; with `invokeContacts` false the record is written and the proxy is left as it is. The
+  design §12 test 2's two filter cases are therefore `invokeContacts` false (the proxy untouched)
+  and true (the proxy recreated); the always-recreate under true is an observation for the closure
+  doc (U-I4), and the behaviour is not changed by this task.
 
 **Serializer, recording and replay.**
 
@@ -615,8 +616,8 @@ in full are the specification. Mechanics that follow from them:
   tick; `Rewind( T )`; `ENSURE( hash == hash[T] )` and the words equal those recorded at T; then
   step on to a fresh P. N is 1,000 when the environment variable `BOX3D_HISTORY_SOAK` is set and 25
   otherwise; the closure doc quotes the soak run. The churn draws from: body create (awake and
-  asleep) and destroy; `b3Shape_SetFilter` with `invokeContacts` false and true (§2: both recreate
-  the proxy today); `b3Body_SetType` to kinematic and back on a sleeping body; `b3Body_SetType` and
+  asleep) and destroy; `b3Shape_SetFilter` with `invokeContacts` false (the proxy untouched) and
+  true (the proxy recreated, §2); `b3Body_SetType` to kinematic and back on a sleeping body; `b3Body_SetType` and
   destroy of a sleeping body; `b3Body_SetAwake( false )` immediately after each rewind;
   `b3World_SetUserData` (the test sets it back itself before comparing, since it is host state,
   the design §10); setters on sleeping bodies (`SetTransform`, `SetLinearVelocity`);
@@ -745,7 +746,12 @@ field exclusions are the specification. Mechanics that follow from them:
   and its `fatAABBs` entry together, copying every field but `materials`, `materialCount` and
   `userShape`; the hot accessor returning the awake shape's `aabb` and `fatAABBs` entry pointers and
   never the record (the design §5.2); `b3Shape_Restore` taking the same two values and releasing a
-  live `userShape` through `destroyDebugShape` before clearing it (the design §10).
+  live `userShape` through `destroyDebugShape` before clearing it (the design §10). The serializer's
+  reader with `releaseUserShapes` off keeps its carry-over around that writer: for a live slot of
+  the same generation it saves the handle and detaches it with `b3Shape_SetUserShape( world, id,
+  NULL )` before the restore write, so nothing is released, and puts it back through
+  `b3Shape_SetUserShape` after; every other saved handle it releases itself, as today. With the
+  option on it saves nothing and the restore write releases.
 - `const b3SurfaceMaterial* b3GetShapeMaterials( const b3Shape* )`; `shape->materials` is
   `const b3SurfaceMaterial*`. `b3Shape_WriteMaterial( world, id, index, const b3SurfaceMaterial* )`
   in `src/shape.c` is the one material writer: for an inline material it builds the record with the
@@ -754,7 +760,8 @@ field exclusions are the specification. Mechanics that follow from them:
   Block allocation and release stay in `b3CreateShapeInternal` and `b3DestroyShapeAllocations`
   until H4 moves the release into the pool free entry.
 - `b3Shape_SetUserShape( world, id, void* )` in `src/shape.c` is the one `userShape` writer; the
-  debug draw's assignment in `src/physics_world.c` and the serializer's carry-over go through it.
+  debug draw's assignment in `src/physics_world.c` and the serializer's detach and put-back go
+  through it.
 - The step mark: `world->inStep`, a `bool` set at `b3World_Step`'s entry and cleared at its exit,
   read by the hot accessors' assertions only (§3).
 - Every direct assignment to a body or shape field elsewhere (`src/body.c`'s setters,
@@ -855,7 +862,7 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   arrays.
 
 **Evidence.** As H2. Compile-boundary check: `world->joints.data[0].drawScale = 1.0f;`,
-`world->solverSets.data[2].bodySims.data[0].mass = 1.0f;` and `world->sensors.data[0].shapeId = 0;`
+`world->solverSets.data[2].bodySims.data[0].invMass = 1.0f;` and `world->sensors.data[0].shapeId = 0;`
 compile at H3b and fail at H3c (no member `data` on the pointers to the incomplete types for the
 first two; a read-only object for the third); `b3Joint* j = b3GetJointRecord( w, 0 );` and
 `int* ids = b3GetIslandRecord( w, 0 )->bodies.data;` fail at H3c with the discarded-qualifier
@@ -962,27 +969,29 @@ write, so the walk alone must restore the hash:
    recorded one, every sleeping body's shape `proxyKey` equals its recorded value, and
    `pendingBytes` is 0. Fails before H4 by not building.
 2. `SegmentWalkCase`: the same scene with no awake body at all (the piles asleep, the kinematic
-   body asleep, no sensor), history enabled with `tickCount` 16, stepped 12 ticks with one cold op
-   from case 1 before
-   each step (static creates with `invokeContactCreation` false, so no tree holds a mark at a
-   boundary), the hash recorded per tick; then `b3History_UndoSegments( world, 6 )` and `ENSURE` the
-   hash equals the hash at tick 6; then to tick 0 and the hash at 0. With no awake body `b3Solve`
-   returns early and the sensor pass has nothing, so no hot write occurs and the segments alone
-   carry every change (§2). Fails before H4 by not building.
+   body asleep, no sensor), stepped once at the test's time step before the enable; history
+   enabled with `tickCount` 16; 12 ticks stepped with one cold op from case 1 before each step
+   (static creates with `invokeContactCreation` false, so no tree holds a mark at a boundary), the
+   hash and a copy of `*world->scalars` recorded per tick; then `b3History_UndoSegments( world, 6 )`,
+   the tick-6 scalars copied back through `b3World_WriteScalars` (the scalars are imaged, never
+   journaled, the design §5.1; `endEventArrayIndex` flips every step), and `ENSURE` the hash equals
+   the hash at tick 6. The same on a fresh run of the scene with the target tick 0 (the walk starts
+   at `historyTick`, which only `b3World_Rewind` moves). With no awake body `b3Solve` returns early
+   and the sensor pass has nothing, so beyond the scalars no hot write occurs and the segments
+   alone carry every change (§2). Fails before H4 by not building.
 3. `OwnershipCase`: on case 1's scene, with `n0` the sum of `allocationCount` over
-   `world->manifoldAllocators` and `b0` = `b3GetByteCount()` read after the enable: a wake (set
+   `world->manifoldAllocators` read after the enable: a wake (set
    destroy), a merge of two sleeping islands by a joint, a sleeping body's filter change that
    destroys its mesh contact, the multi-material shape destroyed, a sensor destroyed, the hull's
    last reference released; `ENSURE` `pendingBytes` grew by at least the sum of the destroyed set's
    five array byte counts, the island's three, the manifold block's, the material block's, the
    sensor's three and the hull's `byteCount`, read before each destroy; `b3History_UndoPending`:
-   `ENSURE` the hash equals the recorded one, the manifold allocators' count equals `n0` and
-   `b3GetByteCount()` equals `b0`. Then the same churn followed by a step (the segment closes),
-   `ENSURE` `bytesUsed` includes those bytes and `pendingBytes` is 0; then enough steps on a
-   `tickCount` 4 ring to evict the slot: `ENSURE` the manifold allocators' count fell by one and
-   `b3GetByteCount()` fell by at least the freed blocks' bytes; then disable and
-   `ENSURE( b3GetByteCount() == base )` with `base` from before the world was created. Fails before
-   H4 by not building.
+   `ENSURE` the hash equals the recorded one and the manifold allocators' count equals `n0`. Then
+   the same churn followed by a step (the segment closes), `ENSURE` `bytesUsed` includes those
+   bytes and `pendingBytes` is 0; then enough steps on a `tickCount` 4 ring to evict the slot:
+   `ENSURE` the manifold allocators' count fell by one; then disable, destroy the world and
+   `ENSURE( b3GetByteCount() == base )` with `base` from before the world was created, which is
+   the check that every other evicted block was freed. Fails before H4 by not building.
 4. `ProxyIdentityCase`: a sleeping body whose shape's filter is changed (destroy and create in the
    sleeping tree, a different id possible), then `b3History_UndoPending`: `proxyKey` equals its
    recorded value and the sleeping tree's proxy-pool hash (section 2 of H0's walk, exposed for the
@@ -1218,7 +1227,8 @@ and base hashes; suite counts per commit (tests run, passed) in both configurati
 failures named with output; compiler warning status and the `clang-format` check; every deviation
 from this document and the designs with its reason, the files the compiler added to the boundary
 commits (§3), the phase-0 registry bytes outside the info struct, and any §2 re-check among them;
-every out-of-scope observation, `b3Shape_SetFilter`'s always-recreate (§2) and `docs/faq.md`'s
+every out-of-scope observation, `b3Shape_SetFilter`'s always-recreate under `invokeContacts` true
+(§2) and `docs/faq.md`'s
 "no rollback" statement (§9) among them; the compile-boundary diagnostics of H2, H3a, H3b, H3c and
 H4; the two outputs of each fail-before test (H0, H1, H4 build failures; H5 and H6 bound failures);
 the `HISTORY_GOLDEN_HASH_*` values and the determinism goldens unchanged; the public additions; the

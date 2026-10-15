@@ -65,3 +65,23 @@ Round 1: 9 findings (H3-M5-L1), 9 applied, 0 declined. Findings: 3/5/1 -> pendin
   ends before the capture point.
 - §2 counts seven traversal-wrapped public queries and casts.
 - Length 1263 -> 1284 lines.
+
+## Revision 3: after review round 2
+
+Round 2: 5 findings (H2-M3-L0), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> pending.
+
+- §2 corrects the revision 1 observation on `b3Shape_SetFilter`: the proxy is destroyed and
+  recreated only under `invokeContacts` true (always, since the category comparison follows the
+  assignment); with `invokeContacts` false the proxy is left as it is, which is the design §12
+  test 2's untouched-proxy case. `HistoryRewindTest` names the two cases; §8's observation is
+  narrowed to the `invokeContacts` true path.
+- H3a: the serializer's reader with `releaseUserShapes` off keeps its carry-over by detaching the
+  live handle through `b3Shape_SetUserShape` before the restore write and putting it back after;
+  `b3Shape_Restore` releases unconditionally.
+- H3c's compile-boundary statement uses `invMass`.
+- `SegmentWalkCase` records the scalars struct per tick and copies the target tick's back before
+  comparing, since the step writes `inv_h`, `inv_dt` and `endEventArrayIndex` with no awake body;
+  the tick-0 target runs on a fresh run, since the walk starts at `historyTick`.
+- `OwnershipCase` drops the exact byte-count equalities after the undo and after the eviction;
+  the baseline after the destroy is the check that every evicted block was freed.
+- Length 1284 -> 1294 lines.
