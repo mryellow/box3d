@@ -241,8 +241,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `b3Shape_SetFilter` with `invokeContacts` false, the four material setters, `b3CreateJoint`
   between two sleeping bodies (a set merge when their sets differ, `src/joint.c`), `b3DestroyJoint`
   with `wakeAttached` false, `b3DestroyBody` and `b3Body_Disable` of a sleeping body with no
-  contact and no joint, and every `userData` setter. The journal tests of H4 use the cold list
-  only.
+  contact and no joint (`b3DestroyContact` with `wakeBodies` wakes both bodies of a touching
+  contact, the destroyed body's own set included, `src/contact.c`), and every `userData` setter.
+  The journal tests of H4 use the cold list only.
 
 **Serializer, recording and replay.**
 
@@ -537,8 +538,11 @@ in full are the specification. Mechanics that follow from them:
   slots after it up to the next imaged slot, never into the minimum window; grow the arena by
   allocating the larger block, copying the retained slots in tick order from offset 0, rewriting the
   directory's offsets and freeing the old block, when the retained slots and the new one do not fit;
-  write the slot. The write of an imaged slot serializes into the arena's free region directly when it
-  fits and into a scratch buffer followed by a grow-and-copy otherwise.
+  write the slot. An imaged slot is sized by a first `b3SerializeWorld` run into a `b3RecBuffer`
+  with `countOnly` set, which tallies the exact byte count without writing (`src/recording.h`); the
+  budget and window steps use that count, the arena is grown if the slot does not fit, and a second
+  run serializes into a `b3RecBuffer` over the reserved region whose `capacity` is that count, so
+  `b3RecBufAppend` never grows it.
 - The ring's registry and reader: a `b3Recording` whose registry the capture interns new geometry
   into (`b3InternGeometry`, deduplicated by content, so a scene that creates the same mesh twice
   adds one entry), and a `b3RecReader` with `replayWorldId` set to this world whose `slots` are
@@ -766,8 +770,8 @@ field exclusions are the specification. Mechanics that follow from them:
   definitions sit in the two new headers, allocated by `b3CreateWorld` through a create function of
   each file and destroyed by a destroy function. Outside its file a record array exposes
   `const b3Body* b3GetBodyRecord( world, id )` (and `b3GetBodyFullId` returning const), the count,
-  and nothing writable; the slot pool's push of a zeroed element at a bump allocation is a function
-  of the file (H4 folds it into the slot pool).
+  and nothing writable; the push of a zeroed element at a bump allocation and the truncation to a
+  length that undoes it are two functions of the file, which H4's slot pool calls.
 - Three routes per record, all in the record's file (the design §5.2): the write accessor with its
   two entries, `b3Body_Write( world, const b3Body* )` (structural, journals from H4) and
   `b3Body_WriteSetter( world, const b3Body* )` (journals from H4 unless the owner is awake), which
@@ -941,8 +945,10 @@ specification. Mechanics that follow from them:
   pair set's add and remove, the pool free's popped id, the proxy destroy undo's id.
 - Every journal call is `if ( world->history == NULL ) return;` first (the design §7.3).
 - The journaled containers: `b3JournaledSlotPool` (`src/slot_pool.c`), one per record kind, holding
-  the `b3IdPool` and the record arrays' pointers, with `alloc` (makes the pool alloc entry, pushing
-  a zeroed record and, for shapes, a zeroed `fatAABBs` entry on a bump) and `free` (moves the
+  the `b3IdPool` and the two functions its record file installs at creation, push-zeroed and
+  truncate (the record arrays' headers stay in the record file, H3a to H3c), with `alloc` (makes the
+  pool alloc entry, calling push-zeroed on a bump, which for shapes pushes the `fatAABBs` entry
+  too; the undo of a bump calls truncate) and `free` (moves the
   record's owned blocks into the pool free entry with the counts the design names, clearing the
   record's pointers and counts, then frees the id); `b3JournaledArray` mutators push, removeswap,
   clear and set by (array tag, owner id) over the `b3ConstArray` fields of H3c, with
@@ -971,7 +977,9 @@ specification. Mechanics that follow from them:
   file: `b3BroadPhase_RefitTrees( world )` and `b3BroadPhase_EnlargeProxy( world, proxyKey, aabb )`
   replace `src/solver.c`'s calls, `b3BroadPhase_RebuildTree( world, treeIndex, fullBuild )` replaces
   `b3World_RebuildStaticTree`'s rebuild and the tests' `PerturbTreeLayout` calls, and
-  `b3BroadPhase_LoadTree( world, treeIndex, ... )` replaces `b3DesTree`'s in-place write,
+  `b3BroadPhase_LoadTree( world, treeIndex, ... )` replaces `b3DesTree`'s in-place write and
+  `b3BroadPhase_LoadPairSet( bp, ... )` replaces `b3DesHashSet`'s write through `&bp->pairSet`
+  (both restores, neither journals),
   `b3BroadPhase_ClearMoved( bp, treeIndex )` is the pair update's static-tree clear and replaces
   `SleepingProxyTreeCase`'s two calls, and `b3BroadPhase_MarkProxyMoved` and
   `b3BroadPhase_MarkProxyMovedSerial` become ordinary functions of the file, declared in the
@@ -1016,8 +1024,7 @@ write, so the walk alone must restore the hash:
    on a static body and the other destroyed; the hull shape destroyed and a shape with the same
    hull content created; `b3Shape_SetFriction`, `b3Shape_SetRestitution`,
    `b3Shape_SetSurfaceMaterial` and `b3Shape_SetMeshMaterial` on the static shapes and on a
-   sleeping body's shape; the body with the mesh contact destroyed (its contact, island and set
-   with it). Then `b3History_UndoPending`: `ENSURE` the hash equals the recorded one, every
+   sleeping body's shape. Then `b3History_UndoPending`: `ENSURE` the hash equals the recorded one, every
    sleeping body's shape `proxyKey` equals its recorded value, and `pendingBytes` is 0. Fails before
    H4 by not building.
 2. `SegmentWalkCase`: the same scene with no awake body at all (the piles asleep, the kinematic
@@ -1032,19 +1039,22 @@ write, so the walk alone must restore the hash:
    and the sensor pass has nothing, so beyond the scalars no hot write occurs and the segments
    alone carry every change (§2). Fails before H4 by not building.
 3. `OwnershipCase`: on case 1's scene, with `n0` the sum of `allocationCount` over
-   `world->manifoldAllocators` read after the enable: a joint between the two lone sleeping bodies
-   (the merge destroys one set and one island), the body with the mesh contact destroyed (its
-   manifold block, cache, island and set), the multi-material shape destroyed, a sensor destroyed,
-   the hull's last reference released; `ENSURE` `pendingBytes` grew by at least the sum of each
-   destroyed set's five array byte counts, each destroyed island's three, the manifold block's,
-   the cache's, the material block's, the sensor's three and the hull's `byteCount`, read before
-   each destroy; `b3History_UndoPending`:
-   `ENSURE` the hash equals the recorded one and the manifold allocators' count equals `n0`. Then
-   the same churn followed by a step (the segment closes), `ENSURE` `bytesUsed` includes those
-   bytes and `pendingBytes` is 0; then enough steps on a `tickCount` 4 ring to evict the slot:
-   `ENSURE` the manifold allocators' count fell by one; then disable, destroy the world and
-   `ENSURE( b3GetByteCount() == base )` with `base` from before the world was created, which is
-   the check that every other evicted block was freed. Fails before H4 by not building.
+   `world->manifoldAllocators` read after the enable. Cold part: a joint between the two lone
+   sleeping bodies (the merge destroys one set and one island), the multi-material shape
+   destroyed, a sensor destroyed, the hull's last reference released; `ENSURE` `pendingBytes` grew
+   by at least the sum of the destroyed set's five array byte counts, the destroyed island's three,
+   the material block's, the sensor's three and the hull's `byteCount`, read before each destroy;
+   `b3History_UndoPending`: `ENSURE` the hash equals the recorded one and `pendingBytes` is 0.
+   Contact part, through `b3World_Rewind` since the destroy wakes (§2): the body with the mesh
+   contact destroyed between steps (its manifold block, cache, island and set into the entries);
+   `ENSURE` `pendingBytes` grew by at least those byte counts; `b3World_Rewind( historyTick )`:
+   `ENSURE` the hash equals the recorded one, the manifold allocators' count equals `n0` and
+   `pendingBytes` is 0. Then that destroy again followed by a step (the segment closes), `ENSURE`
+   `bytesUsed` includes those bytes and `pendingBytes` is 0; then enough steps on a `tickCount` 4
+   ring to evict the slot: `ENSURE` the manifold allocators' count fell by one; then disable,
+   destroy the world and `ENSURE( b3GetByteCount() == base )` with `base` from before the world was
+   created, which is the check that every other evicted block was freed. Fails before H4 by not
+   building.
 4. `ProxyIdentityCase`: a lone sleeping body destroyed between steps (its sleeping-tree proxy
    destroy entry), then `b3History_UndoPending`: `proxyKey` equals its recorded value and the hash
    is restored, section 2 of H0's walk (the sleeping tree's proxy pool) included; then a static

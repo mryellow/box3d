@@ -137,3 +137,18 @@ Round 5: 4 findings (H2-M1-L1), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
 - §2 counts eighteen `Create*` in `shared/benchmarks.h` and seventeen table rows; the rewind test
   runs the table's seventeen.
 - Length 1329 -> 1351 lines.
+
+## Revision 7: after review round 6
+
+Round 6: 4 findings (H2-M2-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> pending.
+
+- The mesh-contact body's destroy wakes (a touching contact's destroy wakes both bodies), so
+  `ColdChurnUndoCase` drops it and `OwnershipCase` tests the contact's blocks through
+  `b3World_Rewind` in a second part; §2's cold rule states the reason.
+- The slot pool holds the id pool and two functions the record file installs, push-zeroed and
+  truncate, so the record arrays' headers stay private to their files.
+- H4 names `b3BroadPhase_LoadPairSet` for the serializer's reader beside the tree load.
+- The phase-0 writer sizes an imaged slot with a count-only serialization before the budget steps
+  and writes into a buffer of exactly that capacity.
+- Length 1351 -> 1361 lines.
