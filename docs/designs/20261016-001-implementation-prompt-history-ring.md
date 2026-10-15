@@ -694,8 +694,9 @@ in full are the specification. Mechanics that follow from them:
   kinematic body's and a static shape, with `invokeContacts` false (the proxy untouched) and
   true (the proxy recreated, §2); `b3Body_SetType` to kinematic and back on a sleeping body; `b3Body_SetType` and
   destroy of a sleeping body; `b3Body_SetAwake( false )` immediately after each rewind;
-  `b3World_SetUserData` (the test sets it back itself before comparing, since it is host state,
-  the design §10); setters on sleeping bodies (`SetTransform`, which wakes, and `SetLinearVelocity` with a zero
+  `b3World_SetUserData` (after each rewind the test first `ENSURE`s `b3World_GetUserData` still
+  returns the value set before the rewind, the design §10's host-state rule, then sets it back to
+  the value at T itself before comparing); setters on sleeping bodies (`SetTransform`, which wakes, and `SetLinearVelocity` with a zero
   and a nonzero velocity, the second waking, §2);
   `b3World_Explode`; a distinct `userData` word per body, shape and joint, changed by setters during
   the churn; creation and destruction of the world's only compound shape; hull shape creation,
@@ -780,8 +781,10 @@ that follow from it:
   b3GetJointSim`, `const b3JointSim* b3GetJointSimCheckType`. Writers use `b3SetBodySim( world,
   body, const b3BodySim* )`, `b3SetBodyState( world, body, const b3BodyState* )` and
   `b3SetJointSim( world, joint, const b3JointSim* )` in `src/solver_set.c`, which locate the element
-  as the getters do and copy the value in (H4 makes them the journaled `set` of the set's array and
-  the awake-array write). A joint setter copies the sim, changes the field and sets it back. The
+  as the getters do and copy the value in; an awake joint's sim lives in a colour (`src/joint.c`),
+  so `b3SetJointSim` dispatches to `b3Graph_SetJointSim( world, colorIndex, localIndex, const
+  b3JointSim* )` in `src/constraint_graph.c` for one, the colour's own writer once H3c hides the
+  graph (H4 makes them the journaled `set` of the set's array and the awake-array write). A joint setter copies the sim, changes the field and sets it back. The
   step's stages are unchanged in this commit: they index the awake set's and the colours' arrays by
   base pointer, which H4 replaces.
 - `src/CMakeLists.txt` and `test/CMakeLists.txt`: the discarded-qualifier diagnostic is an error on
@@ -846,11 +849,17 @@ field exclusions are the specification. Mechanics that follow from them:
 - `b3Shape_SetUserShape( world, id, void* )` in `src/shape.c` is the one `userShape` writer; the
   debug draw's assignment in `src/physics_world.c` and the serializer's detach and put-back go
   through it.
+- The serializer's reader sizes `world->bodies`, `world->shapes` and `fatAABBs` through
+  `b3Body_LoadCount( world, count )` and `b3Shape_LoadCount( world, count )` of the record files,
+  which grow with zeroed records or truncate and make no entry; H3b adds `b3Contact_LoadCount`,
+  H3c the joint's and island's; H4's slot pool takes these as its push-zeroed and truncate.
 - The step mark: `world->inStep`, a `bool` set at `b3World_Step`'s entry and cleared at its exit,
   read by the hot accessors' assertions only (§3). The restore mark: `world->inRestore`, a `bool`
-  set and cleared by `b3DeserializeIntoShell` around its writes (so the serializer's reader, the
-  recording player and the phase-0 rewind all carry it) and from H4 by `b3World_Rewind` around its
-  step 2 and step 3, read by the restore writers' assertions only, which is the assertion the
+  set and cleared, asserting it clear on entry, by each function that writes through the restore
+  writers: `b3DeserializeIntoShell` around its writes (so the serializer's reader, the recording
+  player and the phase-0 rewind all carry it), from H4 the two halves of the journal walk (so
+  `HistoryJournalTest`'s direct calls carry it and `b3World_Rewind` sets nothing itself) and from
+  H5 the image scatter; read by the restore writers' assertions only, which is the assertion the
   design §5.2 gives them (inside `b3World_Rewind` or inside `b3DeserializeIntoShell`); no existing
   field tells a restore from a between-step call.
 - Every direct assignment to a body or shape field elsewhere (`src/body.c`'s setters,
@@ -959,6 +968,15 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   deleted; a sensor's three arrays are `b3ConstArray` fields; the sensor pass and the continuous
   sensor-hit write take a writable view of one sensor's three arrays by index from the hot accessor
   with no awake-owner assertion (the design §5.2, Sensors); `shapeId` is unreachable for writing.
+- The serializer's reader and `b3FreeLiveSimElements` (`src/world_snapshot.c`) write the
+  containers this commit hides through each container's file-local load function, introduced with
+  the boundary that hides it (the design §5.2's file-local loads: they write storage and make no
+  entry): the solver-set array's and a set's five arrays' in `src/solver_set.c`, an island's three
+  arrays' in `src/island.c`, a colour's four headers' in `src/constraint_graph.c`, the sensor
+  array's and a sensor's three arrays' in `src/sensor.c`, each taking the count and the decoded
+  elements; without them this commit could not build the reader, and §3 needs the suite green at
+  every commit. H4 adds the pair set's, the trees' and the bitsets' loads and routes the journal's
+  undo through all of them.
 - `b3SetBodySim`, `b3SetBodyState` and `b3SetJointSim` of H2 are now the set functions of those
   arrays.
 
@@ -1022,12 +1040,14 @@ specification. Mechanics that follow from them:
   `b3CreateIsland` and `b3DestroyIsland` make their entries, the destroy entries taking the arrays;
   the hull database's three functions make the refcount entry, a decrement to zero moving the hull
   into the entry; `b3CreateContact` makes the mesh cache entry after its record write.
-- Restore routes: every journaled container and the hull database offer, in their file, a load
-  function that writes storage and makes no entry (the design §5.2's file-local loads): the slot
-  pools', the arrays', the bitsets', `b3BroadPhase_LoadTree`, `b3BroadPhase_LoadPairSet` and the
-  hull database's restore add and remove. `b3DeserializeIntoShell` and `b3FreeLiveSimElements`
-  (`src/world_snapshot.c`) use these in place of the journaling functions from this commit, so a
-  phase-0 rewind makes no entry of its own; H5's scatter uses them too.
+- Restore routes: the loads H3a to H3c gave the serializer's reader stand (the record files'
+  load-count functions, now the slot pools' push-zeroed and truncate; the set, island, colour and
+  sensor array loads) and this commit adds the rest, each in its file, writing storage and making
+  no entry (the design §5.2's file-local loads): the bitsets', `b3BroadPhase_LoadTree`,
+  `b3BroadPhase_LoadPairSet` and the hull database's restore add and remove.
+  `b3DeserializeIntoShell` and `b3FreeLiveSimElements` (`src/world_snapshot.c`) use them for every
+  container, so a phase-0 rewind makes no entry of its own; the journal's undo and H5's scatter
+  use them too.
 - Entering the awake set: `b3SolverSet_PushAwakeBody( world, body, sim, state )`,
   `b3SolverSet_PushAwakeJoint`, `b3SolverSet_PushAwakeContact( world, contact )` (the awake set's
   `contactIndices`, for a non-touching contact: `b3CreateContact`'s push when the set is the awake
@@ -1272,11 +1292,18 @@ restores its order (the trees doc §6).
   the test steps until `b3World_GetAwakeBodyCount` is the sixteen awake boxes before enabling
   history). Per-step charge at or below 256 KB. Fails before H6: the kinematic tree is imaged raw,
   20,000 proxy slots at about 100 B each.
-- `HistoryTreeTest` gains two kinematic cases: a kinematic body moved between steps by
+- `HistoryTreeTest` gains three kinematic cases: a kinematic body moved between steps by
   `b3Body_SetTransform` into contact with a sleeping pile, with the rewind across the move (the
-  pass moves its proxy and the next step rebuilds the kinematic tree); and a kinematic body's
+  pass moves its proxy and the next step rebuilds the kinematic tree); a kinematic body's
   shape filter changed after T (its proxy recreated with a possibly different id), rewound:
-  `proxyKey` equals the recorded value and the replay matches.
+  `proxyKey` equals the recorded value and the replay matches; and a sensor sweep whose visitors
+  are more than eight convex kinematic shapes with `enableSensorEvents` set, witnessed over the
+  kinematic tree: the visit order recorded at tick 10 in the original run against the order after
+  the rewind, which differ because the restore pass rebuilds the kinematic tree in full where the
+  original run grew it one proxy at a time (the trees doc §6; the perturbation helper's full
+  rebuild would reproduce the pass's layout, so this case's witness is the pass itself, and a case
+  whose two orders are equal adds kinematic shapes until they differ), then replay equality of
+  hashes and events to tick 30.
 
 ## 5. Goldens and scene hashes
 
@@ -1369,7 +1396,14 @@ Measurements the closure doc needs:
   eight workers, per scene of the benchmark table (`large_world` among them) and a scene of one million
   sleeping dynamic and kinematic bodies with sixteen awake (built in the harness: a grid of boxes
   created asleep, half kinematic, in batches with a step after each as `HistoryCostTest` case 1
-  does, so the awake tree's capacity stays small, awake boxes falling elsewhere): capture
+  does, so the awake tree's capacity stays small, awake boxes falling elsewhere, and two scripted
+  transitions for the separate timings below: one kinematic body moved by `b3Body_SetTransform`
+  between steps three ticks before the timed rewind, so the rewind nine ticks back moves its proxy
+  and the first replayed step rebuilds the kinematic tree, and one sleeping island of 4,096
+  touching boxes, a slab, woken by `b3Body_SetAwake( true )` on one of them four ticks before the
+  timed rewind, so the rewind undoes the wake and re-inserts the island's proxies into the sleeping
+  tree past `B3_SLEEPING_TREE_MAX_HEIGHT`, firing the full rebuild, which the harness confirms by
+  reading the tree's height in a scratch build): capture
   microseconds and percent
   of the step (the capture timed around the H1 insertion in a scratch build, the step timed in the
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
@@ -1386,7 +1420,10 @@ Measurements the closure doc needs:
   `b3_historyTickUnavailable` return; replay milliseconds for 9 ticks.
   Acceptance as the design states:
   capture under 15% of the step at eight workers on the all-awake scenes and under 1 µs per awake
-  body on `large_world` and the million-body scene; restore proportional to awake plus sensors and
+  body on `large_world` and the million-body scene (a tick with no awake body, which `large_world`
+  can produce, reports its absolute capture microseconds and is left out of the per-awake ratio;
+  the design gives such a tick no target, which the closure doc notes for the owner); restore
+  proportional to awake plus sensors and
   journal, reported per scene as absolute restore microseconds beside the awake body count, the
   sensors' overlap count summed over the public sensor overlap query and the undone segments'
   bytes, with the table scenes (which have no sensor, `shared/benchmarks.c`) joined by the

@@ -282,3 +282,24 @@ pending.
   exception list and §10's marks entry count three.
 - §6's exclusion row names the four assertion sites and their predicates in place of a count.
 - Length 1476 -> 1484 lines.
+
+## Revision 16: after review round 15
+
+Round 15: 6 findings (H2-M4-L0), 6 applied, 0 declined; 1 Unresolved item (a design question,
+recorded). Findings: 3/5/1 -> 2/3/0 -> 0/4/0 -> 3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 ->
+2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 -> 2/4/0 -> pending.
+
+- Each boundary commit gives the serializer's reader the file-local loads for the containers it
+  hides (load-count functions for the record arrays in H3a to H3c; set, island, colour and sensor
+  array loads in H3c); H4 adds the pair set's, the trees' and the bitsets' and routes the undo
+  through all of them.
+- The restore mark is set and cleared by the functions that write through the restore writers
+  (the deserializer, the two walk halves, the scatter), so the journal test's direct calls carry
+  it.
+- `b3SetJointSim` dispatches to a graph-local writer for an awake joint, whose sim is in a colour.
+- `HistoryRewindTest` asserts the world's `userData` survived each rewind before setting it back.
+- `HistoryTreeTest` gains a kinematic layout witness: the original run's visit order at T against
+  the order after the restore pass's full rebuild, then replay equality.
+- §7's million-body fixture scripts a kinematic move and a 4,096-body island wake before the timed
+  rewind; a tick with no awake body reports an absolute figure outside the per-awake ratio.
+- Length 1484 -> 1521 lines.
