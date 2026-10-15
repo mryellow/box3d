@@ -31,3 +31,10 @@ Round 3: 2 findings (0H-0M-2L), 2 applied, 0 declined.
 
 - §9: proxy entries for the static and sleeping trees, the restore pass for the static tree only.
 - §8, §12: no physics result reads the sleeping tree's layout; the counters are diagnostics.
+
+## Revision 5 (2026-10-15, after round 4)
+
+Round 4: 1 findings (0H-0M-1L), 1 applied, 0 declined.
+
+- §6: the in-place move of a sleeping-tree leaf is named as `b3Body_SetTransform` from a query
+  callback; the move entry covers every such move.

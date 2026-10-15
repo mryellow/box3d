@@ -136,9 +136,10 @@ to its restored fat AABB reproduces the leaf. A dynamic leaf need not: the bulle
 new entry, so a bullet's leaf can hold a box larger than its entry, and a migration carries the
 box the leaf held into the sleeping tree. The sleeping tree's leaves are therefore restored from
 entries alone and the pass does not touch that tree: an undone migration re-inserts the box the
-destroy entry recorded, and a leaf written in place, which happens only inside an API call that
-then parks or wakes the body (`b3ResetProxy` keeping the proxy), is moved back by its move entry
-after the undone migration has put it back.
+destroy entry recorded, and a leaf written in place by `b3BroadPhase_MoveProxy` while it is still in the sleeping tree, as
+`b3Body_SetTransform` does from a public query callback, where the wake it makes is queued until the
+traversal ends (`body.c`, `broad_phase.c`), is moved back by its move entry after the undone
+migration has put it back; the entry covers every in-place move of a sleeping-tree leaf.
 
 Cost O((restored shape records + moved proxies) · log n). Ring cost for the three layouts: zero.
 A kinematic tree the pass moved a proxy in can be left unordered (a move clears `dfsOrdered` when it
