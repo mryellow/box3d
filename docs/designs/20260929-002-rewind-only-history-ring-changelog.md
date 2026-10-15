@@ -515,3 +515,11 @@ Round 60: 2 findings (0H-1M-1L), 2 applied, 0 declined.
   enable-time world as tick 0 (§8); a caller maps a network tick through the enable tick.
 - Round 59's clean run is not confirmed; a fresh clean round and confirmation follow on this
   revision (U-S8).
+
+## Revision 59 (2026-10-15, after round 61)
+
+Round 61: 1 findings (1H-0M-0L), 1 applied, 0 declined.
+
+- §5.2: an awake joint's sim is an element of its graph colour's `jointSims` array
+  (`b3GetJointSim`, `joint.c`), not of the awake set's; the sim write goes to the array that holds
+  it, the solver set's or the colour's that `colorIndex` names.

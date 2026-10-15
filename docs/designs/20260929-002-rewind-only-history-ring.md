@@ -253,7 +253,8 @@ that file.
 
 **Records.** The record types are `bodies[id]`, `shapes[id]` with `fatAABBs`, `contacts[id]`,
 `joints[id]` and `islands[id]`. A body's or joint's sim is not part of its record: it is an element
-of a solver set's `bodySims` or `jointSims` array, written through that array's journaled type
+of a solver set's `bodySims` or `jointSims` array, or of a graph colour's `jointSims` array for an
+awake joint (`b3GetJointSim`, `joint.c`), written through that array's journaled type
 (Containers, below), and a non-awake set holds no `bodyStates` (`b3GetBodyState` returns null for
 one, `body.c`). `b3GetBodySim`, `b3GetBodyState`, `b3GetJointSim` and `b3GetJointSimCheckType`
 (`body.h`, `joint.h`), which return writable pointers into a set's arrays to every file today,
@@ -275,9 +276,10 @@ the setter one, which API setters call, journals unless the record's owner is aw
 entry never holds a sim. A function that writes a record and its sim (`b3Body_SetTransform`,
 `b3Body_SetMassData`, `b3UpdateBodyMassData`, `b3SyncBodyFlags` and `body.c`'s other sim-writing
 functions; the joint setters in every joint file) makes two writes, the record through its
-accessor and the sim through its set's array `set` at the record's `localIndex`, each journaling
-itself; the set's array is the one the record names at the time of an in-place write, since nothing
-has moved the sim. A sim moves between sets only by the array push, removeswap and set destroy
+accessor and the sim through the `set` of the array that holds it at the record's `localIndex`,
+its solver set's array or, for an awake joint, the colour's `jointSims` array its `colorIndex`
+names, each journaling itself; the array is the one the record names at the time of an in-place
+write, since nothing has moved the sim. A sim moves between sets only by the array push, removeswap and set destroy
 entries, which hold its bytes (§7.1), so no entry reads a sim through a record's coordinates after
 a structural function has moved it. API setters
 between steps that write an awake body's velocity (`b3Body_SetLinearVelocity`, the explosion's
