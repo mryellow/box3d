@@ -1,7 +1,7 @@
 ---
 
 title: The broad-phase trees under a rewind-only world history
-status: Draft
+status: Canonical
   Split from docs/designs/20260929-002-rewind-only-history-ring.md, which decides the per-tick image, the undo journal, the restore and the
   public API, and cites this document for the four broad-phase trees: which is imaged, which are
   derived, how proxy identity and leaf boxes come back exactly, and the restore pass. The document

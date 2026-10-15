@@ -122,3 +122,10 @@ Round 10: 0 findings (0H-0M-0L), 0 applied, 0 declined.
   from phase 1; sleeping entries and no pass; kinematic imaged raw in phase 1, entries and pass
   from phase 2. U-G7: no claim about a system the project does not own.
 - Status stays Draft; Canonical is the owner's edit.
+
+## Canonical (2026-10-16)
+
+- Status set to Canonical on revision 7, after the clean round 9, its confirmation round 10 and
+  the gate re-run of 2026-10-16. 10 rounds, 9 findings (0H-2M-7L). The parent
+  `docs/designs/20260929-002-rewind-only-history-ring.md` is Canonical at revision 60 and cites
+  this document for §5.4 and §7.4; the three history ring documents are now all Canonical.
