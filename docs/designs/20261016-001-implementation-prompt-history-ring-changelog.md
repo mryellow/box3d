@@ -85,3 +85,17 @@ Round 2: 5 findings (H2-M3-L0), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
 - `OwnershipCase` drops the exact byte-count equalities after the undo and after the eviction;
   the baseline after the destroy is the check that every evicted block was freed.
 - Length 1284 -> 1294 lines.
+
+## Revision 4: after review round 3
+
+Round 3: 4 findings (H0-M4-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 -> pending.
+
+- §2 and H3a name `b3Shape_SetFriction` and `b3Shape_SetRestitution` as material writers that go
+  through `b3Shape_WriteMaterial`; the journal and rewind tests exercise them.
+- §2 lists the two `static inline` mark functions of `src/broad_phase.h` and the standalone
+  broad-phase test's direct clears among the tree writes outside `src/broad_phase.c`; H4 moves the
+  mark bodies into the file and names its clear function for the test.
+- `HashSensitiveCase` uses the wake alone, since a wake followed by a sleep can hash as before.
+- H1 declares two read-only directory functions in `src/world_history.h` for the tests, H4 a third
+  for owned blocks; §9's hook stop condition excepts them.
+- Length 1294 -> 1309 lines.

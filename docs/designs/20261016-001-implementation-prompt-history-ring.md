@@ -95,8 +95,8 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   already pointer-to-const. A single-material shape keeps `materialCount` 1 and `materials` NULL; a
   multi-material or compound shape holds a `b3Alloc`'d block. `b3GetShapeMaterials` is a `static
   inline` in `src/shape.h` that takes a const shape and returns a writable pointer by casting the
-  qualifier away; `b3Shape_SetSurfaceMaterial` and `b3Shape_SetMeshMaterial` (`src/shape.c`) write
-  through it. `userShape` is assigned at creation and destruction (`src/shape.c`), in the debug
+  qualifier away; `b3Shape_SetFriction`, `b3Shape_SetRestitution`, `b3Shape_SetSurfaceMaterial` and
+  `b3Shape_SetMeshMaterial` (`src/shape.c`) write through it. `userShape` is assigned at creation and destruction (`src/shape.c`), in the debug
   draw's query callback (`src/physics_world.c`) and by the serializer's reader (`src/world_snapshot.c`).
 - `b3Contact` (`src/contact.h`): `setIndex`, `colorIndex`, `localIndex`, `islandId`, `islandIndex`,
   `contactId`, the two edges, shape ids, `childIndex`, `encodedBodySimA/B`, `flags`,
@@ -196,14 +196,18 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   recording, `b3HashWorldState`, the state-hash op and the bounds walk. The design §6's capture point
   is after `b3BroadPhase_EndTraversal`; H1 puts it after `b3ValidateProxyTrees` and before the
   unlock.
-- The tree writes outside `src/broad_phase.c` are exactly the four the trees doc §7 names:
+- The tree writes outside `src/broad_phase.c` are the four the trees doc §7 names,
   `b3DynamicTree_Refit` on the kinematic and dynamic trees and `b3DynamicTree_EnlargeProxy`
   (`src/solver.c`), `b3DynamicTree_Rebuild` on the static tree (`b3World_RebuildStaticTree`,
-  `src/physics_world.c`, declared in `src/physics_world.h` only) and `b3DesTree` (`src/world_snapshot.c`).
-  Tests also write trees directly: `PerturbTreeLayout` in `test/test_awake_tree.c` and
-  `test/test_tree_order.c` calls `b3DynamicTree_Rebuild` on `world->broadPhase.trees + i`; once the
-  trees are pointer-to-const outside `src/broad_phase.c` (H4) those helpers call a rebuild function
-  of that file.
+  `src/physics_world.c`, declared in `src/physics_world.h` only) and `b3DesTree`
+  (`src/world_snapshot.c`), and the two `static inline` functions of `src/broad_phase.h`,
+  `b3BroadPhase_MarkProxyMoved` and `b3BroadPhase_MarkProxyMovedSerial`, which write through
+  `bp->trees` in every includer; H4 moves their bodies into `src/broad_phase.c`. Tests also write
+  trees directly: `PerturbTreeLayout` in `test/test_awake_tree.c` and `test/test_tree_order.c`
+  calls `b3DynamicTree_Rebuild` on `world->broadPhase.trees + i`, and `SleepingProxyTreeCase` in
+  `test/test_awake_tree.c` calls `b3DynamicTree_ClearMoved` on two trees of a standalone
+  `b3BroadPhase`; once the trees are pointer-to-const outside `src/broad_phase.c` (H4) those
+  helpers call a rebuild function and a clear function of that file.
 - Every leaf-box write in the static and kinematic trees passes the shape's `fatAABBs` entry:
   `b3Body_SetTransform` (`src/body.c`), `b3CreateShapeProxy` and `b3ResetProxy` (`src/shape.c`), the
   finalize mark through `b3BroadPhase_MarkProxyMoved` (`src/solver.c`). The trees doc §6 relies on
@@ -456,7 +460,7 @@ Two internal pieces of test machinery are shared by several entries and are writ
    body; `b3World_SetGravity`; `b3Shape_SetSurfaceMaterial` on the static shape;
    `b3Shape_SetFilter`; destroying and recreating a body with the same def (its generation differs);
    destroying one of the two hull shapes (the database's refcount differs); destroying the sensor;
-   `b3Body_SetAwake( false )` after a wake. Each of these leaves it unchanged: `b3Body_SetUserData`,
+   `b3Body_SetAwake( true )` on the sleeping body. Each of these leaves it unchanged: `b3Body_SetUserData`,
    `b3Shape_SetUserData`, `b3Joint_SetUserData`, `b3World_SetUserData`.
 3. `HashLayoutCase`: the scene of case 1 after 120 ticks, hashed, then every tree fully rebuilt by
    the perturbation helper, hashed again: equal (a rebuild changes no leaf box, proxy id or moved
@@ -493,7 +497,10 @@ in full are the specification. Mechanics that follow from them:
   (one `b3Alloc`'d block), the write position, the slot directory (per retained slot: tick, offset,
   byte length, charge, whether imaged; a growable array in tick order whose first entry is the oldest
   retained slot), the effective interval, the tick of the last imaged slot, `bytesUsed`,
-  `pendingBytes`, and the phase-0 serializer state below.
+  `pendingBytes`, and the phase-0 serializer state below. `src/world_history.h` declares, for the
+  tests, two read-only functions over the directory: `b3History_GetSlotCount( world )` and
+  `b3History_GetSlot( world, index )` returning the slot's tick, charge and imaged flag in a small
+  struct; the tests read nothing else of the ring.
 - A phase-0 slot is a header, the `b3SerializeWorld` image written into a `b3RecBuffer` with the
   ring's own `b3Recording` as the registry and the user-words option on, the migration queue's
   count and ids copied after it, and an empty journal segment. Its charge is the header, the
@@ -568,8 +575,8 @@ in full are the specification. Mechanics that follow from them:
   check run after every operation below: for every tick from 0 to `historyTick + 5`,
   `b3World_GetRestorableTick` returns the newest retained imaged tick at or below it as the test
   tracks it from the directory's imaged flags, or `UINT64_MAX` when none;
-  `b3World_GetHistoryInfo().bytesUsed` equals the sum of the retained slots' charges read from the
-  directory through `src/world_history.h`; `b3World_Rewind( historyTick + 1 )` returns
+  `b3World_GetHistoryInfo().bytesUsed` equals the sum of the retained slots' charges read through
+  `b3History_GetSlot`; `b3World_Rewind( historyTick + 1 )` returns
   `b3_historyTickUnavailable` and leaves the hash unchanged. Cases, each on a fresh world created
   after `int64_t base = b3GetByteCount();` and each ending with `b3World_DisableHistory`,
   `b3DestroyWorld` and `ENSURE( b3GetByteCount() == base )`, except case 6, which ends with
@@ -623,8 +630,9 @@ in full are the specification. Mechanics that follow from them:
   the design §10); setters on sleeping bodies (`SetTransform`, `SetLinearVelocity`);
   `b3World_Explode`; a distinct `userData` word per body, shape and joint, changed by setters during
   the churn; creation and destruction of the world's only compound shape; hull shape creation,
-  destruction and deduplicated creation; sensor shape creation and destruction; surface and mesh
-  material writes on awake, sleeping and static shapes, single- and multi-material; and the
+  destruction and deduplicated creation; sensor shape creation and destruction; friction,
+  restitution, surface and mesh material writes on awake, sleeping and static shapes, single- and
+  multi-material; and the
   structural cases the design lists (a touching contact's manifold count changing across a sleep
   and wake; a contact creation that rewrites an awake neighbour's edge followed by a step that
   changes that neighbour's manifold count; a multi-material shape destroyed and a shape with a
@@ -756,7 +764,8 @@ field exclusions are the specification. Mechanics that follow from them:
   `const b3SurfaceMaterial*`. `b3Shape_WriteMaterial( world, id, index, const b3SurfaceMaterial* )`
   in `src/shape.c` is the one material writer: for an inline material it builds the record with the
   new material and enters `b3Shape_WriteSetter`; for a block it writes the element (journals from
-  H4 whatever the owner's state). `b3Shape_SetSurfaceMaterial` and `b3Shape_SetMeshMaterial` call it.
+  H4 whatever the owner's state). `b3Shape_SetFriction`, `b3Shape_SetRestitution`,
+  `b3Shape_SetSurfaceMaterial` and `b3Shape_SetMeshMaterial` call it.
   Block allocation and release stay in `b3CreateShapeInternal` and `b3DestroyShapeAllocations`
   until H4 moves the release into the pool free entry.
 - `b3Shape_SetUserShape( world, id, void* )` in `src/shape.c` is the one `userShape` writer; the
@@ -926,7 +935,11 @@ specification. Mechanics that follow from them:
   file: `b3BroadPhase_RefitTrees( world )` and `b3BroadPhase_EnlargeProxy( world, proxyKey, aabb )`
   replace `src/solver.c`'s calls, `b3BroadPhase_RebuildTree( world, treeIndex, fullBuild )` replaces
   `b3World_RebuildStaticTree`'s rebuild and the tests' `PerturbTreeLayout` calls, and
-  `b3BroadPhase_LoadTree( world, treeIndex, ... )` replaces `b3DesTree`'s in-place write. The proxy
+  `b3BroadPhase_LoadTree( world, treeIndex, ... )` replaces `b3DesTree`'s in-place write,
+  `b3BroadPhase_ClearMoved( bp, treeIndex )` is the pair update's static-tree clear and replaces
+  `SleepingProxyTreeCase`'s two calls, and `b3BroadPhase_MarkProxyMoved` and
+  `b3BroadPhase_MarkProxyMovedSerial` become ordinary functions of the file, declared in the
+  header (§7's benchmark covers the call). The proxy
   create and destroy choke points (the single create shared by `b3BroadPhase_CreateProxy` and the
   drain's one-by-one placement, the drain's bulk `b3DynamicTree_CreateProxies` placement,
   `b3BroadPhase_DestroyProxy`) make the proxy create and destroy entries for the static and sleeping
@@ -962,7 +975,8 @@ write, so the walk alone must restore the hash:
    `b3Shape_SetFilter` on a sleeping body's shape; a joint created between two sleeping bodies and
    one destroyed; a body created asleep and a sleeping body destroyed; a sensor created on a static
    body and the other destroyed; the hull shape destroyed and a shape with the same hull content
-   created; `b3Shape_SetSurfaceMaterial` and `b3Shape_SetMeshMaterial` on the static shapes;
+   created; `b3Shape_SetFriction`, `b3Shape_SetRestitution`, `b3Shape_SetSurfaceMaterial` and
+   `b3Shape_SetMeshMaterial` on the static shapes;
    `b3Body_SetType` of a sleeping body to kinematic; `b3Body_SetAwake( true )` on one pile followed by
    `b3Body_SetAwake( false )` (a wake and a sleep, the set destroy and create entries, the bulk
    placement for the sixteen-body pile). Then `b3History_UndoPending`: `ENSURE` the hash equals the
@@ -1002,7 +1016,8 @@ write, so the walk alone must restore the hash:
 rewind with no step since a sensor destruction and since a hull release now checks
 `pendingBytes` before and 0 after; and after every operation the manifold allocators' summed
 `allocationCount` equals the live contacts' block count plus the manifold handles the retained
-slots and the staging buffer own (read through `src/world_history.h`). The leak check
+slots and the staging buffer own, read through a third read-only function of `src/world_history.h`,
+`b3History_CountOwnedBlocks( world, kind )`, added in this commit. The leak check
 `ENSURE( b3GetByteCount() == base )` after the destroy stands as the check for every other block
 kind.
 
@@ -1250,8 +1265,8 @@ document.
   not restore something the hash sees); a benchmark scene regresses past §7's threshold with history
   disabled; a phase-0 restore exactness failure is traced to a serializer field the serializer
   itself does not restore verbatim (fixing the serializer is in scope only as restoring the field
-  verbatim; anything else is a report); a test needs a hook in `src/` to observe something the
-  internal headers do not expose; a boundary commit cannot remove a direct write without
+  verbatim; anything else is a report); a test needs a hook in `src/` beyond the read-only
+  functions §4 H1 and H4 name and what the internal headers expose; a boundary commit cannot remove a direct write without
   module-boundary work the design does not describe (the design §5.2 calls that a finding against
   the surrounding code, to report); the step's stage loops cannot take their elements through the
   hot accessor without a measurable cost (§7's threshold); or a design is silent on a decision the
