@@ -96,3 +96,27 @@ only its capture time.
 - §12 test 5: reports retained bytes and the effective interval at a 60-tick window, under an
   unbounded budget and under one the window does not fit; acceptance adds `bytesUsed` within
   `maxBytes` except in §8's overrun cases.
+
+## Revision 26 (2026-10-15, after round 23)
+
+Round 23: 3 findings (0H-1M-2L), all applied, plus one unresolved item the author confirmed as a
+defect and fixed.
+
+- §7.4, §5.2: the drain's parked-flag write on each placed body goes through `b3Body_Write`'s
+  structural entry; the moving flag is set and cleared inside one drain. `b3PlaceBodies` joins the
+  body worklist.
+- §10: within a CCD sweep `preSolve` and the custom filter are called in sorted candidate order;
+  the layout-dependent cases are the custom filter in pair discovery and sensor queries, and the
+  interleaving of parallel workers.
+- §5.1: the static tree's mark sources are the broad phase's three mark setters, with the API
+  callers, `b3Joint_SetCollideConnected` among them, in parentheses.
+- §7.1, §5.2, §7.4, §12, §13: a bullet's leaf can be larger than its fat AABB entry, since the
+  enlarge leaves a leaf that already contains the new entry, and the sleep migration carries that
+  box into the sleeping tree. The sleeping tree's leaves are restored from entries alone: the
+  destroy entry's box and a new proxy move entry (sleeping tree only, inside
+  `b3BroadPhase_MoveProxy`) for a leaf `b3ResetProxy` writes in place. The restore pass runs on
+  the static tree in phase 1 and the kinematic tree from phase 2, where the leaf equals its entry.
+  Test 1's hash reads the leaf box as its own value; test 2 adds the slept-bullet case.
+- §16: question 2 records the engine-side alternative, a bullet enlarge that replaces the leaf
+  whenever it differs from the entry, deferred to its own preflight if phase 1 shows the proxy
+  move entry worth removing.
