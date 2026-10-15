@@ -197,3 +197,21 @@ Round 9: 3 findings (H2-M1-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
   `HistoryRingTest` checks `pendingBytes` is 0 after every successful rewind.
 - §2 names `b3DestroyBody` as the third `compoundShapeCount` writer; H2 refers to the three.
 - Length 1380 -> 1389 lines.
+
+## Revision 11: after review round 10
+
+Round 10: 3 findings (H1-M1-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> pending.
+
+- The phase-0 slot carries each live mesh, height-field and compound shape's geometry pointer
+  beside the image and the rewind repoints the restored shape at it (the design §10's
+  borrowed-geometry rule makes it valid), so no shape points into the ring's registry and disable
+  frees it; `HistoryReplayTest` disables after a rewind and steps on with casts; the decision is in
+  §10 with the two alternatives not taken.
+- The H4 pair-set compile-boundary statement is a member access on the incomplete type, since
+  Clang warns rather than errors on an incompatible pointer type; §2 names the diagnostic classes
+  the boundary statements rely on.
+- H2 counts five `splitIslandId` sites.
+- Length 1390 -> 1411 lines.
+- Tenth round without a clean round: the project's criteria review threshold. Recorded in the
+  round record's Status for the owner.

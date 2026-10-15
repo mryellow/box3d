@@ -277,10 +277,13 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   refcounted), while a restored mesh, height field or compound shape points at the slot's bytes, so
   their lifetime is the reader's. `b3RecCaptureKeyframe` (`src/replay.c`) asserts the registry did not
   grow during a keyframe capture; `b3RecSeedKeyframeRegistry` pre-seeds the slots so id equals slot
-  index. A phase-0 ring therefore owns one registry and one reader of its own, interns new geometry
-  at capture and appends a slot per new entry, and a phase-0 restore repoints mesh, height-field and
-  compound shapes at the ring's copies (the state hash reads content hashes, so it does not see the
-  pointer). H5 removes the registry from the ring and the pointers are the caller's again.
+  index. A phase-0 ring therefore owns one registry and one reader of its own for the serializer's
+  format, interns new geometry at capture and appends a slot per new entry; and since the design
+  §10 makes the caller keep a mesh, height field or compound alive while a retained tick can
+  restore its owner, the slot carries each such live shape's geometry pointer beside the image and
+  the phase-0 restore repoints the restored shape at the pointer recorded at T, so no live shape
+  points into the registry and disable frees it (the state hash reads content hashes, not the
+  pointer). H5 removes the registry.
 - The keyframe ring of `b3RecPlayer` doubles `keyframeInterval` while the retained keyframes plus
   the new one exceed `keyframeBudget`, dropping keyframes whose frame is not a multiple of the new
   interval; it is the precedent the ring doc §6 cites and nothing of it is reused.
@@ -312,7 +315,10 @@ on Unix (plus `-Wno-unused-value`), `/W4` with a few suppressions on MSVC, and n
 only error switch is `BOX3D_COMPILE_WARNING_AS_ERROR` (default OFF). The design §5.2's "discarded
 qualifier is an error" is therefore a per-compiler addition in H2: `-Werror=discarded-qualifiers`
 for GCC, `-Werror=incompatible-pointer-types-discards-qualifiers` for Clang and clang-cl, `/we4090`
-for MSVC, applied to the box3d and test targets unconditionally.
+for MSVC, applied to the box3d and test targets unconditionally. An incompatible pointer type is a
+warning, not an error, on Clang in C17, so no compile-boundary statement of §4 relies on it: each
+uses a discarded qualifier under those flags, a member of a pointer to an incomplete type, an
+unknown member or a read-only object, which are errors on every compiler.
 
 **Validation build.** `B3_ENABLE_VALIDATION` is 1 when `BOX3D_VALIDATE` is defined and `NDEBUG` is
 not (`include/box3d/base.h`); `BOX3D_VALIDATE` defaults ON at the top level and is a private define
@@ -538,8 +544,9 @@ in full are the specification. Mechanics that follow from them:
   struct; the tests and §7's harness read nothing else of the ring.
 - A phase-0 slot is a header, the `b3SerializeWorld` image written into a `b3RecBuffer` with the
   ring's own `b3Recording` as the registry and the user-words option on, the migration queue's
-  count and ids copied after it, and an empty journal segment. Its charge is the header, the
-  directory entry and those bytes (the ring doc §6; no entry owns a block in phase 0).
+  count and ids copied after it, the geometry pointer words of the live mesh, height-field and
+  compound shapes (shape id and pointer each, §2), and an empty journal segment. Its charge is the
+  header, the directory entry and those bytes (the ring doc §6; no entry owns a block in phase 0).
 - Capture (the ring doc §6 steps 1 to 4, the design §6's capture interval): in `b3World_Step` after
   `b3ValidateProxyTrees` and before `locked = false`, when `world->history` is non-NULL:
   `historyTick += 1`; decide whether this tick is imaged (at least the effective interval has passed
@@ -560,8 +567,10 @@ in full are the specification. Mechanics that follow from them:
   adds one entry), and a `b3RecReader` with `replayWorldId` set to this world whose `slots` are
   appended for the entries added since the last capture, as `b3RecSeedKeyframeRegistry` does once;
   entries are never freed while history is enabled, since any retained image may reference them,
-  and both are freed by disable. Their bytes are not in `bytesUsed`, `arenaCapacityBytes` or
-  `stagingCapacityBytes`; the closure doc reports them per scene (§8), and H5 removes them.
+  and both are freed by disable, which no live shape survives pointing into (the rewind repoints
+  every restored borrowed-geometry shape at its recorded pointer, above). Their bytes are not in
+  `bytesUsed`, `arenaCapacityBytes` or `stagingCapacityBytes`; the closure doc reports them per
+  scene (§8), and H5 removes them.
 - `b3World_EnableHistory`: takes the world through `b3GetUnlockedWorldFromId`; asserts
   `world->history == NULL`, `def->tickCount >= 1`, `1 <= def->captureInterval <= def->tickCount`,
   `broadPhase.traversalDepth == 0`, `world->recording == NULL`, the player mark clear, and that
@@ -583,7 +592,9 @@ in full are the specification. Mechanics that follow from them:
   `b3_historyTickUnavailable` (after unlocking) when T is not a retained imaged tick or is later
   than `historyTick`; step 2 is empty in phase 0; step 3 is `b3DeserializeIntoShell` of slot T's
   image through the ring's reader with the release-user-shapes option on, then the migration queue
-  copied back into `broadPhase.migrationQueue`; step 4 is empty (the trees are in the image); step 5
+  copied back into `broadPhase.migrationQueue` and each listed mesh, height-field and compound shape
+  repointed at its recorded geometry pointer through its record's restore writer, so no shape
+  points into the ring's registry; step 4 is empty (the trees are in the image); step 5
   clears `bodyMoveEvents`, `sensorBeginEvents`, `contactBeginEvents`, `contactHitEvents`,
   `jointEvents` and both `sensorEndEvents` and both `contactEndEvents` buffers, sets `bodyMoveIndex`
   to `B3_NULL_INDEX` on every body of the awake set, removes the slots after T (the write position
@@ -706,7 +717,10 @@ in full are the specification. Mechanics that follow from them:
   every body, shape and joint `userData` word equals the recorded one. Then the corrected replay: a
   rewind to 60 with one op dropped, replayed to 90, differing from the record at and after the
   first tick its results differ (asserted only as "differs somewhere", the regenerated events being
-  the corrected timeline's). Fails before H1 by not building.
+  the corrected timeline's). Then, on the third scene, `b3World_DisableHistory` after that rewind
+  and ten more steps with a ray cast through the mesh ground and the compound each step: the
+  steps run, the casts hit, and no assertion fires (the shapes point at the caller's geometry, not
+  the freed registry). Fails before H1 by not building.
 - `HistoryCrossWorkerTest` (the design §12 test 4). The three scenes of `HistoryReplayTest` run
   under `HistoryReplayTest`'s protocol with capture at `workerCount` 1 and replay at 4, and capture
   at 4 and replay at 1: equal hashes and digests at every replayed tick. Then the goldens: a fourth
@@ -743,7 +757,7 @@ that follow from it:
   serializer's reader and, from H5, the image copy go through it. Every writer of one of those
   fields takes a local copy, changes it and writes it back: `b3World_SetGravity` and the other
   public setters, `b3World_EnableSleeping` and the other enable setters, the step's `inv_h`/`inv_dt`, the
-  end-event flip, `splitIslandId` at its four sites and `compoundShapeCount` at its three (§2).
+  end-event flip, `splitIslandId` at its five sites and `compoundShapeCount` at its three (§2).
   Every reader reads through the pointer.
 - `const b3BodySim* b3GetBodySim`, `const b3BodyState* b3GetBodyState`, `const b3JointSim*
   b3GetJointSim`, `const b3JointSim* b3GetJointSimCheckType`. Writers use `b3SetBodySim( world,
@@ -1141,8 +1155,9 @@ them:
   MoveProxy` to the restored fat AABB through the broad phase's own move; then `b3DynamicTree_
   ClearMoved` on the static tree and `b3DynamicTree_MarkProxyMovedSerial` for each id of image T's
   static moved list (non-empty only in tick 0's image); step 5 and step 6 as in H1.
-- The ring's registry, reader and the serializer image leave `src/world_history.c`; the two
-  serializer options stay for the recording's use of the reader through the restore writers.
+- The ring's registry, reader, the serializer image and the slot's geometry pointer words leave
+  `src/world_history.c`; the two serializer options stay for the recording's use of the reader
+  through the restore writers.
 - The slot's image bytes are the design §6's count; the phase-0 O(world) term is gone, and
   `bytesUsed` on a sleeping world is a few KB per tick plus the kinematic tree's raw image until H6.
 
@@ -1235,7 +1250,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | ring doc §3 to §8: slots, two ends, interval, budget steps 1 to 4, window, charge, enable and disable, destroy | `HistoryRingTest` cases 1 to 10; the invariant check after every operation; the byte-count baselines | Build failure (H1) |
 | ring doc §9 test 1 | `HistoryRingTest`, extended in H4 for pending bytes and block ownership | Build failure (H1, H4) |
 | ring doc §9 test 2, budget acceptance | §7 measurements per scene | n/a |
-| design §13 phase 0: serializer options, queue beside the image, §9 step 5 performed by the rewind | Inspection; `HistoryRewindTest`'s debug-draw and `userData` cases; `HistoryRingTest` case 9 | Build failure (H1) |
+| design §13 phase 0: serializer options, queue and geometry pointers beside the image, §9 step 5 performed by the rewind | Inspection; `HistoryRewindTest`'s debug-draw and `userData` cases; `HistoryRingTest` case 9; `HistoryReplayTest`'s disable-and-continue run | Build failure (H1) |
 | design §10: recording and history exclusive, player world refused, seek refused | Inspection of the three assertions; a validation-build check in `HistoryRingTest` that `b3World_StartRecording` on a history world asserts is not written (an assertion failure ends the process); the closure doc states inspection | n/a |
 | design §12 test 2, restore exactness, every churn case | `HistoryRewindTest`, 25 pairs per scene in the suite, 1,000 under `BOX3D_HISTORY_SOAK` | Build failure (H1) |
 | design §12 test 3, replay exactness with events, host state set back | `HistoryReplayTest` | Build failure (H1) |
@@ -1250,7 +1265,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | design §6 capture steps 1 to 4; §9 steps 3 to 6 in place | `HistoryCostTest` case 1; the H1 tests unchanged under the new path; inspection | Yes, the 256 KB bound (H5) |
 | design §12 test 8 | `HistoryUndoSufficiencyTest` | No, regression (H5) |
 | trees doc §5 awake tree and queue imaged; §6 restore list, pass, moved lists, sleeping tree untouched; §7 proxy entries and identity; §8 rebuilds make no entry | `HistoryJournalTest` case 4; `HistoryRewindTest`'s tree cases; `HistoryTreeTest`; `HistoryHashTest` case 3; inspection | Case 4: build failure (H4) |
-| trees doc §7 every tree write a function of `broad_phase.c`, trees const outside; design §5.2 the pair set's file | H4 compile-boundary check: `b3DynamicTree_Rebuild( world->broadPhase.trees, true )` and `b3AddKey( &world->broadPhase.pairSet, 0 );` compile at H3c and fail at H4 (discarded qualifier; incompatible pointer type, the operand being a pointer to a pointer to an incomplete type) | n/a (boundary) |
+| trees doc §7 every tree write a function of `broad_phase.c`, trees const outside; design §5.2 the pair set's file | H4 compile-boundary check: `b3DynamicTree_Rebuild( world->broadPhase.trees, true )` and `world->broadPhase.pairSet.count = 0;` compile at H3c and fail at H4 (discarded qualifier; a member of a pointer to an incomplete type) | n/a (boundary) |
 | trees doc §9 phase 2 | `HistoryCostTest` case 2; `HistoryTreeTest`'s kinematic cases | Yes, the 256 KB bound (H6) |
 | trees doc §10 test 1 | `HistoryTreeTest` | No, regression |
 | design §12 test 5 and the ring doc §9 test 2, cost | §7 measurements | n/a |
@@ -1383,6 +1398,12 @@ document.
   magnitude above the design §5.1's figure for sixteen awake bodies with their contacts and an order
   below the serialized image, so it separates the two paths without pinning the design's estimate;
   the threshold is the benchmark's typical run-to-run spread at eight threads.
+- **Phase-0 restores repoint borrowed geometry at the caller's pointer, recorded beside the image.**
+  The design §10 makes the caller keep a mesh, height field or compound alive while a retained tick
+  can restore its owner, so the pointer recorded at T is valid at a rewind to T; leaving restored
+  shapes pointing into the ring's registry would make `b3World_DisableHistory` free memory live
+  shapes read, and handing the registry's copies to the world at disable would add an owned
+  structure that H5 removes, so neither was done.
 - **Phase-0 registry bytes are reported in the closure doc, not in `b3HistoryInfo`.** The ring doc's
   fields have settled meanings; adding a field for a phase-0 artefact that H5 removes was considered
   and not done.
