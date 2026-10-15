@@ -254,3 +254,19 @@ Round 12: 4 findings (H1-M3-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   segment bytes; the million-body scene gains 64 static sensors so the sensor column is not zero
   everywhere.
 - Length 1440 -> 1460 lines.
+
+## Revision 14: after review round 13
+
+Round 13: 4 findings (H1-M3-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> pending.
+
+- H0's hash mixes each colour contact spec's `manifoldCount` beside its contact id; only
+  `manifoldStart` is scratch.
+- `HistoryTreeTest`'s cases sit in trees their queries reach: static and sleeping candidates for
+  the bullet sweep, static visitors with sensor events enabled for the sensor sweep, sleeping bodies
+  for both explosions (`b3World_Explode` reads the awake and sleeping trees only).
+- §7's quarter-budget rewind falls back to the newest restorable tick when the nine-tick target has
+  no image below it.
+- §2's wake inventory adds the conditional wakes of the velocity, target-transform and force,
+  torque and impulse setters; the rewind churn names which velocity write wakes.
+- Length 1460 -> 1476 lines.

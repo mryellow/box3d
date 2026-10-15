@@ -247,8 +247,13 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   body is awake, `b3DestroyJoint` with `wakeAttached` true, `b3Shape_SetFilter` with
   `invokeContacts` true (`b3ResetProxy` recreates the leaf in the shape's own tree, which for a
   sleeping dynamic body's shape is the awake tree, and queues the body),
-  and a shape created on a sleeping body (its proxy is created in the awake tree, marked, and the
-  body queued, `src/shape.c`). Cold, touching no awake structure: a static shape's create with
+  a shape created on a sleeping body (its proxy is created in the awake tree, marked, and the
+  body queued, `src/shape.c`), and, on their condition, `b3Body_SetLinearVelocity` with a nonzero
+  velocity, `b3Body_SetAngularVelocity` with a nonzero component the body's angular locks leave,
+  `b3Body_SetTargetTransform` when the velocity it implies reaches the body's `sleepThreshold`,
+  and the seven force, torque and impulse calls with `wake` true on a sleeping body (each
+  `src/body.c`); the same calls with a zero velocity, a locked or zero angular velocity, a sleepy
+  target or `wake` false touch no awake structure. Cold, touching no awake structure: a static shape's create with
   `invokeContactCreation` false and destroy, a sensor's create and destroy on a static body,
   `b3Shape_SetFilter` with `invokeContacts` false, the four material setters, `b3CreateJoint`
   between two sleeping bodies (a set merge when their sets differ, `src/joint.c`), `b3DestroyJoint`
@@ -468,8 +473,10 @@ Two internal pieces of test machinery are shared by several entries and are writ
      `jointSims` (every named field of the sim and of its type's union member), `contactIndices`,
      `islandSims`, each in stored order;
   9. graph colours in index order: `bodySet` as the ascending indices of its set bits (never block
-     counts), `jointSims`, `convexContacts`, and `contacts` by each spec's contact id
-     (`manifoldStart` is per-step scratch, the design §5.1);
+     counts), `jointSims`, `convexContacts`, and `contacts` by each spec's contact id and
+     `manifoldCount` (written at graph add, `src/constraint_graph.c`, read by the solver's work
+     arrangement, `src/solver.c`, and imaged with the colour; `manifoldStart` alone is per-step
+     scratch, the design §5.1);
   10. sensors in stored order: `shapeId` and `overlaps2` (visitor shape id and generation) in stored
       order; `hits` and `overlaps1` are scratch;
   11. the pair set as the sum over its keys of a per-key mix (bucket order is not state);
@@ -687,7 +694,8 @@ in full are the specification. Mechanics that follow from them:
   true (the proxy recreated, §2); `b3Body_SetType` to kinematic and back on a sleeping body; `b3Body_SetType` and
   destroy of a sleeping body; `b3Body_SetAwake( false )` immediately after each rewind;
   `b3World_SetUserData` (the test sets it back itself before comparing, since it is host state,
-  the design §10); setters on sleeping bodies (`SetTransform`, `SetLinearVelocity`);
+  the design §10); setters on sleeping bodies (`SetTransform`, which wakes, and `SetLinearVelocity` with a zero
+  and a nonzero velocity, the second waking, §2);
   `b3World_Explode`; a distinct `userData` word per body, shape and joint, changed by setters during
   the churn; creation and destruction of the world's only compound shape; hull shape creation,
   destruction and deduplicated creation; sensor shape creation and destruction; friction,
@@ -1211,9 +1219,14 @@ them:
   candidates, some awake and some asleep, one of them a nearer hit that a `preSolve` rejects; a
   sweep with more than eight sensor candidates; an explosion hitting several shapes of one body; an
   explosion waking bodies in several sleeping sets, some connected by joints. Each case's
-  candidates sit in a named tree: the sleeping tree for the bullet sweep and the second explosion,
-  the static tree for the sensor sweep (sensors on static bodies) and the first explosion (a static
-  body with several shapes). Each: record the hash
+  candidates sit in a named tree the query reaches: the bullet sweep's candidates are static and
+  sleeping shapes (the continuous stage queries all four trees, `src/solver.c`), so its witness is
+  over the static and the sleeping tree; the sensor sweep's visitors are convex static shapes with
+  `enableSensorEvents` set (the sensor pass queries all four trees and filters by convexity, the
+  flag, body and filter, never by body type, `src/sensor.c`), so its witness is over the static
+  tree; both explosions' shapes are on sleeping bodies, the first several shapes of one sleeping
+  body (`b3World_Explode` queries the awake and sleeping trees only, `src/physics_world.c`), so
+  their witness is over the sleeping tree. Each: record the hash
   and event digest per tick over 30 ticks with history enabled at `tickCount` 30, rewind to 10,
   record the leaf visit order of a query over the named tree (as `RecordVisitOrder` in
   `test/test_tree_order.c` does), perturb, record it again and `ENSURE` the two differ (as
@@ -1359,9 +1372,12 @@ Measurements the closure doc needs:
   retained window and the effective interval at `tickCount` 60 under an unbounded budget and under
   `maxBytes` of a quarter of the unbounded steady-state `bytesUsed`; restore milliseconds for
   `Rewind` 1, 5 and 9 ticks back on the unbounded ring, where interval 1 holds and each target is
-  imaged, and under the quarter budget, where the interval widens (the ring doc §6), one rewind to
-  `b3World_GetRestorableTick( currentTick − 9 )` with the actual distance reported beside the
-  time, so no figure times a `b3_historyTickUnavailable` return; replay milliseconds for 9 ticks.
+  imaged, and under the quarter budget, where the interval widens (the ring doc §6), one rewind to the tick
+  `b3World_GetRestorableTick( currentTick − 9 )` returns, or, when that is `UINT64_MAX` (once the
+  interval has widened to the window the bound can evict every image below the target, the ring
+  doc §7), to the tick `b3World_GetRestorableTick( currentTick )` returns, which exists while
+  history is enabled; the actual distance is reported beside the time, so no figure times a
+  `b3_historyTickUnavailable` return; replay milliseconds for 9 ticks.
   Acceptance as the design states:
   capture under 15% of the step at eight workers on the all-awake scenes and under 1 µs per awake
   body on `large_world` and the million-body scene; restore proportional to awake plus sensors and
