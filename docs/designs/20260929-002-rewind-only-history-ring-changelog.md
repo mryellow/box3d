@@ -408,3 +408,10 @@ Round 49: 1 findings (0H-1M-0L), 1 applied, 0 declined.
   caller sets back to their values at T and replays at their original ticks, like any API call;
   a mid-timeline swap is no longer outside the contract. The confirmation of round 48 was not
   clean, so a fresh clean round and its confirmation follow.
+
+## Revision 50 (2026-10-15, after round 50)
+
+Round 50: 1 findings (1H-0M-0L), 1 applied, 0 declined.
+
+- §5.2, §7.3: `b3GetJointSimCheckType` joins the const-returning sim getters, and the box3d
+  target compiles a discarded qualifier as an error, C otherwise making the conversion a warning.

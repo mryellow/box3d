@@ -254,9 +254,11 @@ that file.
 `joints[id]` and `islands[id]`. A body's or joint's sim is not part of its record: it is an element
 of a solver set's `bodySims` or `jointSims` array, written through that array's journaled type
 (Containers, below), and a non-awake set holds no `bodyStates` (`b3GetBodyState` returns null for
-one, `body.c`). `b3GetBodySim`, `b3GetBodyState` and `b3GetJointSim` (`body.h`, `joint.h`), which
-return writable pointers into a set's arrays to every file today, become const-returning, as
-`b3GetShapeMaterials` does below; a write through one is then a compile error. Outside its container's file a record array exposes const-qualified element access
+one, `body.c`). `b3GetBodySim`, `b3GetBodyState`, `b3GetJointSim` and `b3GetJointSimCheckType`
+(`body.h`, `joint.h`), which return writable pointers into a set's arrays to every file today,
+become const-returning, as `b3GetShapeMaterials` does below; a write through one is then a
+compile error, the box3d target compiling a discarded qualifier as an error
+(`-Werror=discarded-qualifiers`, `/we4090`), since C otherwise makes that conversion a warning. Outside its container's file a record array exposes const-qualified element access
 only, so a field assignment through anything but the three functions below is a compile error;
 the write accessor's own file (`body.c` for `b3Body_Write`) is one of those outside files, so it
 builds the completed value in a local copy and enters the container's write function with it.
@@ -659,8 +661,9 @@ pair-set, bitset and array mutations are journaled by their container types (§5
 island and solver-set create and destroy entries by the one function that performs each, so
 the structural functions carry no journal calls of their own. The one-time work is migrating
 §5.2's record-field callers to their accessor and changing each world-owned container field to
-its journaled type, and making the sim getters of `body.h` and `joint.h` const-returning (§5.2); the
-compiler then rejects any mutator that still reaches one directly.
+its journaled type, making the sim getters of `body.h` and `joint.h` const-returning and the
+discarded-qualifier diagnostic an error (§5.2); the compiler then rejects any mutator that still
+reaches one directly.
 
 No accessor or container does anything on behalf of the ring beyond appending its entry. A write
 after a rewind is an ordinary write, because the ring holds nothing later than the current tick
