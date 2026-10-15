@@ -321,7 +321,7 @@ also describes phase 0.
 
 Box2D's snapshot is the only column with a restore-to-a-later-tick capability that needs no
 engine design work, because the caller simply keeps the images. Of the ring designs, only the
-two-way ring can do it, and the rewind-only ring gives it up on purpose (its open question 4).
+two-way ring can do it, and the rewind-only ring gives it up on purpose (its §17 records the decision).
 
 ## 7. What this changes for the designs
 

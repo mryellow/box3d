@@ -638,6 +638,10 @@ No accessor or container does anything on behalf of the ring beyond appending it
 after a rewind is an ordinary write, because the ring holds nothing later than the current tick
 for it to invalidate (§8).
 
+Journaling runs only while history is enabled. With history disabled each journal call is one
+null check on the world's history and returns; a world that never enables history pays that check
+per structural write and nothing else.
+
 ### 7.4 Trees
 
 A proxy's tree follows its body (`b3BroadPhase_GetBodyProxyType`, `broad_phase.c`): the static
@@ -1069,8 +1073,8 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    order, together with the content hash of each hull and mesh embedded in its blob and each mesh
    instance's material index array, excluding its `tree`, whose pointers and layout are derived),
    and padding, addresses, `bodyMoveIndex` and every `userData` word (a host value) are excluded.
-   It is the oracle for engine state in everything below, not for host state, and is worth
-   exposing publicly for lockstep desync detection.
+   It is the oracle for engine state in everything below, not for host state, and is public
+   (§14) for lockstep desync detection.
 2. **Restore exactness.** For each benchmark scene, step to steady state, then for 1,000 random
    (T, P) pairs inside the window with T ≤ P, with random API churn between (creates, destroys,
    setters on sleeping bodies, explosions): `hash(Rewind(T)) == hash recorded at T`. Each case
@@ -1272,8 +1276,8 @@ follows the old timeline bit for bit; that is the property everything else rests
   journal entries, for the bytes a forward walk across the transition has to write. And because
   slots after T outlive the rewind, they must be discarded by the first write that makes them
   stale, which puts a hook in every write path, including the ones that make no journal entry.
-  The correction flow uses none of what it buys. Left out; §16 question 3 is what would bring it
-  back.
+  The correction flow uses none of what it buys. Left out: no caller returns to the present
+  without re-stepping (§17).
 - **Rewind-only, but keep the slots after T until the next write.** Saves nothing the caller can
   use, since nothing can return to them, and brings back the write-path hook.
 - **Scoped, consistent rollback.** Restore and resimulate only the predicted islands, with the
@@ -1299,23 +1303,13 @@ follows the old timeline bit for bit; that is the property everything else rests
 
 ## 16. Open questions
 
-1. Should `b3World_ComputeStateHash` be public? It is the natural desync detector for lockstep
-   and the test oracle here; making it public commits to its coverage.
-2. Should journaling be always-on or enabled with history? Always-on costs a branch per
-   structural write; enabled-only means the hooks must be cheap when disabled (a null check).
-3. Does any caller need to return to the present without re-stepping? A server that does lag
-   compensation by rewinding the physics world, or a debugging timeline, would. If one does, the
-   forward-replaying journal of §15 is the design for it, and the choice should be made before
-   phase 1, because it decides the payload of every journal entry and the ownership rules.
-4. The recording system's keyframe ring and this ring overlap. Should the player be rebuilt on
-   this ring once phase 1 lands? Its backward seeks would become O(awake) rewinds; its forward
-   seeks already re-step from the operation list, which a one-way ring does not change.
-5. Within one tick's segment, only the first recorded old value of a record's id lifetime matters
+1. Within one tick's segment, only the first recorded old value of a record's id lifetime matters
    to undo (an id freed and reallocated in the tick starts a new lifetime, and the intervening
    pool entries read the record's live bytes). Skipping later record-write entries for the same
-   record within one lifetime in the same tick would shrink segments
-   under repeated setter calls, but needs a per-record mark of "already journaled this tick". Is
-   that worth measuring after phase 1, or is the repeated-write case too rare to matter?
+   record within one lifetime in the same tick would shrink segments under repeated setter calls,
+   but needs a per-record mark of "already journaled this tick". Phase 1 does not build it; the
+   segment sizes measured under §12 test 5 say afterwards whether the repeated-write case is worth
+   it.
 
 ## 17. Provenance
 
@@ -1340,3 +1334,14 @@ follows the old timeline bit for bit; that is the property everything else rests
   queue is exactly the parked bodies in placement order, and that order decides the sleeping-tree
   ids the next drain hands out; a scan of the body records for the flag would be O(world) and would
   give id order, not placement order.
+- **The state hash is public.** It is the engine-state oracle a lockstep caller needs for desync
+  detection, the same check the recording system makes per step with its internal predecessor,
+  and the tests here read it through the same function the caller does.
+- **Journaling is enabled with history, not always on.** A world that never rewinds pays one null
+  check per structural write and holds no ring, no staging buffer and no journal.
+- **No return to the present without re-stepping.** A journal that also replays forward is its own
+  design (`docs/designs/20260927-002-bit-exact-history-ring.md`); this one carries the old value
+  only, and every ownership rule in §7 and §8 follows from that.
+- **The recording player keeps its own keyframe ring.** The recording system is a separate
+  subsystem with its own serialized images and operation list; whether to rebuild its backward
+  seeks on this ring is a later question for that system, not a decision of this design.

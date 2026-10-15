@@ -47,3 +47,17 @@ the bare word Draft and the finding tallies moved here.
 - §16: open question on the order changes removed, the rest renumbered.
 - §17 Provenance added: awake tree imaged, sleeping tree derived, pool growth, no height bound,
   queue imaged.
+
+## Revision 23 (2026-10-15)
+
+Owner decisions on four of §16's five open questions, folded in (U-S5); the doc stays Draft at
+full scope, unreviewed since revision 22.
+
+- §7.3: journaling runs only while history is enabled; a disabled world pays one null check per
+  structural write.
+- §12 test 1: `b3World_ComputeStateHash` is public, not "worth exposing".
+- §16: questions 1 to 4 removed (hash public; journaling enabled with history; no return to the
+  present without re-stepping, the forward journal being `20260927-002`'s own design; the
+  recording player keeps its own ring). Question 5 is now question 1, with the per-record mark
+  assigned to measurement after phase 1 under test 5 rather than built in phase 1.
+- §17: four Provenance bullets carry the four decisions and their reasons.
