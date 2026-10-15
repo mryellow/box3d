@@ -415,3 +415,12 @@ Round 50: 1 findings (1H-0M-0L), 1 applied, 0 declined.
 
 - §5.2, §7.3: `b3GetJointSimCheckType` joins the const-returning sim getters, and the box3d
   target compiles a discarded qualifier as an error, C otherwise making the conversion a warning.
+
+## Revision 51 (2026-10-15, after round 51)
+
+Round 51: 2 findings (1H-0M-1L), 2 applied, 0 declined.
+
+- §5.2: the const-data array type's `data`, `count` and `capacity` fields are const-qualified, so
+  a record write carries an array header unchanged and only the container's file writes one.
+- §3: custom filter calls follow layout order in pair discovery and sensor queries, sorted
+  candidate order with worker interleaving in continuous sweeps, as §10 says.

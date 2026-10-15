@@ -151,9 +151,10 @@ From the determinism audit (`docs/faq.md`, `docs/simulation.md`,
   candidates and evaluates them in sweep order then shape id (`solver.c`), and `b3World_Explode`
   collects its hits and wakes and applies in shape-id order (`physics_world.c`), per
   `docs/designs/20261012-001-preflight-sorted-candidates-tree-order-independent-solver.md` and
-  `docs/designs/20261012-005-preflight-sweep-order-continuous-candidates.md`. A stateful `preSolve`
-  or custom filter still sees calls in layout order, and public query callbacks and tied
-  closest-hit casts see layout order.
+  `docs/designs/20261012-005-preflight-sweep-order-continuous-candidates.md`. A stateful custom
+  filter still sees pair-discovery and sensor-query calls in layout order, a `preSolve` or custom
+  filter in a continuous sweep sees them in sorted candidate order with the workers' sweeps
+  interleaved (§10), and public query callbacks and tied closest-hit casts see layout order.
 
 One caveat: `b3_lengthUnitsPerMeter` (`core.c`) is process-global and feeds the slop
 constants. It is not world state; it must simply not change.
@@ -316,7 +317,11 @@ write never carries it (§9 step 3).
 `joints`) is const-qualified in its pointee, so a const record does not expose a writable block. A
 plain pointer (`manifolds`, `materials`) is declared pointer-to-const. An array-valued field
 (`triangleCache`, an island's arrays, a sensor's arrays) is declared with a const-data array type
-of the same layout as `b3Array`, since a const `b3Array` still holds a writable `data` pointer.
+of the same layout as `b3Array` whose `data`, `count` and `capacity` fields are themselves
+const-qualified, so neither the record in place nor a local copy passed to its write accessor can
+assign one and a record write carries the header unchanged; the container's file alone writes a
+header, through the storage type it defines (Containers, below). A const `b3Array` still holds a
+writable `data` pointer.
 Each block has a write function in its defining file, the only place that converts it back:
 `b3Shape_WriteMaterial` for `materials`, with `b3GetShapeMaterials`, which returns a writable
 pointer from a const shape today, replaced by a const-returning accessor. A single-material
