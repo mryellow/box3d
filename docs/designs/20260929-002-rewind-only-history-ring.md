@@ -289,14 +289,16 @@ setter that writes an awake owner's record reaches it through the setter entry, 
 without a journal entry (§7.1).
 
 The second is the hot accessor, which the step's own stages use: it asserts the world is inside a
-step and that the record's owner is awake, and returns a writable pointer to one element, either a
-record of an awake owner (a contact's flags, a body's `sleepTime`, a shape's `aabb` and its
-`fatAABBs` entry) or an element of an awake set's or graph colour's arrays. It never returns a
+step and that the record's owner is awake, and returns a writable pointer to one element: a body's
+or contact's record for an awake owner (a body's `sleepTime`, a contact's flags), an awake shape's
+`aabb` and its `fatAABBs` entry and never its record, since the image carries neither its
+`materials` pointer nor `materialCount` (§9 step 3) and only `b3Shape_WriteMaterial`'s block
+mutator writes them, or an element of an awake set's or graph colour's arrays. It never returns a
 container's count or storage, a non-awake set, or a record of a non-awake owner. The pointer is used for the one write it was
 obtained for and not kept; transitions out of the awake set run in the step's serial passes, between
 the parallel stages that make hot writes, so no stage holds one across a transition. It restricts who
-owns the record, not which field is written: a write to an awake owner's record is never
-journaled, whatever the field, because the image of the target tick covers it, and a body or
+owns the record, and for a shape which fields are reached, not what is written: a write to an awake
+owner's record is never journaled, whatever the field, because the image of the target tick covers it, and a body or
 contact that enters the awake set has its pre-wake bytes journaled by the transition (§7.1).
 A structural function writes a record through its write accessor, even inside a step, and never
 through the hot accessor. A stage takes a

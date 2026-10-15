@@ -523,3 +523,11 @@ Round 61: 1 findings (1H-0M-0L), 1 applied, 0 declined.
 - §5.2: an awake joint's sim is an element of its graph colour's `jointSims` array
   (`b3GetJointSim`, `joint.c`), not of the awake set's; the sim write goes to the array that holds
   it, the solver set's or the colour's that `colorIndex` names.
+
+## Revision 60 (2026-10-15, after round 62)
+
+Round 62: 1 findings (0H-1M-0L), 1 applied, 0 declined.
+
+- §5.2: the hot accessor returns an awake shape's `aabb` and `fatAABBs` entry and never its
+  record, since the image carries neither `materials` nor `materialCount` and only the block
+  mutator writes them; it restricts the owner and, for a shape, the fields reached.
