@@ -84,8 +84,9 @@ is hot state of the awake population. Its image is the fields the serializer's t
 `proxies` up to `proxyCapacity`, since the free list threads through every free slot; the spare
 node array and the rebuild scratch arrays hold no state. About 100 B per proxy slot. The bound is
 the tree's high-water mark, not its live count: `proxyCapacity` never shrinks, and `nodeEnd`
-compacts only in a rebuild, which the step runs on the tick after a remove or a bulk join left the
-tree unordered and which returns at once for an empty tree. The tree starts at the 16-slot floor
+compacts only in a rebuild of a non-empty tree, which the step runs on the tick after a remove or a
+bulk join left the tree unordered, or in the reset of a tree a migration emptied
+(`b3SettleTreeAfterRemove`, `broad_phase.c`), which sets it to 2. The tree starts at the 16-slot floor
 and grows with what the tree holds, awake proxies and parked leaves, so the mark is set by the most
 held at once, not by the capacity hint; that document's requirement 2 reads "proportional to the most awake proxies
 and parked leaves held at once" for this array. The

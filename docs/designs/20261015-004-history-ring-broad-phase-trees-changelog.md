@@ -57,3 +57,9 @@ Round 6: 1 findings (0H-0M-1L), 1 applied, 0 declined.
 Round 7: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. Clean; the confirmation round follows.
+
+## Revision 7 (2026-10-15, after round 8)
+
+Round 8: 1 findings (0H-0M-1L), 1 applied, 0 declined.
+
+- §5: `nodeEnd` compacts in a rebuild of a non-empty tree or in the reset of an emptied tree.
