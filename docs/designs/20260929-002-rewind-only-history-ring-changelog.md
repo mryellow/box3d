@@ -503,3 +503,15 @@ Round 59: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The first clean round on revision 57, the gate revision; round 60 is
   its confirmation.
+
+## Revision 58 (2026-10-15, after round 60)
+
+Round 60: 2 findings (0H-1M-1L), 2 applied, 0 declined.
+
+- §13: the serializer neither writes nor clears the event arrays, the end-event buffers or an
+  awake body's `bodyMoveIndex`, so the phase-0 rewind performs §9 step 5 itself after the restore;
+  phase 0 needs three things beyond the ring plumbing, not two.
+- §14: the correction example's `serverTick` and `now` are history ticks, counted from the
+  enable-time world as tick 0 (§8); a caller maps a network tick through the enable tick.
+- Round 59's clean run is not confirmed; a fresh clean round and confirmation follow on this
+  revision (U-S8).

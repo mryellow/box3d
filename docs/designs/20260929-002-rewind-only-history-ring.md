@@ -1005,13 +1005,16 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
   options, both off for a recording and both on for the ring, under which the writer carries every
   body, shape and joint `userData` word in the image and the reader restores it, and the reader
   releases a live shape's `userShape` through `destroyDebugShape` and clears it, carrying none
-  across a restore (`world_snapshot.c`). Two things this needs beyond the ring plumbing itself:
+  across a restore (`world_snapshot.c`). Three things this needs beyond the ring plumbing itself:
   interned geometry (hull/mesh/height-field/compound shapes) goes through a recording registry
   (`world_snapshot.c`) that the ring's images must share and keep alive for the retained window;
-  and the serializer neither writes nor reads the migration queue, so each slot carries the queue
+  the serializer neither writes nor reads the migration queue, so each slot carries the queue
   array beside its image and a restore copies it back, which keeps a parked leaf's body placed by
-  the next drain in the original order. Neither applies once phase 1's in-place restore replaces
-  the serializer.
+  the next drain in the original order; and the serializer neither writes nor clears the event
+  arrays, the end-event buffers or an awake body's `bodyMoveIndex`, which `b3TrySleepIsland` reads
+  (`solver_set.c`), so the phase-0 rewind performs §9 step 5 itself after the restore. The first
+  two do not apply once phase 1's in-place restore replaces the serializer; the third is §9's own
+  step.
 - **Phase 1, hot image + undo journal.** Per-structure write accessors (§5.2) with the existing
   callers migrated to them and the direct-write access removed from every translation unit but each
   container's own (§5.2; the
@@ -1085,8 +1088,10 @@ B3_API uint64_t b3World_ComputeStateHash( b3WorldId worldId );
 Typical correction:
 
 ```c
-// A serverTick later than now is not a rewind: that tick has not been simulated, and the caller
-// applies its correction when it steps that tick.
+// serverTick and now are history ticks: steps counted from the world as it stood at
+// b3World_EnableHistory, which is tick 0 (§8), so a caller maps a network tick through the tick
+// at which it enabled history. A serverTick later than now is not a rewind: that tick has not
+// been simulated, and the caller applies its correction when it steps that tick.
 if ( serverTick <= now )
 {
 	uint64_t T = b3World_GetRestorableTick( w, serverTick );
