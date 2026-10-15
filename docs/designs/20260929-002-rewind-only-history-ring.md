@@ -268,7 +268,8 @@ The first is the structure's write accessor (`b3Body_Write`, `b3Shape_Write`, `b
 `b3Joint_Write`, `b3Island_Write`), replacing the direct field assignment used at every setter
 site today: it takes the completed new value of the record (for a shape, the record and its `fatAABBs`
 entry together, which one entry holds and one undo restores), makes the journal call itself with the value it is about to overwrite, and copies
-the new value in, so no caller has a journal call; it never returns a pointer to the record. It has
+the new value in, its owned-block pointers, counts and array headers excepted (Owned blocks,
+below), so no caller has a journal call; it never returns a pointer to the record. It has
 two entry points: the structural one, which every structural function calls, always journals, and
 the setter one, which API setters call, journals unless the record's owner is awake. A record
 entry never holds a sim. A function that writes a record and its sim (`b3Body_SetTransform`,
@@ -317,19 +318,20 @@ write never carries it (§9 step 3).
 `joints`) is const-qualified in its pointee, so a const record does not expose a writable block. A
 plain pointer (`manifolds`, `materials`) is declared pointer-to-const. An array-valued field
 (`triangleCache`, an island's arrays, a sensor's arrays) is declared with a const-data array type
-of the same layout as `b3Array` whose `data`, `count` and `capacity` fields are themselves
-const-qualified, so neither the record in place nor a local copy passed to its write accessor can
-assign one and a record write carries the header unchanged; the container's file alone writes a
-header, through the storage type it defines (Containers, below). A const `b3Array` still holds a
-writable `data` pointer.
-Each block has a write function in its defining file, the only place that converts it back:
-`b3Shape_WriteMaterial` for `materials`, with `b3GetShapeMaterials`, which returns a writable
-pointer from a const shape today, replaced by a const-returning accessor. A single-material
-shape keeps its material inline in the record, so `b3Shape_WriteMaterial` writes it as a whole
-record through `b3Shape_Write`'s setter entry, which journals unless the owner is awake, and
-makes a material block entry only for a shape that has a block; the manifold block and
-triangle cache entries of §7.1; and the array push and removeswap of an island's arrays. A
-record's own write copies the pointer, not what it points to. A destroyed record's blocks are not
+of the same layout as `b3Array`, since a const `b3Array` still holds a writable `data` pointer.
+The pointer, its count and an array header are written in storage only by the container's file: a
+record write copies the record's other fields and leaves them as they are, so a local copy's
+change to one never reaches storage, and the routes that change one each make their own entry:
+the block entries of §7.1 (material block, manifold block, mesh triangle cache), made by a
+mutator addressed by (block tag, owner id) that swaps the pointer and count and holds the old
+block; `b3JournaledArray`'s push, removeswap, clear and set by (array tag, owner id); and the pool
+free entry, which moves a destroyed record's blocks out. A block's elements are converted back in
+its defining file alone: `b3Shape_WriteMaterial` for `materials`, with `b3GetShapeMaterials`,
+which returns a writable pointer from a const shape today, replaced by a const-returning
+accessor (a single-material shape keeps its material inline in the record, so
+`b3Shape_WriteMaterial` writes it as a whole record through `b3Shape_Write`'s setter entry, which
+journals unless the owner is awake, and makes a material block entry only for a shape that has a
+block), and the island and sensor array mutators above. A destroyed record's blocks are not
 freed by the destroy path: `b3DestroyShapeInternal`, `b3DestroyBody`'s shape loop and
 `b3DestroyContact` leave the shape's `materials` block and the contact's manifold block and
 triangle cache on the record, and the slot pool's free, which makes the pool free entry (§7.1),
@@ -436,8 +438,8 @@ changes, so no record-write entry would otherwise capture it.
 
 A shape's `materials` array and a contact's manifold blocks and mesh triangle cache are
 heap-owned pointees, not inline record bytes; `shapes[id]`'s and `contacts[id]`'s own record
-writes capture the pointer, not what it points to. §7.1's material block and manifold block
-entries cover the pointees; the same ownership-transfer rule as sleeping sets and islands
+writes leave the pointer and count in place (Owned blocks, above). §7.1's material block and
+manifold block entries cover the pointees and the pointer swap; the same ownership-transfer rule as sleeping sets and islands
 applies to a destroyed contact's manifold and mesh cache.
 
 A sensor's `hits`, `overlaps1` and `overlaps2` arrays are heap-owned pointees of its `world->sensors`

@@ -444,3 +444,13 @@ Round 54: 1 findings (0H-0M-1L), 1 applied, 0 declined.
 
 - §10: replayed events are the original's when the replayed inputs are the original's, and a
   corrected replay's own otherwise.
+
+## Revision 55 (2026-10-15, after round 55)
+
+Round 55: 2 findings (1H-1M-0L), 2 applied, 0 declined.
+
+- §5.2: the const-qualified array header fields of revision 51 are withdrawn (C does not let the
+  owner write them either). A record write copies the record's other fields and leaves its
+  owned-block pointers, counts and array headers in storage as they are; the §7.1 block entries,
+  made by a container-file mutator by (block tag, owner id), the `b3JournaledArray` mutators and
+  the pool free entry are the only routes that change one.
