@@ -467,3 +467,10 @@ Round 56: 1 findings (0H-1M-0L), 1 applied, 0 declined.
 Round 57: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The first clean round on revision 56; round 58 is its confirmation.
+
+## Round 58 (2026-10-15, no revision)
+
+Round 58: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The confirmation round of round 57, clean; the series is settled at
+  revision 56 and the status word remains Draft.
