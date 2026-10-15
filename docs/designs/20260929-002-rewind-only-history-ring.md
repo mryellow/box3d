@@ -1208,6 +1208,7 @@ if ( serverTick <= now )
 	uint64_t T = b3World_GetRestorableTick( w, serverTick );
 	if ( b3World_Rewind( w, T ) == b3_historyOk )
 	{
+		set the host state callbacks read (world userData, callback contexts) back to its value at T;
 		if ( T == serverTick ) { apply the server correction; }
 		for ( t = T + 1; t <= now; ++t )
 		{

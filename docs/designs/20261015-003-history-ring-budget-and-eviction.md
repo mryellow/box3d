@@ -52,8 +52,7 @@ its two ends only:
 - **The old end.** When the writer wraps into the oldest slot, that slot is evicted (the blocks
   its entries own are freed), together with the non-imaged slots after it up to the next imaged
   slot, which no rewind can reach, and the retained window shrinks by those ticks. The writer never
-  wraps into a slot of the minimum window (the two newest imaged ticks and every slot from the
-  older of them through `historyTick`, §6); the arena grows instead, so a young ring's sole image and the segments after
+  wraps into a slot of the minimum window (§6); the arena grows instead, so a young ring's sole image and the segments after
   it are retained until a second image is captured. Segments are only
   walked from the current tick back to an imaged tick T, so the segments of ticks at or before
   the oldest retained imaged tick are never read; `oldestImageTick` is that imaged tick, and
@@ -84,10 +83,12 @@ A tick is imaged when at least the effective interval has passed since the last 
 
 ## 6. Budget, charge and capacity
 
-- `maxBytes` is the target for retained bytes. Before any slot is evicted, the tick's slot is
-  sized at the current interval and compared with `maxBytes` less the bytes the minimum window
-  (the two newest imaged ticks and every slot from the older of them through this tick) would
-  retain. When it would not fit, the effective interval becomes `min(2 × interval, tickCount)`
+- `maxBytes` is the target for retained bytes. The minimum window is the newest imaged tick and
+  every slot after it through the current tick, plus the next older imaged tick and the slots
+  between the two when the window bound (§7) retains it; the window bound is applied first, so a
+  tick it evicts is never protected. Before any slot is evicted for the budget, the tick's slot is
+  sized at the current interval and the bytes the minimum window would then retain, that slot
+  counted once, are compared with `maxBytes`. When they would not fit, the effective interval becomes `min(2 × interval, tickCount)`
   (tested as `interval ≤ tickCount − interval`, so the doubling cannot overflow), as the recording
   player's keyframe ring doubles (`replay.c`), and the slot is sized again, as a journal segment
   alone when the new interval says no image is due; `tickCount` is a separate limit that can

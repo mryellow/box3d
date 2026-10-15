@@ -274,3 +274,10 @@ test 5's budget acceptance move with the ring. No decision changed.
 Round 37: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The first clean round after the split; the confirmation round follows.
+
+## Revision 38 (2026-10-15, after round 38)
+
+Round 38: 1 findings (0H-1M-0L), 1 applied, 0 declined.
+
+- §14: the correction example sets the host state its callbacks read back to its value at T before
+  the correction and the replay.

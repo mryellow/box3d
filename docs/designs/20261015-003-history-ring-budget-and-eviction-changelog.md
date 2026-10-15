@@ -20,3 +20,11 @@ Round 1: 5 findings (1H-3M-1L), 5 applied, 0 declined.
 - §3, §6: the minimum window is the two newest imaged ticks and every slot from the older of them
   through `historyTick`.
 - §5/§6: the duplicated sentence on when a tick is imaged kept in §5 only.
+
+## Revision 3 (2026-10-15, after round 2)
+
+Round 2: 2 findings (1H-1M-0L), 2 applied, 0 declined.
+
+- §6, §3: the minimum window is the newest image and every slot after it through the current tick,
+  plus the next older image and the slots between when the window bound retains it; the window
+  bound is applied first. The budget comparison counts the candidate slot once.
