@@ -180,7 +180,8 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `contactSpeed`, `contactHertz`, `contactDampingRatio`, `contactRecycleDistance`,
   `endEventArrayIndex`, `inv_h`, `inv_dt`). `splitIslandId` is written by `b3DestroyIsland` and
   `b3SplitIslandTask` (`src/island.c`), the solver's step start and end (`src/solver.c`) and
-  `b3TrySleepIsland` (`src/solver_set.c`); `compoundShapeCount` by shape creation and destruction.
+  `b3TrySleepIsland` (`src/solver_set.c`); `compoundShapeCount` by shape creation, shape destruction
+  and `b3DestroyBody` (`src/body.c`).
 
 **Broad phase and trees.**
 
@@ -742,8 +743,8 @@ that follow from it:
   serializer's reader and, from H5, the image copy go through it. Every writer of one of those
   fields takes a local copy, changes it and writes it back: `b3World_SetGravity` and the other
   public setters, `b3World_EnableSleeping` and the other enable setters, the step's `inv_h`/`inv_dt`, the
-  end-event flip, `splitIslandId` at its four sites (§2), `compoundShapeCount` in
-  shape creation and destruction. Every reader reads through the pointer.
+  end-event flip, `splitIslandId` at its four sites and `compoundShapeCount` at its three (§2).
+  Every reader reads through the pointer.
 - `const b3BodySim* b3GetBodySim`, `const b3BodyState* b3GetBodyState`, `const b3JointSim*
   b3GetJointSim`, `const b3JointSim* b3GetJointSimCheckType`. Writers use `b3SetBodySim( world,
   body, const b3BodySim* )`, `b3SetBodyState( world, body, const b3BodyState* )` and
@@ -797,11 +798,12 @@ field exclusions are the specification. Mechanics that follow from them:
   `userShape`; the hot accessor returning the awake shape's `aabb` and `fatAABBs` entry pointers and
   never the record (the design §5.2); `b3Shape_Restore` taking the same two values and releasing a
   live `userShape` through `destroyDebugShape` before clearing it (the design §10). The serializer's
-  reader with `releaseUserShapes` off keeps its carry-over around that writer: for a live slot of
-  the same generation it saves the handle and detaches it with `b3Shape_SetUserShape( world, id,
-  NULL )` before the restore write, so nothing is released, and puts it back through
-  `b3Shape_SetUserShape` after; every other saved handle it releases itself, as today. With the
-  option on it saves nothing and the restore write releases.
+  reader with `releaseUserShapes` off keeps its carry-over around that writer: before any restore
+  write it saves every live slot's handle and detaches each with `b3Shape_SetUserShape( world, id,
+  NULL )`, so the restore writes release nothing; after them it puts a saved handle back through
+  `b3Shape_SetUserShape` where the slot is live with the same generation and releases each
+  remaining saved handle once, as today's sweep does. With the option on it saves nothing and the
+  restore writes release.
 - `const b3SurfaceMaterial* b3GetShapeMaterials( const b3Shape* )`; `shape->materials` is
   `const b3SurfaceMaterial*`. `b3Shape_WriteMaterial( world, id, index, const b3SurfaceMaterial* )`
   in `src/shape.c` is the one material writer: for an inline material it builds the record with the
@@ -978,6 +980,12 @@ specification. Mechanics that follow from them:
   `b3CreateIsland` and `b3DestroyIsland` make their entries, the destroy entries taking the arrays;
   the hull database's three functions make the refcount entry, a decrement to zero moving the hull
   into the entry; `b3CreateContact` makes the mesh cache entry after its record write.
+- Restore routes: every journaled container and the hull database offer, in their file, a load
+  function that writes storage and makes no entry (the design §5.2's file-local loads): the slot
+  pools', the arrays', the bitsets', `b3BroadPhase_LoadTree`, `b3BroadPhase_LoadPairSet` and the
+  hull database's restore add and remove. `b3DeserializeIntoShell` and `b3FreeLiveSimElements`
+  (`src/world_snapshot.c`) use these in place of the journaling functions from this commit, so a
+  phase-0 rewind makes no entry of its own; H5's scatter uses them too.
 - Entering the awake set: `b3SolverSet_PushAwakeBody( world, body, sim, state )`,
   `b3SolverSet_PushAwakeJoint`, `b3Graph_PushContact( world, contact )` and `b3Graph_PushJoint` are
   the only pushes onto the awake set's and the colours' arrays; each journals the record's pre-wake
@@ -1079,7 +1087,9 @@ write, so the walk alone must restore the hash:
 
 `HistoryRingTest` gains, in the same commit, the ring doc §9 test 1 items that need the journal: a
 rewind with no step since a sensor destruction and since a hull release now checks
-`pendingBytes` before and 0 after; and after every operation the manifold allocators' summed
+`pendingBytes` before and 0 after; every rewind that returns `b3_historyOk`, the scene holding a
+hull shape and case 8's two rewinds in a row included, leaves `pendingBytes` 0; and after every
+operation the manifold allocators' summed
 `allocationCount` equals the live contacts' block count plus the manifold handles the retained
 slots and the staging buffer own, read through a third read-only function of `src/world_history.h`,
 `b3History_CountOwnedBlocks( world, kind )`, added in this commit. The leak check

@@ -184,3 +184,16 @@ Round 8: 5 findings (H2-M2-L1), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
   version-12 reader.
 - §7 names `large_world` as a table row, not an addition.
 - Length 1370 -> 1380 lines.
+
+## Revision 10: after review round 9
+
+Round 9: 3 findings (H2-M1-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> pending.
+
+- The serializer's reader with `releaseUserShapes` off detaches every saved handle before any
+  restore write, puts the matching ones back and releases each remaining one once.
+- H4 states the restore routes: every journaled container and the hull database offer a load that
+  makes no entry, used by the serializer's reader from H4 and the image scatter from H5;
+  `HistoryRingTest` checks `pendingBytes` is 0 after every successful rewind.
+- §2 names `b3DestroyBody` as the third `compoundShapeCount` writer; H2 refers to the three.
+- Length 1380 -> 1389 lines.
