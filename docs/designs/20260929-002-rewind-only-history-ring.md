@@ -80,8 +80,7 @@ The answer has four parts:
    not available after `Rewind(T)` (§9's step 5, §10).
 2. **Per-tick cost proportional to awake state, structural churn, and sensor count.** Never
    proportional to the number of sleeping or static bodies. `large_world` (1M bodies, 10 awake)
-   must cost a few KB per tick, not 650 MB
-   (`docs/designs/reviews/20260927-001-client-prediction-rollback-perf.md`). Sensor
+   must cost a few KB per tick, not 650 MB (§11.1). Sensor
    overlap state is the one exception to "proportional to awake": the engine re-evaluates every
    sensor's overlaps every step regardless of the owning shape's awake state (`sensor.c`), so
    capturing it is O(sensor count + total overlap count) — `sensors[i].overlaps2` holds one entry
@@ -241,7 +240,7 @@ Estimated bytes per tick: ~470 B per awake body, ~208 B per awake shape (whole r
 the ~50 B of `aabb`/`fatAABBs` alone), ~220 B per awake non-touching
 contact, ~490 B per touching convex contact (more with multiple manifolds), ~520 B per awake
 joint, and about 100 B per proxy slot of the awake tree's high-water mark (§7.4). For the fully-awake stress scenes this is the same order as the whole-world figures in
-the perf review (5–51 MB/tick); for `large_world` it is a few KB. The ring holds one such image
+§11.1 (5–51 MB/tick); for `large_world` it is a few KB. The ring holds one such image
 per imaged tick in the window, so the retained total is that figure times the imaged ticks (§8).
 
 ### 5.2 Cold (journaled)
@@ -391,7 +390,7 @@ migration's starting worklist; the compiler, not the table, says when the migrat
 | Structure | Current direct-write callers, to migrate |
 |---|---|
 | `bodies[id]` and non-awake `bodySims`/`bodyStates` | `b3CreateBody`, `b3DestroyBody`, `b3CreateContact`/`b3DestroyContact` (`contact.c`: **a static body's record and its neighbouring contacts' edge keys are written on every contact create/destroy**, and those neighbours can be sleeping contacts), `b3WakeSolverSet`, `b3TrySleepIsland`, `b3MergeSolverSets`, `b3TransferBody`, `b3MergeIslands`, `b3SplitIsland`, `b3RemoveBodyFromIsland`, `b3UpdateBodyMassData`, `b3CreateShapeInternal` and `b3DestroyShapeInternal` (`shape.c`: the body's `headShapeId` and `shapeCount`), `b3CreateJoint` and `b3DestroyJointInternal` (`joint.c`: both bodies' `headJointKey` and `jointCount`), `b3PlaceBodies` (`broad_phase.c`: the parked and moving flags of each placed body, §7.4), every mutating `b3Body_*` API in `body.c` (the `Set*`, `Apply*` force, torque and impulse, `Enable*`/`Disable` and mass families, including `b3Body_SetTransform` and the other setters when the body is not awake), `b3Shape_ApplyWind`, explosion callback |
-| `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), `b3PlaceBodies` (`broad_phase.c`: `proxyKey`, single and bulk placement), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
+| `shapes[id]`, `fatAABBs` (non-awake owner) | `b3CreateShapeInternal`, `b3CreateShapeProxy` (`proxyKey`), `b3DestroyShapeInternal`, `b3ResetProxy`, `b3Shape_Set*` (`shape.c`); outside `shape.c`, `b3DestroyBody` (frees its shapes' ids), `b3Body_SetTransform` (shape and fat AABB writes), `b3Body_EnableHitEvents` (shape flags) (`body.c`), `b3PlaceBodies` (`broad_phase.c`: `proxyKey`, single and bulk placement), and sensor destruction's swap-moved shape `sensorIndex` write (`sensor.c`) |
 | `contacts[id]` (non-awake, or create/destroy) | `b3CreateContact`, `b3DestroyContact`, wake/sleep/merge transitions (`solver_set.c`), `b3RefreshBodyContactIndices` (`body.c`), island link, unlink, merge and split (`island.c`: the contact's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `joints[id]` and non-awake `jointSims` | `b3CreateJoint`, `b3DestroyJointInternal`, `b3TransferJoint`, joint setters (all joint files), island link, unlink, merge and split (`island.c`: the joint's island membership), graph add and remove (`constraint_graph.c`: `colorIndex`, `localIndex`) |
 | `islands[id]` and link arrays | `b3CreateIsland`, `b3DestroyIsland`, `b3MergeIslands`, `b3SplitIsland`, link/unlink (`island.c`) |
@@ -999,9 +998,7 @@ before P.
 
 ### 11.1 Measured baseline
 
-Serializer measurements from the perf review
-(`docs/designs/reviews/20260927-001-client-prediction-rollback-perf.md`;
-8 workers, 60 Hz / 4 substeps, 9-tick correction). They are the baseline this design is compared
+Serializer measurements (8 workers, 60 Hz / 4 substeps, 9-tick correction). They are the baseline this design is compared
 with, not evidence for its own cost; its cost claims are gated by §12 test 5:
 
 | scene | awake | step | 9-tick resim | whole-world copy/tick (old serializer) |
@@ -1380,6 +1377,9 @@ follows the old timeline bit for bit when it replays the same API calls, time st
   shape destroy calls it under the same lock with the same contract, so the callback's restriction
   is the engine's existing one; a deferred-destruction list would be a second structure holding
   handles whose shape records the restore has already replaced.
+- **§12 stays in the design.** Which states the hash covers and which API churn the exactness tests
+  must include are what the completeness of the state inventory (§5) is judged against, so the
+  tests are part of what this design decides, not mechanism left to a later prompt.
 - **The sleeping tree is derived, not imaged and not byte-journaled.** It is proportional to the
   sleeping population, which requirement 2 forbids imaging. A byte journal of its writes would
   restore its exact layout, which is needed only where a tree's layout is read, and nothing reads

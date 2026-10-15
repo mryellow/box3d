@@ -178,3 +178,15 @@ Round 30: 0 findings (0H-0M-0L), 0 applied, 0 declined.
 
 - No change to the design. The confirmation round of round 29, clean; the series is settled at
   revision 30 and the status word remains Draft.
+
+## Revision 31 (2026-10-15, after round 30, owner gate re-run)
+
+Not a review round. The gates re-run after the confirmation round found two doc defects, and the
+owner ruled on two others.
+
+- §2, §11.1, §5.1: the citations of the perf review record are removed; the figures are cited as
+  §11.1's table.
+- §5.2: `b3CreateShapeProxy` joins the `shapes[id]` worklist (`proxyKey`).
+- §17: owner decision recorded: §12 stays in the design (the tests are part of what it decides).
+- Owner ruling, no edit: the migration queue is live engine state (AC-1 holds); the restore pass
+  and the doc's length stay as they are.
