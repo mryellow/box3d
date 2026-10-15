@@ -249,3 +249,14 @@ Round 35: 1 findings (0H-1M-0L), 1 applied, 0 declined.
 
 - §14: the correction example replays the API calls made after step `now`, which the rewind undid,
   after the catch-up loop.
+
+## Revision 36 (2026-10-15, after round 36)
+
+Round 36: 3 findings (2H-1M-0L), 3 applied, 0 declined.
+
+- §5.2, §7.1: `b3Shape_Write` takes the record and its `fatAABBs` entry together; one entry holds
+  both.
+- §8: the writer never wraps into the minimum window; the arena grows instead, so a sole image is
+  retained until a second is captured.
+- §9: the lock refuses the entries that take an unlocked world and no others; the callback contract
+  is unchanged.

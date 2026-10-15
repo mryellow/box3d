@@ -264,7 +264,8 @@ only, so a field assignment through anything but the three functions below is a 
 
 The first is the structure's write accessor (`b3Body_Write`, `b3Shape_Write`, `b3Contact_Write`,
 `b3Joint_Write`, `b3Island_Write`), replacing the direct field assignment used at every setter
-site today: it takes the completed new value of the record, makes the journal call itself with the value it is about to overwrite, and copies
+site today: it takes the completed new value of the record (for a shape, the record and its `fatAABBs`
+entry together, which one entry holds and one undo restores), makes the journal call itself with the value it is about to overwrite, and copies
 the new value in, so no caller has a journal call; it never returns a pointer to the record. It has
 two entry points: the structural one, which every structural function calls, always journals, and
 the setter one, which API setters call, journals unless the record's owner is awake. A record
@@ -548,7 +549,7 @@ undoing its mutation needs, and nothing about the value the mutation wrote. Entr
 
 | Kind | Payload | Undo |
 |---|---|---|
-| record write | structure tag, id, old bytes | copy old |
+| record write | structure tag, id, old bytes (a shape's entry holds its record and its `fatAABBs` entry) | copy old |
 | pool alloc | pool tag, id, whether `b3AllocId` popped the free list or bumped `nextIndex` (`id_pool.c`), plus the prior `nextIndex` if it bumped | free the owned blocks the record holds at that moment (a shape's `materials`, a contact's manifold block) and clear each freed pointer and its count; then pop-alloc undo = push the id back; bump-alloc undo = restore the prior `nextIndex` **and truncate the slot pool's record arrays** (`world->bodies`/`shapes` with `fatAABBs`/`contacts`/`joints`/`islands`/`solverSets`) **to that length**, since the slot pool pushes the arrays in the same operation that bumps |
 | pool free | pool tag, id, and ownership handles with their byte sizes (§8) for the blocks the freed record owned: a shape's `materials` block, a contact's manifold block, and a mesh contact's triangle cache array header (each empty when there was none), with the shape's `materialCount` (1 for an inline material) and the contact's `manifoldCount` whether or not a block existed | pop the id and hand the blocks back to the record, setting the counts; eviction frees the blocks the entry holds |
 | pair set add/remove | key, which of the two | remove / add (a contact's create adds a key that is absent and its destroy removes one that is present, and the entry asserts it) |
@@ -829,7 +830,10 @@ its two ends only:
   after T and moves the write position back to the end of slot T.
 - **The old end.** When the writer wraps into the oldest slot, that slot is evicted (the blocks
   its entries own are freed), together with the non-imaged slots after it up to the next imaged
-  slot, which no rewind can reach, and the retained window shrinks by those ticks. Segments are only
+  slot, which no rewind can reach, and the retained window shrinks by those ticks. The writer never
+  wraps into a slot of the minimum window (two imaged ticks with the segments between them, the
+  budget rule below); the arena grows instead, so a young ring's sole image and the segments after
+  it are retained until a second image is captured. Segments are only
   walked from the current tick back to an imaged tick T, so the segments of ticks at or before
   the oldest retained imaged tick are never read; `oldestImageTick` is that imaged tick, and
   every segment after it is retained.
@@ -907,7 +911,7 @@ allocators, the hull database).
 `b3World_Rewind( worldId, T )`, at a step boundary, world not locked, and with no broad-phase
 traversal open (`traversalDepth` is zero, so not from a query or cast callback; asserted, as for
 `b3World_EnableHistory`). The world is locked for the call, as a step and shape
-destruction lock it, so a world-level API call made from the host's `destroyDebugShape` callback is refused, as at an ordinary destroy; that callback must not call the API (§10). P is `historyTick` on entry.
+destruction lock it, so an API call made from the host's `destroyDebugShape` callback is refused where the entry takes an unlocked world (`b3GetUnlockedWorldFromId`, `physics_world.c`) and unguarded elsewhere (`b3World_SetGravity`), as at an ordinary destroy; that callback must not call the API (§10). P is `historyTick` on entry.
 
 1. **Check** T is imaged, inside the window, and not later than P; else
    `b3_historyTickUnavailable`. No other failure exists.
