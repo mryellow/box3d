@@ -36,7 +36,7 @@ The answer has four parts:
 
 1. **Box3d already has most of it.** The recording system serializes the whole world into a raw
    struct image (`src/world_snapshot.c`), restores it in place for backward seeks
-   (`src/recording_replay.c`), re-steps, and checks per-step state hashes. The
+   (`src/replay.c`), re-steps, and checks per-step state hashes. The
    `ScrubBackward` test (`test/test_recording.c`) asserts that a keyframe restore plus
    re-step reproduces the forward pass's hashes. Bit-exact rewind of a whole world along the
    dimensions that hash covers — body transforms and velocities — is therefore shown on that
@@ -88,7 +88,11 @@ The answer has four parts:
    per currently-overlapping visitor shape (§5.1), so a sensor with many overlaps costs
    proportionally more, not a flat per-sensor amount. `large_world`-shaped scenes with few
    sensors and few overlaps are unaffected; a scene with many sensors, or sensors with many
-   overlaps, on sleeping or static bodies pays for all of it every tick.
+   overlaps, on sleeping or static bodies pays for all of it every tick. The awake tree's proxy
+   array is the other exception: it is imaged to its capacity, which never shrinks
+   (`dynamic_tree.c`), so that term is proportional to the most that was awake at once, 24 B per
+   slot, not to what is awake now (§7.4), and the ring retains it once per imaged tick in the
+   window.
 3. **Restore never rejected** for any restorable tick — an imaged tick inside the retained window
    and at or before the current tick (§6; every such tick when the capture interval is 1) — and
    never leaves the world inconsistent. There is no "outside churn" failure mode because the whole
@@ -101,7 +105,11 @@ The answer has four parts:
    overrun is limited to the retained minimum window's own slots: a single
    tick whose own image and journal segment exceed the budget is still admitted (§8) rather than
    rejected, since rejecting it would violate requirement 3. `maxBytes` bounds retained history;
-   arena and staging capacity are reported separately (§8, §14).
+   arena and staging capacity are reported separately (§8, §14). Retained memory is the per-tick
+   slot multiplied by the imaged ticks in the window, not the per-tick figure alone: on the
+   all-awake stress scenes (5 to 51 MB per image, §5.1) a 60-tick window at interval 1 holds 0.3
+   to 3 GB, so on those scenes `maxBytes` is what keeps the ring in the hundreds of megabytes, at
+   the price of a wider interval and fewer restorable ticks.
 6. **No approximations and no new solver participant kinds.** Resimulation is `b3World_Step`.
 7. **Verified by construction, not by audit.** Every cold structure in §5.2 is written only
    through its write accessor or journaled container type, and the journal call lives inside that
@@ -131,8 +139,10 @@ From the determinism audit (`docs/faq.md`, `docs/simulation.md`,
   is nondeterministic but only feeds a min (`solver.c`); sensor hits are sorted and
   deduplicated (`sensor.c`).
 - Cross-platform determinism on 64-bit platforms, as documented in `docs/faq.md` and
-  `docs/simulation.md`, via `-ffp-contract=off` (`CMakeLists.txt`), width-4 SIMD everywhere,
-  custom trig. So a 64-bit Linux server and a 64-bit Windows client can be bit-exact.
+  `docs/simulation.md`, via `-ffp-contract=off` (`CMakeLists.txt`), custom trig, and a SIMD
+  width of 4, or 8 under AVX2 (`simd.c`), that the determinism suite holds bit-identical between
+  4 and the native width (`test_determinism.c`). So a 64-bit Linux server and a 64-bit Windows
+  client can be bit-exact.
 - Hash tables are never iterated by anything that affects simulation state, only queried. Nothing
   orders by pointer value. Manifold blocks
   come from a mutex-guarded allocator so their addresses vary, but nothing reads addresses.
@@ -159,7 +169,7 @@ different treatment. The classification is the design.
 
 | Class | What | Per-tick treatment |
 |---|---|---|
-| **Hot** | Index-addressed awake state rewritten every step for every awake member: awake solver set, graph colour arrays, awake contact records and manifolds, awake body/shape/joint/island records, the awake dynamic tree with the migration queue, the kinematic tree's moved-proxy list, sensor overlaps, world scalars | **Image**: flat copy into the ring slot, O(awake) |
+| **Hot** | Index-addressed awake state rewritten every step for every awake member: awake solver set, graph colour arrays, awake contact records and manifolds, awake body/shape/joint/island records, the awake dynamic tree with the migration queue, the kinematic and static trees' moved-proxy list, sensor overlaps, world scalars | **Image**: flat copy into the ring slot, O(awake) |
 | **Cold** | World-sized, id-addressed structures mutated only by structural events: sleeping/static/disabled sets, records of non-awake bodies/shapes/contacts/joints/islands, id pools (including the static and sleeping trees' own proxy-id pools, §7.4), the `world->sensors` array, the shared hull database's refcounts, pair set, graph colour bitsets | **Undo journal**: every mutation logs what reversing it needs, O(events) |
 | **Scratch** | Per-step bitsets, event arrays, arenas, prepared constraint buffers, profile | Nothing; fully rewritten before use |
 | **Derived** | Layout of the static, kinematic and sleeping trees (which node holds which proxy) | Rebuilt from fat AABBs at restore; the engine's reads of a tree do not depend on its layout (§3, §7.4); proxy identity itself is cold, not derived |
@@ -204,7 +214,7 @@ Sizes are single-precision (measured with a `sizeof` probe against `src/`).
 | `islands[id]` + link arrays for awake islands | 64 B + 4/12/12 B per link | link/unlink on every begin/end touch |
 | awake dynamic tree | `b3DynamicTree`: `nodes` and `parents` to `nodeEnd`, `proxies` to `proxyCapacity`, scalars (§7.4) | insert, remove, mark, enlarge and rebuild on every step and migration (`broad_phase.c`, `dynamic_tree.c`) |
 | migration queue | body id | a sleeping body whose marked leaf waits in the awake tree is kept queued by the drain (`b3PlaceBodies`, `broad_phase.c`, §7.4) |
-| kinematic tree's moved proxies | proxy id | `B3_MOVED_NODE` bits set in step t, consumed by pair update in t+1 (`broad_phase.c`); sleeping does not clear them, so the list is read from the tree, not from awake shapes |
+| kinematic and static trees' moved proxies | proxy id | kinematic: `B3_MOVED_NODE` bits set in step t, consumed by pair update in t+1 (`broad_phase.c`); sleeping does not clear them, so the list is read from the tree, not from awake shapes. Static: set only by API calls between steps (a create with contact creation forced, `b3ResetProxy`, `b3Body_SetTransform`; `shape.c`, `body.c`) and cleared by the next pair update, so empty at every boundary after a step and non-empty only in tick 0's image (§8) |
 | `sensors[i].overlaps2` | 8 B per overlap | `sensor.c` |
 | world scalars | one struct | `splitIslandId` (chosen end of t, consumed in t+1, `solver.c`), `compoundShapeCount` (gates compound pair discovery, `broad_phase.c`), the enable flags (`enableSleep`, `enableWarmStarting`, `enableContinuous`, `enableSpeculative`, `enableRestitutionPropagation`), `gravity`, `hitEventThreshold`, `restitutionThreshold`, `restitutionIterations`, `maxLinearSpeed`, `contactSpeed`, `contactHertz`, `contactDampingRatio`, `contactRecycleDistance`, `endEventArrayIndex`, `inv_h` and `inv_dt` (set at the start of each step, read between steps by the joint force and torque getters and the contact-force debug draw) |
 
@@ -231,7 +241,8 @@ Estimated bytes per tick: ~470 B per awake body, ~208 B per awake shape (whole r
 the ~50 B of `aabb`/`fatAABBs` alone), ~220 B per awake non-touching
 contact, ~490 B per touching convex contact (more with multiple manifolds), ~520 B per awake
 joint, and about 100 B per proxy slot of the awake tree's high-water mark (§7.4). For the fully-awake stress scenes this is the same order as the whole-world figures in
-the perf review (5–51 MB/tick); for `large_world` it is a few KB.
+the perf review (5–51 MB/tick); for `large_world` it is a few KB. The ring holds one such image
+per imaged tick in the window, so the retained total is that figure times the imaged ticks (§8).
 
 ### 5.2 Cold (journaled)
 
@@ -364,8 +375,11 @@ tag, owner id) pair its journal entry records, so it has no wrapper to allocate,
 and destruction are the set's and island's own entries (§7.1). That file holds every function that produces a writable
 element pointer: the container's mutators and the undo of their journal entries, the hot
 accessor's element function, restore's writer, and, for a record array, the write function that
-the structure's write accessor enters. So an element, count or pointer assignment anywhere else
-does not compile, and there is no per-call-site journal call to miss. The one-time migration
+the structure's write accessor enters. So an element or count assignment anywhere else does not
+compile, and there is no per-call-site journal call to miss. The world's pointer to a container is
+assignable from any file, but no file other than the container's own can produce a container, the
+type being incomplete elsewhere; the boundary rests on the element and count rule, not on the
+pointer. The one-time migration
 redirects each current direct-write caller to its accessor or container type, and the
 const-qualified and incomplete types then remove direct-write access from every other translation
 unit. Where a structure's storage cannot be moved out of reach of direct assignment without
@@ -481,10 +495,11 @@ tick, not part of the ring arena); a journal call appends to it directly. At the
      to its own offset;
    - per awake body: `b3Body` record, `b3BodySim`/`b3BodyState` are already in step 2;
    - per awake shape: the whole `b3Shape` record and `fatAABBs[id]` (§5.1);
-   - moved proxies: the kinematic tree's moved leaves as proxy ids, enumerated by descending
-     moved nodes only (`b3DynamicTree_GatherMovedProxies`), so a proxy still marked moved whose
-     body the step put to sleep is included; the awake tree's marks ride in its image, and the
-     static and sleeping trees hold none at a step boundary (§7.4);
+   - moved proxies: the kinematic and static trees' moved leaves as proxy ids, enumerated by
+     descending moved nodes only (`b3DynamicTree_GatherMovedProxies`), so a proxy still marked
+     moved whose body the step put to sleep is included and an unmarked tree costs one root read;
+     the awake tree's marks ride in its image, and the sleeping tree holds none at a step boundary
+     (§7.4);
    - per awake contact id (from colour arrays plus awake `contactIndices`): the `b3Contact`
      record, `manifoldCount` manifolds, and the mesh triangle cache when `b3_simMeshContact`;
    - per awake joint: `b3Joint` record;
@@ -695,14 +710,17 @@ it likes:
 - after the journal walk and the image scatter, every proxy alive at T exists, and one
   pass calls `b3DynamicTree_MoveProxy` with the restored fat AABB on the proxy of each listed shape
   whose restored record holds one in a derived tree (`proxyKey` not `B3_NULL_INDEX` and a tree
-  code other than the awake tree's; disabled shapes and free slots hold none), and a shape listed
-  more than once is moved once per listing, which is idempotent;
+  code other than the awake tree's; disabled shapes and free slots hold none, and a listed id at or
+  beyond the restored shape array's length names a slot an undone bump allocation truncated away
+  and is skipped without a read), and a shape listed more than once is moved once per listing,
+  which is idempotent;
 - clear each derived tree's moved bits (`b3DynamicTree_ClearMoved`, which descends only moved
   nodes), then mark each proxy of image T's moved list moved together with its ancestors
   (`b3DynamicTree_MarkProxyMovedSerial`), since `ClearMoved`, the rebuild and pair update all
-  descend by the internal nodes' moved bits. Of the three, only the kinematic tree holds a mark at
-  a step boundary: the pair update clears the static tree's, the sleeping tree holds none, and
-  nothing marks either inside the step after that clear;
+  descend by the internal nodes' moved bits. The sleeping tree holds no mark at a step boundary.
+  The static tree's are set only by API calls between steps and cleared by the next pair update,
+  so its list is empty after any step and non-empty only in tick 0's image, which
+  `b3World_EnableHistory` takes after such calls (§8);
 - the next step's rebuild puts the kinematic tree back into DFS order as usual. The static tree
   is not rebuilt by the step, the sleeping tree only on its height trigger, and nothing reads
   their order.
@@ -805,7 +823,7 @@ happened and without any slot carrying a mark of which timeline it belongs to.
   down to a minimum window (say two imaged ticks, with the journal segments between them;
   `tickCount` is a separate limit that can leave fewer, and it never widens the interval), the
   capture interval doubles, as the recording player's keyframe ring
-  does (`recording_replay.c`), and never past `tickCount`, beyond which a wider interval retains
+  does (`replay.c`), and never past `tickCount`, beyond which a wider interval retains
   no fewer image bytes. A tick is imaged when at least the effective interval has passed since
   the last imaged tick (tick 0 is imaged), so retained imaged ticks need not be multiples of the
   interval. Widening takes effect at the tick that triggers it: that tick's image is skipped when
@@ -920,7 +938,9 @@ before P.
   was registered at T. A caller that swaps a callback mid-timeline is changing the rules the
   replay runs under, the same as changing engine code between capture and replay; it is not a case
   bit-exactness covers. Registering a callback or setting `world->userData` writes no simulation
-  state and makes no journal entry.
+  state and makes no journal entry. The per-world SIMD width (`b3World_EnableSSE2Fallback`) and
+  the process-wide width are host configuration of the same kind, left by `Rewind` and outside
+  the hash; width 4 and the native width simulate bit-identically (§3).
   `preSolve` order within a step, and custom filter order within a CCD sweep, a sensor query or
   pair discovery, follow tree traversal (§3) and may differ after a restore; a callback with
   order-dependent side effects breaks the contract. Host state a callback reads
@@ -1115,9 +1135,12 @@ per-structure write accessors, a handful of journal entry kinds beyond plain rec
    against golden values recorded on another platform of the determinism guarantee
    (`test_determinism.c`'s approach); the scenes
    include geometry shapes, pool churn, proxy churn and sleeping islands.
-5. **Cost.** Per-scene: capture µs and % of step; image and journal bytes per tick; restore ms
+5. **Cost.** Per-scene: capture µs and % of step; image and journal bytes per tick; retained
+   bytes (`bytesUsed`) and the effective interval at a 60-tick window, under an unbounded budget
+   and under a budget the window does not fit; restore ms
    for 1, 5 and 9 ticks back; replay ms. Measured in a release build, without §9 step 6's
-   validation-build checks. Acceptance: capture < 15% of step at 8 workers for
+   validation-build checks. Acceptance: `bytesUsed` within `maxBytes` except in §8's overrun
+   cases, with the retained window and interval reported per scene; capture < 15% of step at 8 workers for
    the all-awake scenes and < 1 µs·awake for `large_world` and for a scene of a million sleeping
    dynamic and kinematic bodies with few awake; restore proportional to awake plus
    sensors and journal; replay equals N × step within noise, with the first replayed step after a

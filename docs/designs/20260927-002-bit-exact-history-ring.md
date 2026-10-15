@@ -32,7 +32,7 @@ The answer has three parts:
 
 1. **Box3d already has most of it.** The recording system serializes the whole world into a raw
    struct image (`src/world_snapshot.c`), restores it in place for backward seeks
-   (`src/recording_replay.c`), re-steps, and checks per-step state hashes. The
+   (`src/replay.c`), re-steps, and checks per-step state hashes. The
    `ScrubBackward` test (`test/test_recording.c`) asserts that a keyframe restore plus
    re-step reproduces the forward pass's hashes. Bit-exact rewind of a whole world along the
    dimensions that hash covers — body transforms and velocities — is therefore a demonstrated
@@ -513,7 +513,7 @@ window shrinks by one tick. Segments are only walked from a later tick toward an
 
 - `maxBytes` is the target for retained bytes. When a capture would not fit even after evicting down to a minimum
   window (say two imaged ticks, with the journal segments between them; `tickCount` is a separate limit that can leave fewer, and it never widens the interval), the capture interval doubles, as the recording player's keyframe ring
-  does (`recording_replay.c`). `b3World_GetHistoryInfo` reports the effective
+  does (`replay.c`). `b3World_GetHistoryInfo` reports the effective
   interval and window. Doubling the interval trades how *often* an image is taken; it does not
   shrink any single tick's own image or journal segment, so it cannot help when one tick's own
   slot — awake state that size, or a burst of structural churn — exceeds `maxBytes` outright.

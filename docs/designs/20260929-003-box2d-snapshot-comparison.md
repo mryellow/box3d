@@ -273,7 +273,7 @@ Two costs follow from the code as written:
   already stores its own content hash (`include/box3d/types.h`), which the interning path does not
   use.
 - **The player holds geometry twice.** It loads the file's registry, then copies every slot into a
-  second registry used for keyframes (`src/recording_replay.c`).
+  second registry used for keyframes (`src/replay.c`).
 
 ### 5.4 Reading of the statement
 
