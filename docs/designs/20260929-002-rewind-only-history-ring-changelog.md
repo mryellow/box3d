@@ -531,3 +531,9 @@ Round 62: 1 findings (0H-1M-0L), 1 applied, 0 declined.
 - §5.2: the hot accessor returns an awake shape's `aabb` and `fatAABBs` entry and never its
   record, since the image carries neither `materials` nor `materialCount` and only the block
   mutator writes them; it restricts the owner and, for a shape, the fields reached.
+
+## Round 63 (2026-10-15, no revision)
+
+Round 63: 0 findings (0H-0M-0L), 0 applied, 0 declined.
+
+- No change to the design. The first clean round on revision 60; round 64 is its confirmation.
