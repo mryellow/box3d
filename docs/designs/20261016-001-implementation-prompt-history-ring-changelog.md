@@ -270,3 +270,15 @@ Round 13: 4 findings (H1-M3-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §2's wake inventory adds the conditional wakes of the velocity, target-transform and force,
   torque and impulse setters; the rewind churn names which velocity write wakes.
 - Length 1460 -> 1476 lines.
+
+## Revision 15: after review round 14
+
+Round 14: 2 findings (H0-M1-L1), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+pending.
+
+- A third assertion-only `bool`, the restore mark, set by `b3DeserializeIntoShell` and by
+  `b3World_Rewind`'s steps 2 and 3, is what the restore writers assert (the design §5.2); §3's
+  exception list and §10's marks entry count three.
+- §6's exclusion row names the four assertion sites and their predicates in place of a count.
+- Length 1476 -> 1484 lines.

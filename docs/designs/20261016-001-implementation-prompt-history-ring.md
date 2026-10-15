@@ -395,8 +395,9 @@ validates the dynamic, kinematic and sleeping trees; `b3DynamicTree_Validate` is
   Comments in human words; Doxygen `///` on the public additions (`b3HistoryDef`, `b3HistoryInfo`,
   `b3HistoryResult` and the seven functions of the design §14), as their neighbours have.
 - Do not add a validator, flag, fallback, counter, generation check or scalar the designs do not
-  name, with the two exceptions §2 states and §10 records: the `bool` that marks a player's world
-  and the `bool` that marks the inside of a step, each read by assertions only. An assertion of a
+  name, with the three exceptions §10 records: the `bool` that marks a player's world, the `bool`
+  that marks the inside of a step and the `bool` that marks the inside of a restore, each read by
+  assertions only. An assertion of a
   construction-guaranteed invariant is welcome; it is never control flow (WORKFLOW AC-4).
 - Journaling, capture and the hot accessors' assertions run only while history is enabled or inside
   a step; a world that never enables history pays one null check per journal call and nothing
@@ -821,7 +822,7 @@ field exclusions are the specification. Mechanics that follow from them:
   copy every field of the value into storage; the hot accessor `b3Body* b3Body_Hot( world, id )`,
   asserting the step mark and `setIndex == b3_awakeSet`, returning the record for finalize's
   `sleepTime`, `sleepVelocity`, flags and `bodyMoveIndex` writes; and the restore writer
-  `b3Body_Restore( world, id, const b3Body* )`, asserting the rewind or deserialize mark, used by
+  `b3Body_Restore( world, id, const b3Body* )`, asserting the restore mark, used by
   the serializer's reader now and by the undo and the image scatter from H4 and H5. For shapes the
   same three, with `b3Shape_Write( world, const b3Shape*, const b3AABB* fatAABB )` taking the record
   and its `fatAABBs` entry together, copying every field but `materials`, `materialCount` and
@@ -846,7 +847,12 @@ field exclusions are the specification. Mechanics that follow from them:
   debug draw's assignment in `src/physics_world.c` and the serializer's detach and put-back go
   through it.
 - The step mark: `world->inStep`, a `bool` set at `b3World_Step`'s entry and cleared at its exit,
-  read by the hot accessors' assertions only (§3).
+  read by the hot accessors' assertions only (§3). The restore mark: `world->inRestore`, a `bool`
+  set and cleared by `b3DeserializeIntoShell` around its writes (so the serializer's reader, the
+  recording player and the phase-0 rewind all carry it) and from H4 by `b3World_Rewind` around its
+  step 2 and step 3, read by the restore writers' assertions only, which is the assertion the
+  design §5.2 gives them (inside `b3World_Rewind` or inside `b3DeserializeIntoShell`); no existing
+  field tells a restore from a between-step call.
 - Every direct assignment to a body or shape field elsewhere (`src/body.c`'s setters,
   `src/solver_set.c`'s transfers and sleep and wake, `src/island.c`'s link and unlink,
   `src/contact.c`'s edge writes, `src/joint.c`'s edge writes, `src/shape.c`'s creation and setters,
@@ -1301,7 +1307,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | ring doc §9 test 1 | `HistoryRingTest`, extended in H4 for pending bytes and block ownership | Build failure (H1, H4) |
 | ring doc §9 test 2, budget acceptance | §7 measurements per scene | n/a |
 | design §13 phase 0: serializer options, queue and geometry pointers beside the image, §9 step 5 performed by the rewind | Inspection; `HistoryRewindTest`'s debug-draw and `userData` cases; `HistoryRingTest` case 9; `HistoryReplayTest`'s disable-and-continue run | Build failure (H1) |
-| design §10: recording and history exclusive, player world refused, seek refused | Inspection of the three assertions; a validation-build check in `HistoryRingTest` that `b3World_StartRecording` on a history world asserts is not written (an assertion failure ends the process); the closure doc states inspection | n/a |
+| design §10: recording and history exclusive, player world refused, seek refused | Inspection of the assertion sites H1 names: `b3World_EnableHistory` asserts `world->recording == NULL` and the player mark clear; `b3World_StartRecording` asserts `world->history == NULL`; `b3RecPlayer_SeekFrame` and `b3RecPlayer_Restart` assert the player world's `history == NULL`; a validation-build check in `HistoryRingTest` that `b3World_StartRecording` on a history world asserts is not written (an assertion failure ends the process); the closure doc states inspection | n/a |
 | design §12 test 2, restore exactness, every churn case | `HistoryRewindTest`, 25 pairs per scene in the suite, 1,000 under `BOX3D_HISTORY_SOAK` | Build failure (H1) |
 | design §12 test 3, replay exactness with events, host state set back | `HistoryReplayTest` | Build failure (H1) |
 | design §12 test 4, cross-worker replay and platform goldens | `HistoryCrossWorkerTest`; the owner's Windows run | Build failure (H1) |
@@ -1456,9 +1462,11 @@ document.
   one commit was considered and not done for size.
 - **Test counts.** 25 (T, P) pairs per scene in the suite and 1,000 under `BOX3D_HISTORY_SOAK`:
   the design's count is run once and quoted; the suite stays within its present duration.
-- **The two marks.** A `bool` on `b3World` for a player's world and a `bool` for the inside of a
-  step exist because the design names assertions that need them and no existing field tells either
-  apart (§2). Each is read by assertions only; neither is control flow.
+- **The three marks.** A `bool` on `b3World` for a player's world, a `bool` for the inside of a
+  step and a `bool` for the inside of a restore exist because the design names assertions that
+  need them (the design §10's refusal of a player's world, §5.2's hot accessor and restore writer
+  assertions) and no existing field tells any of the three apart (§2, H3a). Each is read by
+  assertions only; none is control flow.
 - **The 256 KB bound and the 3% threshold** are this document's numbers: the bound is an order of
   magnitude above the design §5.1's figure for sixteen awake bodies with their contacts and an order
   below the serialized image, so it separates the two paths without pinning the design's estimate;
