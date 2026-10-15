@@ -334,3 +334,10 @@ Round 42: 3 findings (0H-2M-1L), 3 applied, 0 declined.
   contacts' recycling flag); the debug draw's `userShape` assignments migrate to the `shape.c`
   writer; velocity setters on an awake body write its `bodyStates` element through the awake set's
   array.
+
+## Revision 43 (2026-10-15, after round 43)
+
+Round 43: 1 findings (0H-0M-1L), 1 applied, 0 declined.
+
+- §5.2: the islands worklist row names `b3RemoveBodyFromIsland` (`body.c`) and the solver-set
+  transitions (`solver_set.c`) with their routes.
