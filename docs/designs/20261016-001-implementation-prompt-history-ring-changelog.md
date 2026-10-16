@@ -769,3 +769,19 @@ Round 48: 0 findings (H0-M0-L0), 0 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 0/0/0 -> pending confirmation.
 
 - No edit.
+
+## Revision 47: after review round 49
+
+Round 49: 3 findings (H2-M1-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> pending.
+
+- §2 states the three material storage cases; inline storage is told by the pointer.
+- H3a splits the shape's block route into the forward writer and the restore-only load and free;
+  H4 names the two block mutators that journal.
+- H4's pair set and slot pools expose value views with const element pointers in place of raw
+  header getters.
+- Length 1783 -> 1790 lines.

@@ -94,8 +94,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `density`, `explosionScale`, `aabbMargin`, `aabb`, `localCentroid`, `materialCount`, the inline
   `material`, `b3SurfaceMaterial* materials`, `filter`, `userData`, `userShape`, `nameId`,
   `generation`, `flags`, and the geometry union whose `hull`, `heightField` and `compound` members are
-  already pointer-to-const. A single-material shape keeps `materialCount` 1 and `materials` NULL; a
-  multi-material or compound shape holds a `b3Alloc`'d block. `b3GetShapeMaterials` is a `static
+  already pointer-to-const. A shape with one material from its def keeps `materialCount` 1 and `materials` NULL; a
+  multi-material shape and every compound (its `compound->materialCount`, 1 included) hold a
+  `b3Alloc`'d block, so inline storage is told by `materials` NULL, never by the count. `b3GetShapeMaterials` is a `static
   inline` in `src/shape.h` that takes a const shape and returns a writable pointer by casting the
   qualifier away; `b3Shape_SetFriction`, `b3Shape_SetRestitution`, `b3Shape_SetSurfaceMaterial` and
   `b3Shape_SetMeshMaterial` (`src/shape.c`) write through it. `userShape` is assigned at creation and destruction (`src/shape.c`), in the debug
@@ -955,17 +956,20 @@ field exclusions are the specification. Mechanics that follow from them:
   reason); the restore writer's own release is then a safety net that finds `NULL`.
 - `const b3SurfaceMaterial* b3GetShapeMaterials( const b3Shape* )`; `shape->materials` is
   `const b3SurfaceMaterial*`. `b3Shape_WriteMaterial( world, id, index, const b3SurfaceMaterial* )`
-  in `src/shape.c` is the one material writer: for an inline material it builds the record with the
-  new material and enters `b3Shape_WriteSetter`; for a block it writes the element (journals from
+  in `src/shape.c` is the one material writer: for an inline material (`materials` NULL) it builds the record with
+  the new material and enters `b3Shape_WriteSetter`; for a block it writes the element (journals from
   H4 whatever the owner's state). `b3Shape_SetFriction`, `b3Shape_SetRestitution`,
   `b3Shape_SetSurfaceMaterial` and `b3Shape_SetMeshMaterial` call it.
 - The block itself: `b3Shape_SetMaterialBlock( world, id, count, b3SurfaceMaterial* block )` in
-  `src/shape.c` is the one writer of `materials` and `materialCount` (shape creation's allocation
-  in that file; from H4 the slot pool's detach and attach callbacks); the serializer's reader hands
-  it the block it decoded (`src/world_snapshot.c` allocates and fills the block itself today) and
-  `b3FreeLiveSimElements` releases a live shape's block through `b3Shape_FreeBlocks( world, id )`
-  of the same file; both run under the restore mark and make no entry (the design §5.2's
-  file-local loads), so this commit's reader builds and restores as before.
+  `src/shape.c` is the forward writer of `materials` and `materialCount`, called by shape
+  creation's allocation in that file alone (the creation's slot-pool push is its entry from H4;
+  H4's detach and attach are transfers of their own). Its restore form `b3Shape_LoadBlocks( world,
+  id, count, block )`, under the restore mark with no entry, takes the block the serializer's
+  reader decoded (`src/world_snapshot.c` allocates and fills the block itself today), and
+  `b3Shape_FreeBlocks( world, id )`, under the same mark, releases a live shape's block for
+  `b3FreeLiveSimElements`; both in `src/shape.c` (the design §5.2's file-local loads), as H3b's
+  `b3Contact_LoadBlocks` and `b3Contact_FreeBlocks`, so this commit's reader builds and restores
+  as before.
   Block allocation and release stay in `b3CreateShapeInternal` and `b3DestroyShapeAllocations`
   until H4 moves the release into the pool free entry.
 - `b3Shape_SetUserShape( world, id, void* )` in `src/shape.c` is the one `userShape` writer; the
@@ -1201,15 +1205,18 @@ specification. Mechanics that follow from them:
   type whose definition (a `b3HashSet` inside) sits in `src/broad_phase.c`, with `b3PairSet_Contains`,
   `b3PairSet_Count`, `b3PairSet_Capacity` and `b3PairSet_Bytes` as its readers for
   `src/physics_world.c`'s memory log and validation count, a key walk `b3PairSet_ForEachKey( set,
-  fn, context )` for H0's per-key mix in `src/world_hash.c`, `const b3HashSet* b3PairSet_Raw(
-  set )` for the serializer's writer `b3SerHashSet` (`src/world_snapshot.c`), which the phase-0
-  image needs through this commit, and `const b3IdPool*
-  b3SlotPool_GetIdPool( pool )` for the hash's walk of the six pools, so
+  fn, context )` for H0's per-key mix in `src/world_hash.c`, a value view `b3PairSetView
+  b3PairSet_View( set )` (`capacity`, `count`, `const b3SetItem* items`) for the serializer's
+  writer `b3SerHashSet` (`src/world_snapshot.c`), which the phase-0 image needs through this
+  commit, and a value view `b3IdPoolView b3SlotPool_IdPoolView( pool )` (`nextIndex`, `freeCount`,
+  `const int* freeIds`) for the hash's walk of the six pools and the serializer's `b3SerIdPool`,
+  neither exposing a header a caller could write through, so
   `src/contact.c`'s add and remove become the journaled ones. The generic
   `b3IdPool`, `b3HashSet`, `b3BitSet` and `b3Array` are untouched and keep serving scratch.
 - The accessors journal: the structural entry always, the setter entry unless the owner is awake
   (a body or joint by `setIndex`, a shape by its body's, a contact by its `setIndex`), the block
-  mutators always (the design §7.1, material block). `b3CreateSolverSet`, `b3DestroySolverSet`,
+  mutators always (`b3Shape_WriteMaterial`'s block write and `b3Contact_SetBlocks`, the design
+  §7.1's material and manifold block entries; the restore loads of H3a and H3b never). `b3CreateSolverSet`, `b3DestroySolverSet`,
   `b3CreateIsland` and `b3DestroyIsland` make their entries, the destroy entries taking the arrays;
   the hull database's three functions, which from this commit take the owning shape's id after
   the world (their callers are `b3CreateShapeInternal`, `b3DestroyShapeAllocationForShapeChange`
