@@ -1055,3 +1055,19 @@ Round 66: 3 findings (H1-M1-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §2: `b3Shape_SetFilter( ..., true )` joins the geometry setters' entry (wakes only through
   destroyed contacts; a contactless sleeping body stays asleep with its leaf parked).
 - Length 1958 -> 1977 lines.
+
+## Revision 64: after review round 67
+
+Round 67: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> 0/2/0 -> 1/1/1 -> 0/2/0 -> pending.
+
+- H1 `HistoryRewindTest`: the height-trigger sub-scene's island uses nested box sizes and
+  `ENSURE`s `sleepingTreeRebuildCount` grew across the rewind.
+- H5 `HistoryTreeTest`: the bullet case rejects the designated candidate by id and `ENSURE`s the
+  bullet ended past it and short of the accepted hit.
+- Length 1977 -> 1984 lines.

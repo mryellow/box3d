@@ -925,7 +925,12 @@ in full are the specification. Mechanics that follow from them:
   the next step must find; a shape created on a sleeping body with a rewind before and after the
   step that moves it asleep; a sleep and wake of an island of at least sixteen bodies, the bulk
   placement, with a rewind across each; a rewind whose undone wake takes the sleeping tree past
-  `B3_SLEEPING_TREE_MAX_HEIGHT`; a bullet whose leaf outgrew its fat AABB entry before it slept,
+  `B3_SLEEPING_TREE_MAX_HEIGHT` (the woken island's `B3_SLEEPING_TREE_MAX_HEIGHT + 16` boxes at
+  one position with each enclosing every box before it, the sizes `test/test_awake_tree.c`'s
+  `NestedBox` gives, so the undo's one-by-one re-insertion deepens one path per leaf; the
+  sub-scene reads `b3World_GetCounters().sleepingTreeRebuildCount` before the rewind and
+  `ENSURE`s it greater after, the counter being a broad-phase field no image writes); a bullet
+  whose leaf outgrew its fat AABB entry before it slept,
   woken after T and rewound). Each structural case is a named sub-scene; a scene's schedule is the sub-scene list in a seeded
   order followed by seeded draws, the test counts each sub-scene's runs and `ENSURE`s every count
   above zero before the scene's `Destroy*`, and a failure names the case; in a pair that runs a
@@ -1622,9 +1627,11 @@ them:
   (the perturbation helper rebuilds every tree after the rewind; the kinematic witness is H6's
   sweep case): a bullet sweep with several competing
   candidates, some awake and some asleep, one of them a nearer hit that a `preSolve` rejects
-  (`enablePreSolveEvents` set on the bullet and on that candidate, the callback counting its
-  rejections, `ENSURE`d above zero in the original run, since the flag is off by default and gates
-  the call, `src/solver.c`); a
+  (`enablePreSolveEvents` set on the bullet and on that candidate, the callback rejecting that
+  candidate by its shape id and counting the rejections, `ENSURE`d above zero in the original
+  run, since the flag is off by default and gates the call, `src/solver.c`; and the bullet's
+  position after the step `ENSURE`d past that candidate along the sweep and short of the accepted
+  hit, which holds only when the rejected candidate was the nearer one); a
   sweep with more than eight sensor candidates; an explosion hitting several shapes of one body; an
   explosion waking bodies in several sleeping sets, some connected by joints. Each case's
   candidates sit in a named tree the query reaches: the bullet sweep's candidates are static and
