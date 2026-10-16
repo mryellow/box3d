@@ -576,3 +576,14 @@ Round 34: 3 findings (H0-M3-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - `HistoryReplayTest` counts callback calls and rejections per tick, on both sides of the tick-50
   change, and compares them on replay.
 - Length 1703 -> 1711 lines.
+
+## Review round 35: clean, revision 35 stands
+
+Round 35: 0 findings (H0-M0-L0), 0 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> pending
+confirmation.
+
+- No edit. One Unresolved item about the trees doc §7's pointer-to-const wording recorded for the
+  owner in the round record.
