@@ -1142,8 +1142,11 @@ specification. Mechanics that follow from them:
   (a body or joint by `setIndex`, a shape by its body's, a contact by its `setIndex`), the block
   mutators always (the design §7.1, material block). `b3CreateSolverSet`, `b3DestroySolverSet`,
   `b3CreateIsland` and `b3DestroyIsland` make their entries, the destroy entries taking the arrays;
-  the hull database's three functions make the refcount entry, a decrement to zero moving the hull
-  into the entry; `b3CreateContact` makes the mesh cache entry after its record write.
+  the hull database's three functions, which from this commit take the owning shape's id after
+  the world (their callers are `b3CreateShapeInternal`, `b3DestroyShapeAllocationForShapeChange`
+  and `b3Shape_SetHull` in `src/shape.c`; `src/world_snapshot.c`'s two calls become the restore
+  add and remove below), make the refcount entry, a decrement to zero moving the hull into the
+  entry; `b3CreateContact` makes the mesh cache entry after its record write.
 - Restore routes: the loads H3a to H3c gave the serializer's reader stand (the record files'
   load-count functions, now the slot pools' push-zeroed and truncate; the set, island, colour and
   sensor array loads) and this commit adds the rest, each in its file, writing storage and making
@@ -1190,7 +1193,8 @@ specification. Mechanics that follow from them:
   assert, on forward writes and never in an undo, that the box they write equals
   `fatAABBs[shapeId]` (§2).
 - The ring (`src/world_history.c`): a slot is header, image (still the phase-0 serializer image
-  in this commit), queue copy and the journal segment moved in from the staging buffer at capture;
+  in this commit), queue copy, the geometry pointer words as in H1 (step 3's repoint stands until
+  H5) and the journal segment moved in from the staging buffer at capture;
   a slot's charge adds the byte sizes of the blocks its entries own; `pendingBytes` is the staging
   buffer's used bytes plus the bytes of the blocks its entries own; eviction walks the evicted
   slots' entries once and frees the blocks they own; disable frees the blocks owned by every
@@ -1280,7 +1284,7 @@ operation the manifold allocators' summed
 slots and the staging buffer own, read through a third read-only function of `src/world_history.h`,
 `b3History_CountOwnedBlocks( world, kind )`, added in this commit. The leak check
 `ENSURE( b3GetByteCount() == base )` after the destroy stands as the check for every other block
-kind.
+kind. The extended entry fails before H4 by not building (§6).
 
 ### H5. The hot image and the in-place restore
 
