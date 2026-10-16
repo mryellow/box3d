@@ -349,3 +349,19 @@ Round 18: 3 findings (H0-M2-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   retains at each step, with the two-image and one-image spans stated.
 - §2's target-transform wake names its `wake` and time-step conditions.
 - Length 1555 -> 1562 lines.
+
+## Revision 20: after review round 19
+
+Round 19: 5 findings (H1-M4-L0), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> pending.
+
+- H4 lists `src/world_hash.c` and gives the hash and the memory log their read routes: pair-set
+  capacity and key walk, the slot pool's const id-pool getter.
+- `HistoryRingTest` case 2's window spans corrected: two images only at the step that writes one.
+- The budget cases run on a variant with equal image charges (bodies apart, gravity zero, sleep
+  off), asserted per slot.
+- `HistoryRewindTest` bounds T by `oldestImageTick` read at P.
+- §7's fallback rebuild timing is a scene of the harness, since the measurement build has no test
+  target.
+- Length 1562 -> 1574 lines.

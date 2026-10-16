@@ -654,18 +654,22 @@ in full are the specification. Mechanics that follow from them:
   `b3DestroyWorld` alone (its own disable call) and the same check:
   1. unbounded budget, `tickCount` 8, interval 1: after 20 steps the retained imaged ticks are 12
      to 20 (9 slots), and `oldestImageTick` is 12;
-  2. a budget: read `s`, the charge of tick 0's imaged slot after the enable, on a world of this
-     scene with no churn; `maxBytes` = `s` + `s` / 2 (one image fits, two do not), `tickCount` 32,
+  2. a budget. Cases 2 to 5 run on the budget variant of the scene: the same bodies placed apart
+     with no contact, gravity zero, sleep disabled and no churn, so every image has the same
+     charge in every phase (each imaged slot's charge is `ENSURE`d equal to `s`, which is what
+     makes the exact sequences below hold for H5's awake-only image as for the phase-0 image).
+     Read `s`, the charge of tick 0's imaged slot after the enable; `maxBytes` = `s` + `s` / 2 (one image fits, two do not), `tickCount` 32,
      interval 1: the minimum window is over budget at every tick an image is due, so
      `effectiveInterval` reads 2 after step 1, 4 after step 2, 8 after step 4, 16 after step 8 and
      32 after step 16 and every later step through step 200; the images written over the run are
      at ticks 0, 32, 64, 96, 128, 160 and 192, each seen in the directory at the step that writes
      it, and at every step the directory retains the images at most 32 ticks behind the current
-     tick (the window bound, the ring doc §7): two images from the step that writes one until the
-     older is 33 behind (tick 0 and 32 through step 64, 32 and 64 through step 96, and so on, 160
-     and 192 through step 192), one image otherwise (192 alone from step 193 through step 200),
-     `bytesUsed > maxBytes` whenever two imaged slots are retained, and `oldestImageTick` is the
-     older retained image (0 through step 64, 32 through step 96, and so on, 192 from step 193);
+     tick (the window bound, the ring doc §7): two images at the step that writes one, when the
+     previous image is exactly 32 behind (0 and 32 at step 32, 32 and 64 at step 64, and so on,
+     160 and 192 at step 192), and one image at every other step (0 alone through step 31, 32
+     alone from step 33 through step 63, and so on, 192 alone from step 193 through step 200),
+     `bytesUsed > maxBytes` at the steps with two, and `oldestImageTick` the older retained image
+     (0 through step 32, 32 from step 33 through step 64, and so on, 192 from step 193);
   3. a single slot over budget: `tickCount` 8, interval 1, `maxBytes` = `s` / 2: the interval widens
      as in case 2 up to 8, every step's slot is written, `bytesUsed > maxBytes` at every step,
      `b3World_GetRestorableTick( historyTick )` is never `UINT64_MAX`, and `Rewind` to it restores
@@ -693,7 +697,10 @@ in full are the specification. Mechanics that follow from them:
   function where one exists and `workerCount` 4: step to a steady state (the scene's benchmark step
   count capped at 200, with its `Step*` where one exists), enable history with `tickCount` 60 and
   interval 1, then for N random (T, P) pairs, seeded per scene, each drawn after the previous
-  rewind with P in (current tick, current tick + 60] and T in [max( 0, P − 60 ), P], so T is
+  rewind with P in (current tick, current tick + 60] and, once the world has stepped to P, T in
+  [`oldestImageTick`, P] with the bound read from `b3World_GetHistoryInfo` at P (interval 1, so
+  every retained tick is imaged; `P − 60` alone is not the bound, since after a rewind and a short
+  re-step the oldest retained image can be newer than that), so T is
   retained at P: step from the current tick to P with the churn below applied by the seed between
   steps and recorded in
   the op log, recording the hash and the `userData` words of every body, shape and joint at every
@@ -1020,7 +1027,8 @@ new `src/slot_pool.h` and `src/slot_pool.c` (the `b3JournaledSlotPool` over the 
 arrays), `src/CMakeLists.txt`, `src/container.h`, `src/body.c`, `src/shape.c`, `src/contact.c`, `src/joint.c`,
 `src/island.c`, `src/solver_set.c`, `src/constraint_graph.h`, `src/constraint_graph.c`,
 `src/sensor.c`, `src/broad_phase.h`, `src/broad_phase.c`, `src/dynamic_tree.h`, `src/solver.c`,
-`src/physics_world.h`, `src/physics_world.c`, `src/world_snapshot.c`, `src/id_pool.h`,
+`src/physics_world.h`, `src/physics_world.c`, `src/world_snapshot.c`, `src/world_hash.c`,
+`src/id_pool.h`,
 `src/bitset.h`, `src/table.h`, `test/test_awake_tree.c`, `test/test_tree_order.c`
 (`PerturbTreeLayout` calls the broad phase's rebuild function), `test/test_history.c`,
 `test/main.c` (register `HistoryJournalTest`), and any file the compiler names (§3).
@@ -1059,7 +1067,10 @@ specification. Mechanics that follow from them:
   `b3JournaledBitSet` set and clear in `src/constraint_graph.c`, which `b3TrySleepIsland`'s four
   clears call (§2); `b3BroadPhase.pairSet` becomes `b3JournaledPairSet* pairSet`, an incomplete
   type whose definition (a `b3HashSet` inside) sits in `src/broad_phase.c`, with `b3PairSet_Contains`,
-  `b3PairSet_Count` and `b3PairSet_Bytes` as its readers for `src/physics_world.c`'s two uses, so
+  `b3PairSet_Count`, `b3PairSet_Capacity` and `b3PairSet_Bytes` as its readers for
+  `src/physics_world.c`'s memory log and validation count, a key walk `b3PairSet_ForEachKey( set,
+  fn, context )` for H0's per-key mix in `src/world_hash.c`, and `const b3IdPool*
+  b3SlotPool_GetIdPool( pool )` for the hash's walk of the six pools, so
   `src/contact.c`'s add and remove become the journaled ones. The generic
   `b3IdPool`, `b3HashSet`, `b3BitSet` and `b3Array` are untouched and keep serving scratch.
 - The accessors journal: the structural entry always, the setter entry unless the owner is awake
@@ -1443,8 +1454,9 @@ Measurements the closure doc needs:
   sleeping tree one by one; whether that takes the tree past `B3_SLEEPING_TREE_MAX_HEIGHT` (64,
   checked after the insertions, `src/broad_phase.c`) depends on the layout, so the harness reads
   the height and whether the rebuild ran in a scratch build: when it ran, the timing is reported
-  as the rebuild case; when it did not, the harness says so and the rebuild timing comes from
-  `HistoryRewindTest`'s height-trigger case run under the same scratch build): capture
+  as the rebuild case; when it did not, the harness says so and times the rebuild in a second scene of its own that
+  reproduces `HistoryRewindTest`'s height-trigger case (the measurement build has
+  `BOX3D_UNIT_TESTS=OFF`, so the test itself is not built there)): capture
   microseconds and percent
   of the step (the capture timed around the H1 insertion in a scratch build, the step timed in the
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
