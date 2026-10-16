@@ -1164,3 +1164,48 @@ rounds, 207 findings, 206 applied, 1 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0
 
 - No edit. The status stays Draft until U-G1 is re-run (U-G4); Canonical is the next edit after
   it (U-I5).
+
+## Gate re-run after convergence (2026-10-16, U-G4 and U-G1, no revision)
+
+- AC-1 to AC-4 checked by the author against revision 67, the whole text, all pass. Code
+  references re-read against 55a40d1, still the last commit touching `src/` and `include/`. The
+  document is the Implementation Prompt (U-C10): it adds mechanics, tests, fixtures and
+  measurements over the three designs' structures, and the gate asks of each thing it adds beyond
+  the designs whether it is a shape Part B forbids.
+- AC-1: what the prompt adds beyond the designs: the ring's arena, slot directory and write
+  position (the ring's own storage, the ring doc §3); the phase-0 registry's capture list,
+  `refCount` and `seenSerial` and the reader slots (over the ring's own registry entries, a
+  recording primitive, and deleted at H5); `b3ConstArray` and the hot accessors (an access path,
+  not a copy); the journaled container wrappers (the design §5.2's one legal write route, holding
+  the live container); the tests' fixtures (the op log's per-world id table maps recorded ids to
+  a reference world's, a test oracle). None is a subset, scope set, shadow graph or side table
+  over a solver set, the constraint graph, an island or an id pool. §2's inventories are the
+  reconciliation of today's tree, read once by the implementer, not structures.
+- AC-2: the prompt's lists (§2's wake and cold lists, H4's "only pushes" list, H2's scalar write
+  sites) describe coverage; the mechanism in each case is a type the bypass cannot use: records,
+  sets, colours, trees and the pair set are reachable outside their files as pointer-to-const or
+  incomplete types, the awake pushes are the containers' only push functions, the scalars are
+  written through one function that takes the completed struct, so an append or write any other
+  way does not compile, which the compile-boundary checks of H2 to H4 show. The §3 before-run
+  procedure and the §6 mapping are test process, not engine lists.
+- AC-3: nothing keeps two structures consistent: the restore list and the moved lists are
+  consumed once; the reference world of `HistoryReplayTest`'s corrected replay is compared, never
+  reconciled; the registry's capture list is rebuilt under each serial and cleared; a released
+  entry's reader slot is emptied by the release itself, not by a later pass; a kinematic tree the
+  pass leaves unordered is rebuilt by the step's own rebuild.
+- AC-4: the three marks are read by assertions only (§3, §10); the `INT_MAX` guards are
+  assertions, and §10 records why there is no Release check; `seenSerial` is a visited mark that
+  builds the capture list once per run, construction and not a validity check; the slot placement
+  rule branches on fit, the placement decision the ring doc's circular arena implies; the design
+  §7.3's one null check per journal call is the design's; `b3SnapCheckCount` is the existing
+  deserializer's. No validator, generation check, staleness guard or confirm gate is added; the
+  validation-build checks the rewind's step 6 runs are the engine's own.
+- U-G6: each rule stated for one record kind is stated for its siblings (write accessor,
+  byte-count reader, const access, pool push and truncate, pre-wake push) across body, shape,
+  contact, joint, island, set, sensor and colour. U-G7: the only claims about a system the
+  project does not own are the compiler diagnostics the boundary checks name, which the C
+  standard fixes and the closure doc quotes verbatim.
+- Observations for the owner, not findings: three owner items stand from the series (rounds 15,
+  20 and 35, each in its round file); the phase-0 registry text drew eleven findings in rounds
+  58 to 71, the most of any passage, all on plumbing H5 deletes.
+- Status stays Draft; Canonical is the owner's edit, with the changelog's closing entry (U-R10).
