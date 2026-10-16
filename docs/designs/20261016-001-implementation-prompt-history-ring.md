@@ -545,8 +545,9 @@ Two internal pieces of test machinery are shared by several entries and are writ
    `b3Body_SetAwake( true )` on the sleeping body; `satCache.indexA` of the hull-on-hull contact's
    cache, `simplexCache.count` of the hull-and-capsule contact's and `simplexCache.count` of the
    mesh contact's first triangle cache element, each written directly at H0 and, from H3b, as a
-   changed copy through `b3Contact_Write` (the two convex contacts) and `b3Contact_SetBlocks` after
-   `b3Body_SetAwake( false )` on the capsule's body (the mesh contact). Each of these leaves it unchanged: `b3Body_SetUserData`,
+   changed copy through `b3Contact_Write` (the two convex contacts) and `b3Contact_SetBlocks` (the
+   mesh contact, whose copy of the scene has `b3Body_SetAwake( false )` applied to the capsule's
+   body before the hash it is compared against is taken). Each of these leaves it unchanged: `b3Body_SetUserData`,
    `b3Shape_SetUserData`, `b3Joint_SetUserData`, `b3World_SetUserData`.
 3. `HashLayoutCase`: the scene of case 1 after 120 ticks, hashed, then every tree fully rebuilt by
    the perturbation helper, hashed again: equal (a rebuild changes no leaf box, proxy id or moved
@@ -1035,6 +1036,15 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   island last, which frees the arrays (H4 hands them to the destroy entry instead).
 - A solver set's five arrays are `b3ConstArray` fields written only by `src/solver_set.c`'s push,
   removeswap, set and clear functions and by `b3CreateSolverSet( world )` and `b3DestroySolverSet`.
+  The pushes take completed values (`b3SolverSet_PushBodySim( world, setIndex, const b3BodySim* )`
+  with its state, joint and island siblings, returning the local index; `b3Graph_PushJoint( world,
+  joint, const b3JointSim* )` and `b3Graph_PushContact( world, contact )` in
+  `src/constraint_graph.c` choosing the colour as `b3CreateJointInGraph` and `b3AddContactToGraph`
+  do today), so each constructor that today emplaces a zeroed element and fills it in place
+  (`b3CreateBody`, `b3CreateJointInternal`'s set branches, `b3CreateIsland`, `b3AddJointToGraph`;
+  the wake, sleep, merge and transfer loops of `src/solver_set.c` are that file's own) builds the
+  value in a local and pushes it once, the sleeping joint branch before its set merge as today;
+  H4 makes the pushes onto the awake set's and the colours' arrays the journaling forms it names.
   `b3CreateSolverSet` replaces the inline allocation in `b3TrySleepIsland`, in `b3CreateBody` and
   in `b3CreateWorld`; it allocates the id, pushes a zeroed set on a bump, sets `setIndex` and
   creates the arrays. The awake set's and the colours' arrays are the same `b3ConstArray` type; the
@@ -1261,7 +1271,8 @@ write, so the walk alone must restore the hash:
    at `historyTick`, which only `b3World_Rewind` moves). With no awake body `b3Solve` returns early
    and the sensor pass has nothing, so beyond the scalars no hot write occurs and the segments
    alone carry every change (§2). Fails before H4 by not building.
-3. `OwnershipCase`: on case 1's scene, with `n0` the sum of `allocationCount` over
+3. `OwnershipCase`: on case 1's scene with history enabled at `tickCount` 4 and interval 1, with
+   `n0` the sum of `allocationCount` over
    `world->manifoldAllocators` read after the enable. Cold part: a joint between the two lone
    sleeping bodies (the merge destroys one set and one island), the multi-material shape
    destroyed, a sensor destroyed, the hull's last reference released; `ENSURE` `pendingBytes` grew
@@ -1272,9 +1283,10 @@ write, so the walk alone must restore the hash:
    contact destroyed between steps (its manifold block, cache, island and set into the entries);
    `ENSURE` `pendingBytes` grew by at least those byte counts; `b3World_Rewind( historyTick )`:
    `ENSURE` the hash equals the recorded one, the manifold allocators' count equals `n0` and
-   `pendingBytes` is 0. Then that destroy again followed by a step (the segment closes), `ENSURE`
-   `bytesUsed` includes those bytes and `pendingBytes` is 0; then enough steps on a `tickCount` 4
-   ring to evict the slot: `ENSURE` the manifold allocators' count fell by one; then disable,
+   `pendingBytes` is 0. Then that destroy again followed by a step (the segment closes into that step's slot, which
+   now owns the block), `ENSURE` `bytesUsed` includes those bytes and `pendingBytes` is 0; then
+   five more steps, which evict that slot (the window keeps the slots from `historyTick` −
+   `tickCount`, the ring doc §7): `ENSURE` the manifold allocators' count fell by one; then disable,
    destroy the world and `ENSURE( b3GetByteCount() == base )` with `base` from before the world was
    created, which is the check that every other evicted block was freed. Fails before H4 by not
    building.
@@ -1432,8 +1444,8 @@ restores its order (the trees doc §6).
 **Tests.**
 
 - `HistoryCostTest` case 2, `SleepingKinematicCostCase`: as case 1 with 20,000 kinematic bodies
-  created asleep instead of dynamic ones (a kinematic body with no velocity sleeps on its timer;
-  the test steps until `b3World_GetAwakeBodyCount` is the sixteen awake boxes before enabling
+  created asleep instead of dynamic ones (`isAwake` false puts an enabled body straight into a sleeping set, `src/body.c`;
+  the test `ENSURE`s `b3World_GetAwakeBodyCount` is the sixteen awake boxes before enabling
   history). Per-step charge at or below 256 KB. Fails before H6: the kinematic tree is imaged raw,
   20,000 proxy slots at about 100 B each.
 - `HistoryTreeTest` gains four kinematic cases: a kinematic body moved between steps by
