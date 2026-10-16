@@ -469,9 +469,14 @@ Two internal pieces of test machinery are shared by several entries and are writ
   destroy, each setter the churn uses, `b3World_Explode`, `b3World_SetUserData`, a callback context
   change) with the tick it was made in; `ReplayOps( worldId, log, tick )` re-issues the calls of
   one tick in order. Ids are recorded as creation ordinals, each with the id the creation returned in the original
-  run; the replay resolves an ordinal to that id, so an entity created at or before T resolves
-  with no replayed creation, and `ENSURE`s that each replayed creation returns the recorded id
-  (the design §9: the same creation calls in the same order give the same ids).
+  run; the replay resolves an ordinal through a per-world table that world's creations fill, so an
+  entity created at or before T resolves to the recorded id with no replayed creation, and
+  `ENSURE`s that each replayed creation returns the recorded id (the design §9: the same creation
+  calls in the same order give the same ids). In a second live world driven by the same log an
+  id's `world0` is that world's (`include/box3d/id.h`), so there the table's entry must equal the
+  recorded id in `index1` and `generation`, and the log's ids are issued from the table, never as
+  recorded; the event record's compare across two worlds treats the id fields the same way (the
+  corrected replay below), and within one world compares every field.
 - **The event digest.** A per-tick hash over the step's events in reported order, each event
   array first by a tag naming its kind and its count, then each event by
   every named field of its public struct (`include/box3d/types.h`) except a `userData` word (a
@@ -642,7 +647,8 @@ in full are the specification. Mechanics that follow from them:
 - A phase-0 slot is a header, the `b3SerializeWorld` image written into a `b3RecBuffer` with the
   ring's own `b3Recording` as the registry and the user-words option on, the migration queue's
   count and ids copied after it, the geometry pointer words of the live mesh, height-field and
-  compound shapes (shape id and pointer each, §2), and an empty journal segment. Its charge is the
+  compound shapes (shape id and pointer each, §2), the ids of the registry entries the image
+  interned (the registry bullet below), and an empty journal segment. Its charge is the
   header, the directory entry and those bytes (the ring doc §6; no entry owns a block in phase 0).
 - Capture (the ring doc §6 steps 1 to 4, the design §6's capture interval): in `b3World_Step` after
   `b3ValidateProxyTrees` and before `locked = false`, when `world->history` is non-NULL:
@@ -674,17 +680,21 @@ in full are the specification. Mechanics that follow from them:
   the registry's, `src/recording.c`; the recording player runs the mirror direction, slots into
   registry, through `b3RecSeedKeyframeRegistry`);
   an entry's and its slot's bytes live while a retained image can reference them, and no longer:
-  `b3GeometryEntry` gains a `lastImagedTick` that `b3InternGeometry` stamps with the registry's
-  `stampTick` (a field the capture sets to the tick before each imaged `b3SerializeWorld`, which
-  interns every live interned shape's geometry and so touches every entry the image references;
-  the recording player never sets it), and the eviction step, after the old end has moved,
-  releases every entry whose stamp is below the oldest retained imaged tick through a new
+  `b3GeometryEntry` gains a `refCount` and a `seenTick`, and `b3GeometryRegistry` a capture list
+  (`b3Array( int ) captured` and `captureTick`): `b3InternGeometry`, while `captureTick` is set,
+  appends an entry's id to the list the first time it meets it in this capture (`seenTick` !=
+  `captureTick`); the capture sets `captureTick` to the tick before each imaged
+  `b3SerializeWorld`, which interns every live interned shape's geometry and so touches every
+  entry the image references, then writes the list after the image in the slot (its bytes in
+  the slot's charge), increments each listed entry's `refCount` and clears the list; the
+  recording player never sets `captureTick`. Removing an imaged slot, by eviction or by a
+  rewind's drop, decrements its list's entries, and an entry at zero is released through a new
   `b3ReleaseGeometryEntry( reg, id )` of `src/recording.c`, the file that owns the dedup map:
-  it frees the entry's bytes and its reader slot's copy, leaves the entry in place with NULL
-  bytes and zero `byteCount` so ids stay slot indices, and removes it from the map and its hash
-  chain so the same content interned again gets a new entry. A rewind leaves the stamps alone:
-  an entry stamped on a dropped tick is kept until the oldest retained tick passes the stamp, a
-  bounded over-retention. Disable frees both wholesale, which no live shape survives pointing
+  it frees the entry's bytes and its reader slot's copy, leaves the entry struct in place with
+  NULL bytes and zero `byteCount` so ids stay slot indices (a few dozen bytes per distinct
+  geometry interned while enabled, left out of the figure as the arrays are), and removes it
+  from the map and its hash chain so the same content interned again gets a new entry. Disable
+  frees both wholesale, which no live shape survives pointing
   into (the rewind repoints every restored borrowed-geometry shape at its recorded pointer,
   above). Their bytes are not in `bytesUsed`, `arenaCapacityBytes` or `stagingCapacityBytes`
   and not charged against `maxBytes` (§10); `b3History_GetGeometryBytes( world )`, a read-only
@@ -812,9 +822,11 @@ in full are the specification. Mechanics that follow from them:
       `b3History_GetGeometryBytes` after tick 1's capture (one entry and its slot), after 40
       steps the figure is at most 9 × `g` (the window's nine retained images reference nine
       distinct meshes) and at least `g`, and the invariant check holds; then
-      `b3World_Rewind( historyTick − 3 )` and twelve more steps: the figure is again at most
-      9 × `g`, the entries stamped on the three dropped ticks released once the oldest retained
-      tick passed their stamps.
+      `b3World_Rewind( historyTick − 3 )`: the figure is at most 6 × `g` at once (the three
+      dropped slots' entries released by the drop), and twelve more steps return it to at most
+      9 × `g`; then, on a second fresh world of the scene with `tickCount` 8, twenty branches of
+      five steps each creating a unique mesh as above, each branch ended by `b3World_Rewind( 0 )`:
+      after every rewind the figure equals its value after tick 0's capture.
   Fails before H1 by not building.
 - `HistoryRewindTest` (the design §12 test 2). For each of the seventeen scenes of
   `benchmark/main.c`'s table (§2), created with its capacity
@@ -894,10 +906,12 @@ in full are the specification. Mechanics that follow from them:
   every body, shape and joint `userData` word equals the recorded one. Then the corrected replay: a
   rewind to 60 with the churn's tick-70 `b3Body_SetLinearVelocity` on an awake body dropped (the
   churn includes one, with a velocity the body does not already have), replayed to 90, against a
-  reference the test builds first: a fresh world of the same scene driven by the op log with that
-  call dropped and the tick-50 host change applied as in the original, its hash and event record
-  kept per tick. From tick 61 to 90 the rewound world's hash and events equal the reference's
-  field by field (the design §10: the events are the corrected timeline's, not stale ones), and
+  reference the test builds after the original run and keeps alive beside it: a second world of
+  the same scene driven by the op log through its own id table (above) with that call dropped and
+  the tick-50 host change applied as in the original, its hash and event record kept per tick.
+  From tick 61 to 90 the rewound world's hash and events equal the reference's field by field with
+  the ids' `world0` left out (the state hash reads records, which hold no world index; the design
+  §10: the events are the corrected timeline's, not stale ones), and
   at tick 70 that body's move event differs from the original run's record in its transform, as
   the hash does. Then, on the third scene, `b3World_DisableHistory` after that rewind
   and ten more steps with a ray cast through the mesh ground and the compound each step: the
@@ -1877,8 +1891,8 @@ document.
   charged against `maxBytes`.** The ring doc's fields have settled meanings; adding a field or a
   budget term for a phase-0 artefact that H5 removes was considered and not done, and the budget
   cases of `HistoryRingTest` count slot charges alone. The bytes are bounded by release instead:
-  an entry no retained image references is freed at eviction (H1), so geometry churn cannot grow
-  the registry past what the window references.
+  an entry is freed when the last imaged slot referencing it is evicted or dropped by a rewind
+  (H1), so geometry churn cannot grow the registry past what the retained images reference.
 - **The fork is `master`**, as `20261014-002` chose and for the same reason: the tests and the
   designs' assumptions exist there; an upstream PR, if wanted, is a later cherry-pick.
 - **Seven public queries and casts open a traversal.** `b3BroadPhase_BeginTraversal` has ten

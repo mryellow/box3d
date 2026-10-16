@@ -924,3 +924,21 @@ pending.
   §7, `HistoryRingTest` case 11 bounds it under geometry churn, and §10 says why it is not charged
   against `maxBytes`.
 - Length 1861 -> 1893 lines.
+
+## Revision 57: after review round 59
+
+Round 59: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> pending.
+
+- The op log resolves ordinals through a per-world id table; the corrected replay's reference
+  world is driven through its own table, built after the original run, and the cross-world event
+  compare leaves `world0` out.
+- Registry entries are reference-counted by the imaged slots that interned them (the ids stored
+  in the slot) and released when the last such slot is evicted or dropped by a rewind; case 11
+  checks the drop and twenty branches rewound to tick 0.
+- Length 1893 -> 1907 lines.
