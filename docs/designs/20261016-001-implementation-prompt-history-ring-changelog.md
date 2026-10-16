@@ -365,3 +365,19 @@ Round 19: 5 findings (H1-M4-L0), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §7's fallback rebuild timing is a scene of the harness, since the measurement build has no test
   target.
 - Length 1562 -> 1574 lines.
+
+## Revision 21: after review round 20
+
+Round 20: 2 findings (H0-M2-L0), 2 applied, 0 declined; 1 Unresolved item (a design question,
+recorded, the prompt stating its reading). Findings: 3/5/1 -> 2/3/0 -> 0/4/0 -> 3/3/0 -> 2/1/1 ->
+2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 -> 2/4/0 -> 0/5/1 ->
+2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> pending.
+
+- H4's proxy choke points take `b3World*`; the standalone broad-phase case of the awake-tree test
+  moves onto a world.
+- H5 counts moved leaves with a new descend-moved-only count before sizing the gather's scratch
+  array; the tree files join H5's list.
+- H5's gather parallel-for names its items, every sensor among them, as this document's reading of
+  the design §6's wording; recorded for the owner.
+- Length 1574 -> 1588 lines.
+- Round 20 is the end of the second block the owner authorised; the series has not converged.

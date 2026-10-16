@@ -1114,7 +1114,12 @@ specification. Mechanics that follow from them:
   create and destroy choke points (the single create shared by `b3BroadPhase_CreateProxy` and the
   drain's one-by-one placement, the drain's bulk `b3DynamicTree_CreateProxies` placement,
   `b3BroadPhase_DestroyProxy`) make the proxy create and destroy entries for the static and sleeping
-  trees; `b3BroadPhase_MoveProxy` makes the proxy move entry for the sleeping tree. The undo insert
+  trees; `b3BroadPhase_MoveProxy` makes the proxy move entry for the sleeping tree. The three take
+  `b3World*` from this commit (`b3BroadPhase_CreateProxy( world, ... )`, `b3BroadPhase_DestroyProxy(
+  world, proxyKey )`, `b3BroadPhase_MoveProxy( world, proxyKey, aabb )`), since the entry needs
+  `world->history` and the leaf assertion `world->fatAABBs`, and the standalone broad-phase case of
+  `test/test_awake_tree.c` (a `b3CreateBroadPhase` with no world) moves onto a world's broad phase
+  through `b3CreateWorld` and the internal headers that file already includes. The undo insert
   is the tree's ordinary create, unmarked, asserting the popped id equals the recorded one; the undo
   of a create is the ordinary destroy. In the validation build the static and kinematic leaf writers
   assert, on forward writes and never in an undo, that the box they write equals
@@ -1215,7 +1220,8 @@ kind.
 
 **Files.** `src/world_history.h`, `src/world_history.c`, `src/journal.c`, `src/solver_set.c`,
 `src/constraint_graph.c`, `src/body.c`, `src/shape.c`, `src/contact.c`, `src/joint.c`,
-`src/island.c`, `src/sensor.c`, `src/broad_phase.h`, `src/broad_phase.c`, `src/physics_world.h`,
+`src/island.c`, `src/sensor.c`, `src/broad_phase.h`, `src/broad_phase.c`, `src/dynamic_tree.h`,
+`src/dynamic_tree.c`, `src/physics_world.h`,
 `src/physics_world.c`, `src/parallel_for.h` (if the gather needs a signature it lacks),
 `test/test_history.c`, `test/main.c` (register `HistoryUndoSufficiencyTest`, `HistoryTreeTest`,
 `HistoryCostTest`).
@@ -1229,8 +1235,12 @@ them:
 
 - Capture at the H1 point: the sizing pass (a reduction over the awake bodies and their shapes,
   the awake contacts' manifold counts and cache sizes, the awake islands' link array lengths, the
-  sensors' overlap counts, the kinematic and static trees' moved leaves by
-  `b3DynamicTree_GatherMovedProxies` into a per-tick scratch array, the awake tree's and the
+  sensors' overlap counts, the kinematic and static trees' moved leaves counted by
+  `b3DynamicTree_CountMovedProxies( tree )`, added beside `b3DynamicTree_GatherMovedProxies` in
+  `src/dynamic_tree.h` and `src/dynamic_tree.c` in this commit, which descends moved nodes only
+  (the design §6's enumeration) and sizes the per-tick scratch array the gather then fills (the
+  gather takes no capacity, and reserving the proxy count would make capture scratch proportional
+  to the static population, against the design §2), the awake tree's and the
   kinematic tree's sizes), the slot reservation with the segment's size, then the flat copies
   (awake set arrays, the 24 colours' arrays, the scalars struct, the awake tree's and, in phase 1,
   the kinematic tree's fields the trees doc §5 names, the migration queue), then the gathers (per
@@ -1238,9 +1248,13 @@ them:
   the moved proxy ids; per awake contact id from the colour arrays and the awake `contactIndices`
   its record, its `manifoldCount` manifolds and its cache when `b3_simMeshContact`; per awake joint
   its record; per awake island its record and three arrays), each record prefixed by its id, then
-  the segment moved in. The gathers run as a parallel-for over the awake population through the
-  world's task callbacks with workers writing disjoint ranges computed by a prefix sum over the
-  sizing pass, and inline when `workerCount` is 1; a fused capture inside finalize is the design's
+  the segment moved in. The gathers run as one parallel-for through the world's task callbacks
+  whose items are the awake bodies (with their shapes), the awake contacts, joints and islands,
+  and every sensor, so a sensor's `overlaps2` is gathered whatever the awake count (the design §5.1
+  images every sensor's overlaps; its §6 words the loop as over the awake population, read here as
+  naming the task system, not a bound on the sensors; recorded for the owner), with workers
+  writing disjoint ranges computed by a prefix sum over the sizing pass, and inline when
+  `workerCount` is 1; a fused capture inside finalize is the design's
   optimisation to measure, not this commit's.
 - Restore in place (the design §9): after step 2's walk, step 3 sets each awake-set array and
   colour array to the image's count, growing capacity only when the count exceeds it, and copies;
