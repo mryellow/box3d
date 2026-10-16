@@ -251,8 +251,10 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   body queued, `src/shape.c`), and, on their condition, `b3Body_SetLinearVelocity` with a nonzero
   velocity, `b3Body_SetAngularVelocity` with a nonzero component the body's angular locks leave,
   `b3Body_SetTargetTransform` when the velocity it implies reaches the body's `sleepThreshold`,
-  and the seven force, torque and impulse calls with `wake` true on a sleeping body (each
-  `src/body.c`); the same calls with a zero velocity, a locked or zero angular velocity, a sleepy
+  and the six force, torque and impulse calls with `wake` true on a sleeping body
+  (`b3Body_ApplyForce`, `b3Body_ApplyForceToCenter`, `b3Body_ApplyTorque`,
+  `b3Body_ApplyLinearImpulse`, `b3Body_ApplyLinearImpulseToCenter`, `b3Body_ApplyAngularImpulse`,
+  each `src/body.c`); the same calls with a zero velocity, a locked or zero angular velocity, a sleepy
   target or `wake` false touch no awake structure. Cold, touching no awake structure: a static shape's create with
   `invokeContactCreation` false and destroy, a sensor's create and destroy on a static body,
   `b3Shape_SetFilter` with `invokeContacts` false, the four material setters, `b3CreateJoint`
@@ -462,9 +464,10 @@ Two internal pieces of test machinery are shared by several entries and are writ
      instance arrays with their transforms in stored order, each embedded hull's and mesh's content
      hash and each mesh instance's material index array, excluding its tree;
   5. contacts in id order over every slot: `generation`, and for a live slot every field except
-     `manifolds`, then the `manifoldCount` manifolds field by field (points, normal, impulses), and
-     for a mesh contact the triangle cache's `count` elements and `queryBounds`, for a convex
-     contact the cache;
+     `manifolds` and the union, then the `manifoldCount` manifolds field by field (points, normal,
+     impulses), and the active union member only: for a mesh contact the triangle cache's `count`
+     and its `count` elements (never the header's pointer or `capacity`, which are allocation
+     state) and `queryBounds`, for a convex contact the cache;
   6. joints in id order over every slot: `generation`, and for a live slot every field except
      `userData`;
   7. islands in id order: for a live slot the record's scalars and the three link arrays in stored
@@ -475,7 +478,8 @@ Two internal pieces of test machinery are shared by several entries and are writ
      `islandSims`, each in stored order;
   9. graph colours in index order: `bodySet` as the ascending indices of its set bits (never block
      counts), `jointSims`, `convexContacts`, and `contacts` by each spec's contact id and
-     `manifoldCount` (written at graph add, `src/constraint_graph.c`, read by the solver's work
+     `manifoldCount` (written at graph add, `src/constraint_graph.c`, and by the collide pass for
+     a touching mesh contact, `src/physics_world.c`; read by the solver's work
      arrangement, `src/solver.c`, and imaged with the colour; `manifoldStart` alone is per-step
      scratch, the design §5.1);
   10. sensors in stored order: `shapeId` and `overlaps2` (visitor shape id and generation) in stored
@@ -960,7 +964,10 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   colour is read through `const b3GraphColor* b3GetGraphColor( world, index )`, so the colours'
   `bodySet`, `jointSims`, `convexContacts` and `contacts` headers are written only by
   `src/constraint_graph.c`'s functions (H4: the push into a colour is the function that moves a
-  contact or joint into the awake set, journaling its pre-wake bytes).
+  contact or joint into the awake set, journaling its pre-wake bytes); the collide pass's write of
+  a touching mesh contact's spec `manifoldCount` (`src/physics_world.c`) goes through the hot
+  element accessor `b3Graph_HotContactSpec( world, colorIndex, localIndex )`, inline, asserting
+  the step mark, the colour arrays' instance of the awake-array hot accessor above.
 - Sensors: `world->sensors` becomes a pointer to an incomplete `b3SensorArray` (`src/sensor_array.h`,
   included by `src/sensor.c` only) with `const b3Sensor* b3GetSensor( world, index )` and a count
   outside the file, written only by `src/sensor.c`'s create (push) and `b3DestroySensor`
@@ -1253,11 +1260,13 @@ them:
   tree; both explosions' shapes are on sleeping bodies, the first several shapes of one sleeping
   body (`b3World_Explode` queries the awake and sleeping trees only, `src/physics_world.c`), so
   their witness is over the sleeping tree. Each: record the hash
-  and event digest per tick over 30 ticks with history enabled at `tickCount` 30, rewind to 10,
-  record the leaf visit order of a query over the named tree (as `RecordVisitOrder` in
-  `test/test_tree_order.c` does), perturb, record it again and `ENSURE` the two differ (as
-  `WitnessDiffers` there does; a full rebuild can reproduce the layout it replaces, and a case
-  whose rebuild does is rebuilt with more candidates), then replay to 30 with the op log, and
+  and event digest per tick over 30 ticks with history enabled at `tickCount` 30, recording at
+  tick 10 the leaf visit order of a query over the named tree (as `RecordVisitOrder` in
+  `test/test_tree_order.c` does); rewind to 10, perturb, record the order again and `ENSURE` it
+  differs from the order recorded at tick 10 in the original run (as `WitnessDiffers` there does),
+  which is the condition the trees doc §10 test 1 states, the replay running on a layout the
+  original run did not have (a full rebuild can reproduce a layout, and a case whose orders are
+  equal is rebuilt with more candidates); then replay to 30 with the op log, and
   `ENSURE` equality at every tick. Passes before H5 (layout independence is the engine's, the design
   §3); it guards the restore pass.
 - `HistoryCostTest` case 1, `SleepingDynamicCostCase`: 20,000 single-box dynamic bodies created
@@ -1298,11 +1307,10 @@ restores its order (the trees doc §6).
   shape filter changed after T (its proxy recreated with a possibly different id), rewound:
   `proxyKey` equals the recorded value and the replay matches; and a sensor sweep whose visitors
   are more than eight convex kinematic shapes with `enableSensorEvents` set, witnessed over the
-  kinematic tree: the visit order recorded at tick 10 in the original run against the order after
-  the rewind, which differ because the restore pass rebuilds the kinematic tree in full where the
-  original run grew it one proxy at a time (the trees doc §6; the perturbation helper's full
-  rebuild would reproduce the pass's layout, so this case's witness is the pass itself, and a case
-  whose two orders are equal adds kinematic shapes until they differ), then replay equality of
+  kinematic tree as the H5 cases are: the order recorded at tick 10 in the original run against
+  the order after the rewind and the perturbation (the restore pass moves listed proxies and
+  leaves any rebuild to the first replayed step, the trees doc §6, so the perturbation helper's
+  full rebuild is what makes the layout differ, as for the other trees), then replay equality of
   hashes and events to tick 30.
 
 ## 5. Goldens and scene hashes
@@ -1400,10 +1408,15 @@ Measurements the closure doc needs:
   transitions for the separate timings below: one kinematic body moved by `b3Body_SetTransform`
   between steps three ticks before the timed rewind, so the rewind nine ticks back moves its proxy
   and the first replayed step rebuilds the kinematic tree, and one sleeping island of 4,096
-  touching boxes, a slab, woken by `b3Body_SetAwake( true )` on one of them four ticks before the
-  timed rewind, so the rewind undoes the wake and re-inserts the island's proxies into the sleeping
-  tree past `B3_SLEEPING_TREE_MAX_HEIGHT`, firing the full rebuild, which the harness confirms by
-  reading the tree's height in a scratch build): capture
+  touching boxes, a slab created awake on the ground and stepped until it sleeps, so its touching
+  contacts have linked it into one island that slept as one set (a body created asleep is a set of
+  its own and no pass creates contacts between sleeping bodies, `src/body.c`, `src/broad_phase.c`;
+  the harness asserts through the internal headers that the slab's bodies share one `islandId`
+  before the enable), woken by `b3Body_SetAwake( true )` on one of them four ticks before the
+  timed rewind, so the rewind undoes the wake and re-inserts the island's 4,096 proxies into the
+  sleeping tree past `B3_SLEEPING_TREE_MAX_HEIGHT`, firing the full rebuild, which the harness
+  confirms by reading the tree's height and the rebuild's run in a scratch build and reports with
+  the timing): capture
   microseconds and percent
   of the step (the capture timed around the H1 insertion in a scratch build, the step timed in the
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture

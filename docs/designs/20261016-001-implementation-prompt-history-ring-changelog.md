@@ -303,3 +303,20 @@ recorded). Findings: 3/5/1 -> 2/3/0 -> 0/4/0 -> 3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1
 - §7's million-body fixture scripts a kinematic move and a 4,096-body island wake before the timed
   rewind; a tick with no awake body reports an absolute figure outside the per-awake ratio.
 - Length 1484 -> 1521 lines.
+
+## Revision 17: after review round 16
+
+Round 16: 6 findings (H0-M5-L1), 6 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> pending.
+
+- H0's contact hash skips the union and the cache header's pointer and capacity, hashing the active
+  member's count and elements.
+- The collide pass's write of a mesh contact's spec `manifoldCount` is named in H0 and routed
+  through a colour hot element accessor in H3c.
+- `HistoryTreeTest`'s witness compares the original run's visit order at T with the order after
+  the rewind and the perturbation, the trees doc's condition; the kinematic case uses the same
+  witness (the restore pass moves proxies and leaves rebuilds to the next step).
+- §2 counts six force, torque and impulse calls and names them.
+- §7's slab sleeps as one island before the enable, asserted through the internal headers.
+- Length 1521 -> 1534 lines.
