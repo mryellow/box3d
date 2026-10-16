@@ -411,3 +411,15 @@ Round 22: 5 findings (H1-M3-L1), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   `b3Joint_WakeBodies` and `b3Shape_ApplyWind` with `wake`.
 - H2 names H3c as the commit that moves the step's stages onto the hot accessors.
 - Length 1596 -> 1611 lines.
+
+## Revision 24: after review round 23
+
+Round 23: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> pending.
+
+- `HistoryReplayTest` and the tree test's bullet case set the per-shape callback flags and count
+  the callbacks' calls and rejections, asserted above zero.
+- §7's million-body capture-target scene keeps the slab out; the slab is a scene of its own whose
+  capture figure is reported but not held to the per-awake target.
+- Length 1611 -> 1623 lines.

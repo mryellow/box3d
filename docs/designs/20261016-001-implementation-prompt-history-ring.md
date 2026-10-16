@@ -756,7 +756,12 @@ in full are the specification. Mechanics that follow from them:
 - `HistoryReplayTest` (the design §12 test 3). On three scenes (the pile of `HistoryRingTest`; the
   `sleep` benchmark scene; a scene with a mesh ground, a compound, a sensor and two joints), with a
   `preSolve` callback that rejects a contact when the shape's `userData` word is odd and a custom
-  filter that reads a context struct's field, both registered; history enabled with `tickCount` 90
+  filter that reads a context struct's field, both registered, with `enablePreSolveEvents` set on
+  the colliding dynamic shapes and `enableCustomFiltering` on a dynamic shape and the shapes it
+  meets (both flags are off by default and gate the calls, `src/contact.c`, `src/solver.c`,
+  `src/broad_phase.c`), and each callback counting its calls and its rejections in the context
+  struct, `ENSURE`d above zero over the first run so the callback-dependent clauses are exercised;
+  history enabled with `tickCount` 90
   and interval 1, 90 ticks stepped
   with churn recorded in the op log and the per-tick hash and event digest recorded, the world
   `userData` and the filter context's field changed at tick 50; then for T in { 30, 60, 89, 0 }:
@@ -1312,7 +1317,10 @@ them:
 - `HistoryTreeTest` (the trees doc §10 test 1): restore-and-replay cases built so the static,
   kinematic and sleeping trees' layouts differ after a rewind from the original run's (the
   perturbation helper rebuilds every tree after the rewind): a bullet sweep with several competing
-  candidates, some awake and some asleep, one of them a nearer hit that a `preSolve` rejects; a
+  candidates, some awake and some asleep, one of them a nearer hit that a `preSolve` rejects
+  (`enablePreSolveEvents` set on the bullet and on that candidate, the callback counting its
+  rejections, `ENSURE`d above zero in the original run, since the flag is off by default and gates
+  the call, `src/solver.c`); a
   sweep with more than eight sensor candidates; an explosion hitting several shapes of one body; an
   explosion waking bodies in several sleeping sets, some connected by joints. Each case's
   candidates sit in a named tree the query reaches: the bullet sweep's candidates are static and
@@ -1476,11 +1484,15 @@ Measurements the closure doc needs:
   eight workers, per scene of the benchmark table (`large_world` among them) and a scene of one million
   sleeping dynamic and kinematic bodies with sixteen awake (built in the harness: a grid of boxes
   created asleep, half kinematic, in batches with a step after each as `HistoryCostTest` case 1
-  does, so the awake tree's capacity stays small, awake boxes falling elsewhere, and two scripted
-  transitions for the separate timings below: one kinematic body moved by `b3Body_SetTransform`
+  does, so the awake tree's capacity stays small, awake boxes falling elsewhere, and one scripted
+  transition for the first separate timing below: one kinematic body moved by `b3Body_SetTransform`
   between steps three ticks before the timed rewind, so the rewind nine ticks back moves its proxy
-  and the first replayed step rebuilds the kinematic tree, and one sleeping island of 4,096
-  touching boxes, a slab created awake on the ground and stepped until it sleeps, so its touching
+  and the first replayed step rebuilds the kinematic tree); the second separate timing comes from
+  a scene of its own, the million-body grid plus one sleeping island of 4,096
+  touching boxes, kept apart from the capture-target scene because the slab's awake phase lifts the
+  awake tree's `proxyCapacity` past 4,096, which never shrinks and is imaged whole (the trees doc
+  §5), so its capture figure is reported but not held to the per-awake target (a slab created awake
+  on the ground and stepped until it sleeps, so its touching
   contacts have linked it into one island that slept as one set (a body created asleep is a set of
   its own and no pass creates contacts between sleeping bodies, `src/body.c`, `src/broad_phase.c`;
   the harness asserts through the internal headers that the slab's bodies share one `islandId`
@@ -1491,7 +1503,7 @@ Measurements the closure doc needs:
   the height and whether the rebuild ran in a scratch build: when it ran, the timing is reported
   as the rebuild case; when it did not, the harness says so and times the rebuild in a second scene of its own that
   reproduces `HistoryRewindTest`'s height-trigger case (the measurement build has
-  `BOX3D_UNIT_TESTS=OFF`, so the test itself is not built there)): capture
+  `BOX3D_UNIT_TESTS=OFF`, so the test itself is not built there))): capture
   microseconds and percent
   of the step (the capture timed around the H1 insertion in a scratch build, the step timed in the
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
