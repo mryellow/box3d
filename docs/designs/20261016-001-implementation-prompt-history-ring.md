@@ -1196,8 +1196,10 @@ specification. Mechanics that follow from them:
   kind as the table's Undo column states, writing through the restore writers of H3 and the
   containers' own file-local undo functions. The walk asserts what the design says it asserts: the
   pair set's add and remove, the pool free's popped id, the proxy destroy undo's id.
-- Every journal call is `if ( world->history == NULL ) return;` first (the design §7.3). The
-  ownership transfers keep that form and cost with one more line in the disabled branch: every
+- Every journal call is `if ( world->history == NULL ) return;` first (the design §7.3), except
+  the ownership transfers, whose first statement is the same check with the frees inside it
+  (`if ( world->history == NULL ) { free each handle with its allocator; return; }`), the one
+  null check the design's cost rule names and no leak with history disabled: every
   owning destroy (a pool free's blocks, a set's five arrays, an island's three, a material block,
   a hull at refcount zero, a sensor's three arrays) hands its detached non-null handles to
   `b3Journal_TakeBlocks( world, ... )` of `src/journal.c` (a NULL header is no block, as
@@ -1494,10 +1496,10 @@ them:
   the rewind). Passes before H5 under the serializer path; it is the
   regression check for the journal's sufficiency once the image is partial, and the closure doc says
   so.
-- `HistoryTreeTest` (the trees doc §10 test 1): restore-and-replay cases built so the static
-  and sleeping trees' layouts differ after a rewind from the original run's (the perturbation
-  helper rebuilds every tree after the rewind; the trees doc names the kinematic tree too, and
-  H6's kinematic cases say why no layout witness is taken over it, recorded in §10): a bullet sweep with several competing
+- `HistoryTreeTest` (the trees doc §10 test 1): restore-and-replay cases built so the static,
+  sleeping and, from H6, kinematic trees' layouts differ after a rewind from the original run's
+  (the perturbation helper rebuilds every tree after the rewind; the kinematic witness is H6's
+  sweep case): a bullet sweep with several competing
   candidates, some awake and some asleep, one of them a nearer hit that a `preSolve` rejects
   (`enablePreSolveEvents` set on the bullet and on that candidate, the callback counting its
   rejections, `ENSURE`d above zero in the original run, since the flag is off by default and gates
@@ -1569,12 +1571,17 @@ restores its order (the trees doc §6).
   kinematic shape created in the following step, whose proxy takes the freed id (the free list is
   LIFO), rewound: the first shape's `proxyKey` equals the recorded value and the replay matches;
   and a sensor sweep as H5's, the bullet crossing at least nine sensor shapes on kinematic
-  bodies, `enableSensorEvents` set on the bullet's shape and on every sensor, exactly eight sensor
-  begin events `ENSURE`d in the original run, with no layout
-  witness over the kinematic tree (the step rebuilds that tree in part every tick,
-  `src/broad_phase.c`, so neither the perturbation helper's full rebuild nor the pass's move is a
-  layout the original run provably lacked; the layout-independence witness is the H5 cases'
-  over the static and sleeping trees): each of the four cases `ENSURE`s, after the rewind and
+  bodies at rest, `enableSensorEvents` set on the bullet's shape and on every sensor, exactly
+  eight sensor begin events `ENSURE`d in the original run, carrying the layout witness over the
+  kinematic tree: its sensor bodies' shapes are created in two parts around a step, the corridor
+  staging `test/test_tree_order.c` runs on a kinematic cluster, so the tree reaches tick 10
+  holding a settled subtree and fresh insertions (the pair update's
+  `b3DynamicTree_Rebuild( ..., false )` rebuilds the marked subtrees only and returns on an
+  unmarked, ordered root, `src/dynamic_tree.c`; a kinematic body at rest marks nothing), a
+  layout the helper's full rebuild after the rewind does not reproduce, the visit order recorded
+  at tick 10 and `ENSURE`d to differ as the H5 cases do; the three moving cases take no layout
+  witness (the step after a kinematic move rebuilds the marked part): each of the four cases
+  `ENSURE`s, after the rewind and
   before the replay, that the kinematic tree's moved set gathered by
   `b3DynamicTree_GatherMovedProxies` equals image T's saved kinematic moved list, that every
   restored kinematic leaf's box through `b3DynamicTree_GetAABB` equals its fat AABB entry, and
@@ -1619,13 +1626,13 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | design §5.2 one function each for set and island create and destroy; one sensor destroy; split hands arrays to the destroy | Inspection of H3c and H4; `HistoryJournalTest` case 3 | n/a |
 | design §7.1 every entry kind and its undo; ownership one way; the record-write rule; entering the awake set | `HistoryJournalTest` cases 1 to 4 (case 4's in-traversal move for the proxy move entry); `HistoryUndoSufficiencyTest`; `HistoryRewindTest`'s structural cases | Build failure (H4) |
 | design §6 between-step mutations undone first; `Rewind( P )` | `HistoryRingTest` cases 8 to 10; `HistoryJournalTest` case 1 | Build failure (H1, H4) |
-| design §7.3 one null check with history disabled | Inspection of every journal function's first statement; §7 benchmark, base against branch, history disabled, for the cost | n/a |
+| design §7.3 one null check with history disabled | Inspection of every journal function's first statement: the null check with a bare return, and in `b3Journal_TakeBlocks` the null check whose branch frees the detached handles and returns (H4); §7 benchmark, base against branch, history disabled, for the cost | n/a |
 | design §6 capture steps 1 to 4; §9 steps 3 to 6 in place | `HistoryCostTest` case 1; the H1 tests unchanged under the new path; inspection | Yes, the 256 KB bound (H5) |
 | design §12 test 8 | `HistoryUndoSufficiencyTest` | No, regression (H5) |
 | trees doc §5 awake tree and queue imaged; §6 restore list, pass, moved lists, sleeping tree untouched; §7 proxy entries and identity; §8 rebuilds make no entry | `HistoryJournalTest` case 4; `HistoryRewindTest`'s tree cases; `HistoryTreeTest`; `HistoryHashTest` case 3; inspection | Case 4: build failure (H4) |
 | trees doc §7 every tree write a function of `broad_phase.c`, trees const outside; design §5.2 the pair set's file | H4 compile-boundary check: `b3DynamicTree_Rebuild( world->broadPhase.trees, true )` and `world->broadPhase.pairSet.count = 0;` compile at H3c and fail at H4 (discarded qualifier; a member of a pointer to an incomplete type) | n/a (boundary) |
 | trees doc §9 phase 2 | `HistoryCostTest` case 2; `HistoryTreeTest`'s kinematic cases | Yes, the 256 KB bound (H6) |
-| trees doc §10 test 1 | `HistoryTreeTest`, layout witnesses over the static and sleeping trees; its H6 kinematic cases check the restored kinematic tree's construction and the replay with no layout witness (§10) | No, regression |
+| trees doc §10 test 1 | `HistoryTreeTest`: layout witnesses over the static and sleeping trees (H5) and the kinematic tree (H6's sweep case); the H6 cases also check the restored kinematic tree's construction | No, regression |
 | design §12 test 5 and the ring doc §9 test 2, cost | §7 measurements | n/a |
 | design §2 requirement 2 (met from phase 2) | `HistoryCostTest` cases 1 and 2; the `large_world` figures in §7 | Yes (H5, H6) |
 | WORKFLOW AC-1 to AC-4 on the code | §8's checklist, one line per structure the three designs add | n/a |
@@ -1831,13 +1838,10 @@ document.
 - **Seven public queries and casts open a traversal.** `b3BroadPhase_BeginTraversal` has ten
   callers in `src/physics_world.c`: `b3World_Step`, `b3World_Draw`, `b3World_Explode` and the seven
   named in §2; an eighth cast path was proposed and does not exist, so the count stands.
-- **No layout witness over the kinematic tree.** The trees doc §10 test 1 names the static,
-  kinematic and sleeping trees. The pair update rebuilds the kinematic tree in part every step
-  (`b3DynamicTree_Rebuild( ..., false )`, `src/broad_phase.c`), so a layout the perturbation
-  helper lands after a rewind is not one the original run provably lacked at tick 10, and a
-  witness over its visit order could pass or fail on a correct build. `HistoryTreeTest` takes
-  its witnesses over the static tree, rebuilt only by `b3World_RebuildStaticTree`, and the
-  sleeping tree, rebuilt only past its height trigger, and H6's kinematic cases check what the
-  restore pass constructs and the replay. Whether test 1's kinematic clause is met by that
-  construction check or the trees doc should drop the kinematic tree from it is recorded for
-  the owner.
+- **The kinematic layout witness rides the sweep case, with its bodies at rest.** The pair
+  update partially rebuilds the kinematic tree when a kinematic proxy is marked
+  (`src/broad_phase.c`), so a case that moves a kinematic body before T cannot claim the full
+  rebuild after the rewind is a layout the original run lacked; one whose kinematic bodies are
+  at rest keeps the corridor staging's settled-plus-fresh layout to tick 10, as
+  `test/test_tree_order.c`'s kinematic corridor already witnesses. Earlier revisions recorded
+  the kinematic clause of the trees doc §10 test 1 as an owner item; the staging closes it.

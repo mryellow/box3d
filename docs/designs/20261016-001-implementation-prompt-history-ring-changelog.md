@@ -860,3 +860,19 @@ Round 54: 2 findings (H0-M1-L1), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §2's cold list qualifies `b3DestroyJoint` with `wakeAttached` false to a joint in a sleeping
   set; the H4 fixture states its joint's set.
 - Length 1835 -> 1843 lines.
+
+## Revision 53: after review round 55
+
+Round 55: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> pending.
+
+- The ownership transfers are the stated exception to the bare null return: their first statement
+  is the null check whose branch frees the detached handles; the §6 row inspects that branch.
+- H6's kinematic sweep case, its bodies at rest and their shapes staged in two parts, carries the
+  layout witness over the kinematic tree, as `test/test_tree_order.c`'s kinematic corridor does;
+  the H5 bullet, the §6 row and the §10 item say so, and round 52's owner item is closed.
+- Length 1843 -> 1847 lines.
