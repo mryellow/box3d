@@ -742,3 +742,19 @@ Round 46: 3 findings (H0-M2-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - `OwnershipCase` checks the owned-block count per kind after each destroy; §6 cites it.
 - §7 and §8 call the phase-0 figure geometry payload bytes.
 - Length 1769 -> 1772 lines.
+
+## Revision 46: after review round 47
+
+Round 47: 3 findings (H1-M0-L2), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+pending.
+
+- H4's phase-0 reader adds the image's hulls before releasing the old references, so a hull live
+  at T keeps the pointer the retained entries hold; `HistoryRingTest` gains the two-rewind hull
+  scenario.
+- §2 names the recording's and the player's direct reads of the body array; H3a lists both files.
+- §7's payload figure is read by a scratch-build function of `src/world_history.c`.
+- Length 1772 -> 1783 lines.

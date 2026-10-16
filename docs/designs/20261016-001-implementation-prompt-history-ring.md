@@ -325,7 +325,8 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   H1 adds a `bool` set by `b3RecPlayerCreateWorld` and read by that assertion alone.
   `b3World.recording` is non-NULL only while recording, which is the other half of the mutual
   exclusion.
-- `b3HashWorldState` (`src/recording.c`) is FNV-1a 64 over live bodies' transforms and, for awake
+- `b3HashWorldState` (`src/recording.c`, indexing `world->bodies` directly, as `b3RecSeedBodyIds`
+  in `src/replay.c` does; H3a moves both to `b3GetBodyRecord`) is FNV-1a 64 over live bodies' transforms and, for awake
   bodies, velocities. It is the recording's divergence check (`b3RecWrite_StateHash` in the step,
   `b3RecDispatch_StateHash` in replay). It is not changed: the design §12 test 1's
   `b3World_ComputeStateHash` is a new function, and a recording written on this branch carries the
@@ -910,6 +911,7 @@ error for the second and an unknown-member error for the third.
 `src/shape_array.h` (the storage headers, each included by its own file only),
 `src/CMakeLists.txt`, `src/physics_world.h`, `src/physics_world.c`, `src/solver.c`, `src/solver_set.c`, `src/island.c`,
 `src/contact.c`, `src/joint.c`, `src/sensor.c`, `src/broad_phase.c`, `src/world_snapshot.c`,
+`src/recording.c`, `src/replay.c` (the two direct readers of `world->bodies`, §2),
 `src/world_hash.c`, `test/test_awake_tree.c`, `test/test_tree_order.c`, `test/test_broad_phase.c`,
 `test/test_world.c`, `test/test_body.c`, `test/test_restitution.c`, `test/test_history.c`, and any
 file the compiler names (§3).
@@ -1276,7 +1278,13 @@ specification. Mechanics that follow from them:
   step 5 keeps its event and `bodyMoveIndex` clears; then step 3 as in H1. In this commit the serializer
   image then overwrites what the walk restored; the walk is nonetheless exercised and its blocks
   change hands, and `b3DeserializeIntoShell`'s `b3FreeLiveSimElements` frees whatever the walk
-  handed back, so no block leaks between H4 and H5.
+  handed back, so no block leaks between H4 and H5. The retained slots' hull-refcount entries and
+  record bytes hold hull pointers, so the reader keeps every hull whose content is live at T at
+  its pointer: `b3FreeLiveSimElements` lists the live shapes' hulls instead of releasing them,
+  `b3DesShapes` adds the image's hulls first (the database deduplicates by content, so a hull
+  live at T returns its own pointer with its count raised) and the listed references are released
+  after it, both through the restore add and remove above (`src/world_snapshot.c`); a hull live
+  only after T is freed by the walk's undo of its increment before the reader runs.
 - `b3HistoryInfo` now reports `stagingCapacityBytes` and `pendingBytes`.
 
 **Test** `HistoryJournalTest`, exercising the walk directly through `src/world_history.h`'s
@@ -1346,7 +1354,9 @@ write, so the walk alone must restore the hash:
    part. Fails before H4 by not building.
 
 `HistoryRingTest` gains, in the same commit, the ring doc §9 test 1 items that need the journal: a
-rewind with no step since a sensor destruction and since a hull release now checks
+hull shape created at tick 1 followed by `Rewind( 2 )` and `Rewind( 0 )` (the second walk undoes
+the hull's increment after the first restore has reloaded the image: `b3_historyOk`, hash as
+recorded at 0); a rewind with no step since a sensor destruction and since a hull release now checks
 `pendingBytes` before and 0 after; every rewind that returns `b3_historyOk`, the scene holding a
 hull shape and case 8's two rewinds in a row included, leaves `pendingBytes` 0; and after every
 operation the manifold allocators' summed
@@ -1683,8 +1693,9 @@ Measurements the closure doc needs:
   bytes per tick and the geometry payload bytes, the sum of `byteCount` over the registry's
   entries (`b3GeometryEntry`, `src/recording.h`) plus the sum over the reader's slots
   (`b3RegistrySlot`, `src/replay.h`), the arrays and the dedup map that hold them left out, read
-  in a scratch build through the internal headers from `world->history`'s recording and reader,
-  so the closure doc can state the payload H5 removes.
+  by a function added to `src/world_history.c` in the scratch build alone, never committed, that
+  walks its recording's entries and reader's slots, so the closure doc can state the payload H5
+  removes.
 
 ## 8. Closure doc
 
