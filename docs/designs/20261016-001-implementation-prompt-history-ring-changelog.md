@@ -450,3 +450,15 @@ pending.
 - §2's inventory adds the four geometry setters (a parked leaf without a wake for a contactless
   sleeping body) and `b3World_Explode`.
 - Length 1631 -> 1642 lines.
+
+## Revision 27: after review round 26
+
+Round 26: 1 finding (H0-M1-L0), 1 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> pending.
+
+- `HistoryTreeTest`'s sensor sweep is a bullet crossing at least nine sensors in one step, the
+  continuous stage's eight-hit limit asserted; the overlap-pass case stays as extra coverage. The
+  kinematic sensor case likewise.
+- Length 1642 -> 1644 lines.

@@ -1342,13 +1342,15 @@ them:
   explosion waking bodies in several sleeping sets, some connected by joints. Each case's
   candidates sit in a named tree the query reaches: the bullet sweep's candidates are static and
   sleeping shapes (the continuous stage queries all four trees, `src/solver.c`), so its witness is
-  over the static and the sleeping tree; the sensor sweep's visitors are convex static shapes with
-  `enableSensorEvents` set on them and on the sensor shape (the pass skips a sensor without the
-  flag and a visitor without it, `src/sensor.c`; the flag is off by default), with the sensor's
-  overlap count `ENSURE`d above eight after the first step so an empty sweep cannot pass as
-  evidence (the sensor pass queries all four trees and filters by convexity, the
-  flag, body and filter, never by body type, `src/sensor.c`), so its witness is over the static
-  tree; both explosions' shapes are on sleeping bodies, the first several shapes of one sleeping
+  over the static and the sleeping tree; the sensor sweep is a bullet (a fast body) whose one
+  step crosses at least nine sensor shapes on static bodies, `enableSensorEvents` set on the
+  bullet's shape and on every sensor (the continuous stage skips a sensor unless both carry it,
+  and keeps at most `B2_MAX_CONTINUOUS_SENSOR_HITS`, eight, of the candidates it meets,
+  `src/solver.c`), the case `ENSURE`ing the step reports exactly eight sensor begin events for the
+  bullet in the original run so the limit is exercised, with its witness over the static tree (the
+  stage queries all four trees); a separate overlap case, a sensor with more than eight convex
+  static visitors under the overlap pass (`src/sensor.c`, which also needs the flag on both), with
+  its overlap count `ENSURE`d above eight, is extra coverage and not the trees doc's sweep; both explosions' shapes are on sleeping bodies, the first several shapes of one sleeping
   body (`b3World_Explode` queries the awake and sleeping trees only, `src/physics_world.c`), so
   their witness is over the sleeping tree. Each: record the hash
   and event digest per tick over 30 ticks with history enabled at `tickCount` 30, recording at
@@ -1401,9 +1403,9 @@ restores its order (the trees doc §6).
   rewound: the category bits and the replay match; a kinematic shape destroyed after T and another
   kinematic shape created in the following step, whose proxy takes the freed id (the free list is
   LIFO), rewound: the first shape's `proxyKey` equals the recorded value and the replay matches;
-  and a sensor sweep whose visitors
-  are more than eight convex kinematic shapes with `enableSensorEvents` set on them and on the
-  sensor shape, the overlap count `ENSURE`d above eight after the first step, witnessed over the
+  and a sensor sweep as H5's, the bullet crossing at least nine sensor shapes on kinematic
+  bodies, `enableSensorEvents` set on the bullet's shape and on every sensor, exactly eight sensor
+  begin events `ENSURE`d in the original run, witnessed over the
   kinematic tree as the H5 cases are: the order recorded at tick 10 in the original run against
   the order after the rewind and the perturbation (the restore pass moves listed proxies and
   leaves any rebuild to the first replayed step, the trees doc §6, so the perturbation helper's
