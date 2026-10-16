@@ -381,3 +381,17 @@ recorded, the prompt stating its reading). Findings: 3/5/1 -> 2/3/0 -> 0/4/0 -> 
   the design §6's wording; recorded for the owner.
 - Length 1574 -> 1588 lines.
 - Round 20 is the end of the second block the owner authorised; the series has not converged.
+
+## Revision 22: after review round 21
+
+Round 21: 3 findings (H1-M1-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> pending. The owner chose to
+continue the series after round 20.
+
+- The serializer's reader saves and detaches every live shape's renderer handle before the array's
+  length changes under both options, releasing all of them with `releaseUserShapes` on, so a slot
+  a shorter image truncates away leaks nothing.
+- `HistoryRingTest` reads the image charge from a probe enable, since the budget is fixed at enable.
+- §2 qualifies the filter's always-recreate path to shapes with a live proxy.
+- Length 1588 -> 1596 lines.

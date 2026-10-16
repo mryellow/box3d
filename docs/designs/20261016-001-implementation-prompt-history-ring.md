@@ -234,7 +234,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `shape->filter = filter`, and with `invokeContacts` true calls `b3ResetProxy` with `destroyProxy`
   computed after the assignment by comparing `filter.categoryBits` with
   `shape->filter.categoryBits`, so it is always true and that path always destroys and recreates
-  the proxy; with `invokeContacts` false the record is written and the proxy is left as it is. The
+  the proxy when the shape has one (`proxyKey` not `B3_NULL_INDEX`); a disabled body's shape has
+  none and `b3ResetProxy` then rewrites its boxes with no tree operation; with `invokeContacts`
+  false the record is written and the proxy is left as it is. The
   design §12 test 2's two filter cases are therefore `invokeContacts` false (the proxy untouched)
   and true (the proxy recreated); the always-recreate under true is an observation for the closure
   doc (U-I4), and the behaviour is not changed by this task.
@@ -658,7 +660,10 @@ in full are the specification. Mechanics that follow from them:
      with no contact, gravity zero, sleep disabled and no churn, so every image has the same
      charge in every phase (each imaged slot's charge is `ENSURE`d equal to `s`, which is what
      makes the exact sequences below hold for H5's awake-only image as for the phase-0 image).
-     Read `s`, the charge of tick 0's imaged slot after the enable; `maxBytes` = `s` + `s` / 2 (one image fits, two do not), `tickCount` 32,
+     Read `s` from a probe: enable with an unbounded budget, read tick 0's imaged slot's charge,
+     disable (the definition is given at enable and has no setter, the design §14), then enable the
+     unchanged world with the case's budget and `ENSURE` its tick 0 charge equals `s`; `maxBytes` =
+     `s` + `s` / 2 (one image fits, two do not), `tickCount` 32,
      interval 1: the minimum window is over budget at every tick an image is due, so
      `effectiveInterval` reads 2 after step 1, 4 after step 2, 8 after step 4, 16 after step 8 and
      32 after step 16 and every later step through step 200; the images written over the run are
@@ -854,8 +859,11 @@ field exclusions are the specification. Mechanics that follow from them:
   write it saves every live slot's handle and detaches each with `b3Shape_SetUserShape( world, id,
   NULL )`, so the restore writes release nothing; after them it puts a saved handle back through
   `b3Shape_SetUserShape` where the slot is live with the same generation and releases each
-  remaining saved handle once, as today's sweep does. With the option on it saves nothing and the
-  restore writes release.
+  remaining saved handle once, as today's sweep does. With the option on it saves and detaches the
+  same way and releases every saved handle once after the writes. Both options therefore run the
+  save before `b3Shape_LoadCount` changes the array's length, so a live slot a shorter image
+  truncates away has its handle released too (today's reader saves before it resizes for the same
+  reason); the restore writer's own release is then a safety net that finds `NULL`.
 - `const b3SurfaceMaterial* b3GetShapeMaterials( const b3Shape* )`; `shape->materials` is
   `const b3SurfaceMaterial*`. `b3Shape_WriteMaterial( world, id, index, const b3SurfaceMaterial* )`
   in `src/shape.c` is the one material writer: for an inline material it builds the record with the
