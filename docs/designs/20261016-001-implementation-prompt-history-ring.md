@@ -1459,8 +1459,12 @@ specification. Mechanics that follow from them:
 `b3History_UndoPending( world )` and `b3History_UndoSegments( world, tick )` (names are
 suggestions; the functions are the two halves of the design §9 step 2 and exist for `b3World_Rewind`,
 not for the test; both leave the ring consistent with the world, the first resetting the staging
-buffer and the second discarding the slots it undid, so a test may call either and then disable), on worlds whose every change between the recorded hash and the walk is a cold
-write, so the walk alone must restore the hash:
+buffer and the second discarding the slots it undid; after a walk over cold writes alone the world
+is at the target and a test may disable, while after any hot write since the target (case 3's
+contact part, case 4's third part) the world is an intermediate state, its awake structures at the
+later tick until the image loads, and the case calls `b3World_Rewind` before any other use of the
+world or its disable), on worlds whose changes between the recorded hash and the walk are cold
+writes, so the walk alone restores the hash, except where a case names `b3World_Rewind`:
 
 1. `ColdChurnUndoCase`: a scene of sleeping islands (two piles created asleep), four static shapes,
    one sleeping kinematic body, two sensors on static bodies with nothing overlapping them, a
@@ -1622,8 +1626,9 @@ them:
 **Tests.**
 
 - `HistoryRewindTest`, `HistoryReplayTest`, `HistoryCrossWorkerTest` (with its goldens unchanged)
-  and `HistoryRingTest` run unchanged and pass: that is this commit's main evidence, and they pass
-  before it too, under the serializer path. From this commit §7's Release test build runs
+  and `HistoryRingTest` (cases 1 to 10 and 12; case 11 and `b3History_GetGeometryBytes` are
+  deleted in this commit with the registry they measure) run unchanged and pass: that is this
+  commit's main evidence, and they pass before it too, under the serializer path. From this commit §7's Release test build runs
   `HistoryRewindTest` once on the million-body `large_world`, which the partial image makes
   affordable; the closure doc quotes it.
 - `HistoryUndoSufficiencyTest` (the design §12 test 8): restore exactness on scripted scenes where,
