@@ -831,3 +831,17 @@ Round 52: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - `HistoryTreeTest` claims layout witnesses over the static and sleeping trees; the §6 row says
   so, and a §10 item records the kinematic clause of the trees doc §10 test 1 for the owner.
 - Length 1800 -> 1820 lines.
+
+## Revision 51: after review round 53
+
+Round 53: 1 finding (H0-M1-L0), 1 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> pending.
+
+- §2 names `b3GetWorldByteCount` and what it reads; each hidden record array gets a byte-count
+  reader (H3a to H3c) and H4's `b3IdPoolView` gains `freeCapacity`, so the two public memory
+  counts keep their values across the boundary commits.
+- Length 1820 -> 1835 lines.

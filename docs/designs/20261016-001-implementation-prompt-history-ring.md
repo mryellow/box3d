@@ -333,6 +333,16 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `b3World_ComputeStateHash` is a new function, and a recording written on this branch carries the
   same per-frame hashes as one written before it (a version-11 recording is rejected by the
   version-12 reader, above).
+- `b3GetWorldByteCount` (`src/physics_world.c`, static; its total is
+  `b3World_GetCounters().byteCount` and its log `b3World_DumpMemoryStats`) reads capacities
+  directly: `b3Array_ByteCount` of the seven record arrays (`bodies`, `solverSets`, `joints`,
+  `contacts`, `islands`, `shapes`, `sensors`), of each island's three link arrays, of each
+  sensor's three arrays, of each solver set's five arrays, of the manifold allocators and their
+  block lists and of the migration queue; `b3GetIdBytes` (the free array's capacity in bytes,
+  `src/id_pool.h`) on the six id pools; `b3DynamicTree_GetByteCount` on the four trees;
+  `b3GetHashSetBytes` on the pair set; and the hull database's map and clone bytes. Each
+  increment that hides a container gives it a byte-count reader and routes this function
+  through it (H3a to H3c, H4), so the two public counts keep their values.
 - `b3DestroyWorld` (`src/physics_world.c`) stops the recording, then destroys, in order, the
   scheduler and worker contexts, the event arrays, sensors and bodies, each live shape's
   allocations, each contact's triangle cache, the hull database (asserting it is empty), the name
@@ -927,7 +937,8 @@ field exclusions are the specification. Mechanics that follow from them:
   definitions sit in the two new headers, allocated by `b3CreateWorld` through a create function of
   each file and destroyed by a destroy function. Outside its file a record array exposes
   `const b3Body* b3GetBodyRecord( world, id )` (and `b3GetBodyFullId` returning const), the count,
-  and nothing writable, the shape array also `const b3AABB* b3GetShapeFatAABB( world, id )` for the
+  a byte count (`b3BodyArray_ByteCount( world )`, capacity times element size, the value
+  `b3Array_ByteCount` gives `b3GetWorldByteCount` today, §2) and nothing writable, the shape array also `const b3AABB* b3GetShapeFatAABB( world, id )` for the
   readers of a fat AABB outside the step's hot path (the collide pass's overlap test, the debug
   draw and `b3World_GetBounds` in `src/physics_world.c`, the serializer's writer, the hash walk and
   from H4 the leaf assertion); the push of a zeroed element at a bump allocation and the truncation to a
@@ -1018,7 +1029,7 @@ no before run, the getters being new.
 the specification. Mechanics that follow from them:
 
 - `world->contacts` becomes a pointer to the incomplete `b3ContactArray`; `const b3Contact*
-  b3GetContactRecord( world, id )` outside `src/contact.c`. `b3Contact_Write` and
+  b3GetContactRecord( world, id )` and `b3ContactArray_ByteCount( world )` outside `src/contact.c`. `b3Contact_Write` and
   `b3Contact_WriteSetter` copy every field except `manifolds`, `manifoldCount` and the triangle
   cache's array header (a convex contact's cache union member and a mesh contact's `queryBounds`
   are copied, the design §9 step 3); `b3Contact_Restore` likewise.
@@ -1073,7 +1084,9 @@ the compiler names (§3).
 record-array and in-record array rules) is the specification. Mechanics that follow from it:
 
 - `world->joints`, `world->islands` and `world->solverSets` become pointers to incomplete types;
-  const record access outside each file; `b3Joint_Write`, `b3Joint_WriteSetter`, `b3Joint_Restore`,
+  const record access and a byte-count reader as H3a's outside each file, the sensor array's
+  below the same (`b3GetWorldByteCount` sums an island's link arrays, a set's five arrays and a
+  sensor's three by `capacity` through the const records, which `b3ConstArray` keeps readable); `b3Joint_Write`, `b3Joint_WriteSetter`, `b3Joint_Restore`,
   `b3Island_Write`, `b3Island_Restore` (an island has no setter entry: no API setter writes one).
 - An island's three link arrays are `b3ConstArray` fields written only by `b3Island_PushBody`,
   `b3Island_PushContact`, `b3Island_PushJoint`, the three removeswaps and the create and destroy
@@ -1209,8 +1222,10 @@ specification. Mechanics that follow from them:
   fn, context )` for H0's per-key mix in `src/world_hash.c`, a value view `b3PairSetView
   b3PairSet_View( set )` (`capacity`, `count`, `const b3SetItem* items`) for the serializer's
   writer `b3SerHashSet` (`src/world_snapshot.c`), which the phase-0 image needs through this
-  commit, and a value view `b3IdPoolView b3SlotPool_IdPoolView( pool )` (`nextIndex`, `freeCount`,
-  `const int* freeIds`) for the hash's walk of the six pools and the serializer's `b3SerIdPool`,
+  commit, and a value view `b3IdPoolView b3SlotPool_IdPoolView( pool )` (`nextIndex`, `freeCount`, `freeCapacity`,
+  `const int* freeIds`) for the hash's walk of the six pools, the serializer's `b3SerIdPool` and
+  `b3GetWorldByteCount`'s id-pool bytes (`freeCapacity` times `sizeof( int )`, what
+  `b3GetIdBytes` returns today),
   neither exposing a header a caller could write through, so
   `src/contact.c`'s add and remove become the journaled ones. The generic
   `b3IdPool`, `b3HashSet`, `b3BitSet` and `b3Array` are untouched and keep serving scratch.
