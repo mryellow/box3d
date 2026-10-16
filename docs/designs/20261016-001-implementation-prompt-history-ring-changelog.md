@@ -395,3 +395,19 @@ continue the series after round 20.
 - `HistoryRingTest` reads the image charge from a probe enable, since the budget is fixed at enable.
 - §2 qualifies the filter's always-recreate path to shapes with a live proxy.
 - Length 1588 -> 1596 lines.
+
+## Revision 23: after review round 22
+
+Round 22: 5 findings (H1-M3-L1), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> pending.
+
+- The event digest tags each event array with its kind and count before its events.
+- The sensor fixtures set `enableSensorEvents` on the sensor and its visitors and assert the
+  overlap count; §7's million-body sensors likewise.
+- The budget variant creates every body awake and steps once before the probe, so tick 0's image
+  carries no queue bytes.
+- §2's wake inventory adds `b3Body_EnableSleep( false )`, `b3World_EnableSleeping( false )`,
+  `b3Joint_WakeBodies` and `b3Shape_ApplyWind` with `wake`.
+- H2 names H3c as the commit that moves the step's stages onto the hot accessors.
+- Length 1596 -> 1611 lines.

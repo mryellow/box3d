@@ -244,6 +244,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   into the awake tree, which the journal does not cover (the trees doc §5; a kinematic body's
   proxies stay in the kinematic tree awake or asleep, a static body never wakes, a disabled body
   has no proxy): `b3Body_SetTransform` on any non-static body (`src/body.c`),
+  `b3Body_EnableSleep( false )` on a sleeping body (`src/body.c`), `b3World_EnableSleeping( false )`
+  (wakes every sleeping set, `src/physics_world.c`), `b3Joint_WakeBodies` (`src/joint.c`),
+  `b3Shape_ApplyWind` with `wake` true on a sleeping body (`src/shape.c`),
   `b3Body_SetType`, `b3Body_SetAwake( true )`, `b3Body_Enable`, `b3DestroyBody` and `b3Body_Disable`
   for the bodies touching or jointed to the destroyed or disabled one, `b3CreateJoint` when either
   body is awake, `b3DestroyJoint` with `wakeAttached` true, `b3Shape_SetFilter` with
@@ -429,8 +432,11 @@ Two internal pieces of test machinery are shared by several entries and are writ
   change) with the tick it was made in; `ReplayOps( worldId, log, tick )` re-issues the calls of
   one tick in order. Ids are recorded as creation ordinals and resolved through the ids the replay
   obtains, since a replayed creation gives the same id (the design §9).
-- **The event digest.** A per-tick hash over the step's events in reported order, each event by
-  every named field of its public struct (`include/box3d/types.h`), never its padding: body move
+- **The event digest.** A per-tick hash over the step's events in reported order, each event
+  array first by a tag naming its kind and its count, then each event by
+  every named field of its public struct (`include/box3d/types.h`), never its padding (a contact
+  begin and a contact end event carry the same fields, so without the tag and the count exchanging
+  one for the other would leave the digest unchanged): body move
   events (`userData`, transform, body id, `fellAsleep`), contact begin and end (shape ids, contact
   id), hit events (shape ids, contact id, point, normal, speed, the two user material ids), sensor
   begin and end (sensor and visitor shape ids), joint events (joint id, `userData`), read through
@@ -656,8 +662,11 @@ in full are the specification. Mechanics that follow from them:
   `b3DestroyWorld` alone (its own disable call) and the same check:
   1. unbounded budget, `tickCount` 8, interval 1: after 20 steps the retained imaged ticks are 12
      to 20 (9 slots), and `oldestImageTick` is 12;
-  2. a budget. Cases 2 to 5 run on the budget variant of the scene: the same bodies placed apart
-     with no contact, gravity zero, sleep disabled and no churn, so every image has the same
+  2. a budget. Cases 2 to 5 run on the budget variant of the scene: the same bodies, every one
+     created awake, placed apart with no contact, gravity zero, sleep disabled and no churn,
+     stepped once before the probe so the migration queue is empty (a body created asleep parks a
+     marked proxy and queues itself, and the first step drains the queue, `src/shape.c`, which
+     would give tick 0's image queue bytes later images lack), so every image has the same
      charge in every phase (each imaged slot's charge is `ENSURE`d equal to `s`, which is what
      makes the exact sequences below hold for H5's awake-only image as for the phase-0 image).
      Read `s` from a probe: enable with an unbounded budget, read tick 0's imaged slot's charge,
@@ -809,7 +818,7 @@ that follow from it:
   b3JointSim* )` in `src/constraint_graph.c` for one, the colour's own writer once H3c hides the
   graph (H4 makes them the journaled `set` of the set's array and the awake-array write). A joint setter copies the sim, changes the field and sets it back. The
   step's stages are unchanged in this commit: they index the awake set's and the colours' arrays by
-  base pointer, which H4 replaces.
+  base pointer, which H3c replaces with the hot element accessors when it hides the arrays.
 - `src/CMakeLists.txt` and `test/CMakeLists.txt`: the discarded-qualifier diagnostic is an error on
   the three compiler families (§2).
 
@@ -1309,7 +1318,10 @@ them:
   candidates sit in a named tree the query reaches: the bullet sweep's candidates are static and
   sleeping shapes (the continuous stage queries all four trees, `src/solver.c`), so its witness is
   over the static and the sleeping tree; the sensor sweep's visitors are convex static shapes with
-  `enableSensorEvents` set (the sensor pass queries all four trees and filters by convexity, the
+  `enableSensorEvents` set on them and on the sensor shape (the pass skips a sensor without the
+  flag and a visitor without it, `src/sensor.c`; the flag is off by default), with the sensor's
+  overlap count `ENSURE`d above eight after the first step so an empty sweep cannot pass as
+  evidence (the sensor pass queries all four trees and filters by convexity, the
   flag, body and filter, never by body type, `src/sensor.c`), so its witness is over the static
   tree; both explosions' shapes are on sleeping bodies, the first several shapes of one sleeping
   body (`b3World_Explode` queries the awake and sleeping trees only, `src/physics_world.c`), so
@@ -1365,7 +1377,8 @@ restores its order (the trees doc §6).
   kinematic shape created in the following step, whose proxy takes the freed id (the free list is
   LIFO), rewound: the first shape's `proxyKey` equals the recorded value and the replay matches;
   and a sensor sweep whose visitors
-  are more than eight convex kinematic shapes with `enableSensorEvents` set, witnessed over the
+  are more than eight convex kinematic shapes with `enableSensorEvents` set on them and on the
+  sensor shape, the overlap count `ENSURE`d above eight after the first step, witnessed over the
   kinematic tree as the H5 cases are: the order recorded at tick 10 in the original run against
   the order after the rewind and the perturbation (the restore pass moves listed proxies and
   leaves any rebuild to the first replayed step, the trees doc §6, so the perturbation helper's
@@ -1502,8 +1515,10 @@ Measurements the closure doc needs:
   journal, reported per scene as absolute restore microseconds beside the awake body count, the
   sensors' overlap count summed over the public sensor overlap query and the undone segments'
   bytes, with the table scenes (which have no sensor, `shared/benchmarks.c`) joined by the
-  million-body scene carrying 64 static sensor shapes each overlapping a few of the sixteen awake
-  boxes, so the sensor term has a column that is not zero everywhere, and the proportionality is
+  million-body scene carrying 64 static sensor shapes with `enableSensorEvents` set on them and on
+  the awake boxes, each sensor overlapping a few of the boxes (the harness asserts the summed
+  overlap count is above zero after the warm-up steps), so the sensor term has a column that is
+  not zero everywhere, and the proportionality is
   read across those columns rather than from one ratio; replay equal to N steps
   within noise, with the first replayed step after a rewind that moved a kinematic proxy reported
   separately on the million-body scene, and a rewind whose undone wake fires the sleeping tree's
