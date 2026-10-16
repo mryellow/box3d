@@ -1022,9 +1022,10 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   `src/constraint_graph.c`'s functions (H4: the push into a colour is the function that moves a
   contact or joint into the awake set, journaling its pre-wake bytes); the colour's per-step
   scratch fields (`wideConstraints`, `wideConstraintCount`, `wideMeshConstraints`,
-  `wideMeshManifoldStarts`, `wideMeshConstraintCount`, scratch by the design §5.1), which
+  `wideMeshManifoldStarts`, `wideMeshConstraintCount`, and the overflow colour's
+  `manifoldConstraints` and `contactConstraints`, scratch by the design §5.1), which
   `src/solver.c`'s stage setup assigns, are written through `b3Graph_SetWideScratch( world,
-  colorIndex, ... )` of `src/constraint_graph.c`, a setter for those five fields alone under the
+  colorIndex, ... )` of `src/constraint_graph.c`, a setter for those seven fields alone under the
   step mark, never journaled or imaged; the collide pass's write of
   a touching mesh contact's spec `manifoldCount` (`src/physics_world.c`) goes through the hot
   element accessor `b3Graph_HotContactSpec( world, colorIndex, localIndex )`, inline, asserting
@@ -1086,13 +1087,23 @@ specification. Mechanics that follow from them:
   kind as the table's Undo column states, writing through the restore writers of H3 and the
   containers' own file-local undo functions. The walk asserts what the design says it asserts: the
   pair set's add and remove, the pool free's popped id, the proxy destroy undo's id.
-- Every journal call is `if ( world->history == NULL ) return;` first (the design §7.3).
+- Every journal call is `if ( world->history == NULL ) return;` first (the design §7.3). The
+  ownership transfers keep that form and cost with one more line in the disabled branch: every
+  owning destroy (a pool free's blocks, a set's five arrays, an island's three, a material block,
+  a hull at refcount zero, a sensor's three arrays) hands its detached handles to
+  `b3Journal_TakeBlocks( world, ... )` of `src/journal.c`, whose disabled branch frees them with
+  their allocators as the engine does today and returns, and whose enabled branch records the
+  entry that owns them; the callers have no branch of their own, so nothing leaks with history
+  disabled and nothing is freed twice with it enabled.
 - The journaled containers: `b3JournaledSlotPool` (`src/slot_pool.c`), one per record kind, holding
   the `b3IdPool` and the functions its record file installs at creation: push-zeroed and truncate
   for every kind (the record arrays' headers stay in the record file, H3a to H3c), and for shapes
-  and contacts a detach, which moves the record's owned blocks out through the file's block writer
-  (`b3Shape_SetMaterialBlock`, `b3Contact_SetBlocks`' restore form), returning their handles and
-  counts and leaving the record's pointers and counts clear, and an attach, its inverse; with
+  and contacts a detach and an attach of their own in the record file (`b3Shape_DetachBlocks`,
+  `b3Shape_AttachBlocks`, `b3Contact_DetachBlocks`, `b3Contact_AttachBlocks`), ownership transfers
+  that assert nothing about the restore mark and make no entry, since an ordinary destroy runs
+  outside any restore: detach returns the handles and counts and leaves the record's pointers and
+  counts clear, attach is its inverse (the restore-only loads of H3a and H3b stay for the
+  deserializer and the undo's record writes); with
   `alloc` (makes the pool alloc entry, calling push-zeroed on a bump, which for shapes pushes the
   `fatAABBs` entry too; the undo of a bump calls truncate) and `free` (calls detach, puts the
   handles into the pool free entry with the counts the design names, then frees the id; the undo

@@ -462,3 +462,17 @@ Round 26: 1 finding (H0-M1-L0), 1 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
   continuous stage's eight-hit limit asserted; the overlap-pass case stays as extra coverage. The
   kinematic sensor case likewise.
 - Length 1642 -> 1644 lines.
+
+## Revision 28: after review round 27
+
+Round 27: 3 findings (H2-M1-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> pending.
+
+- H3c's scratch setter covers the overflow colour's two constraint pointers as well.
+- H4's detach and attach are ownership transfers of the record files, free of the restore mark;
+  the restore-only loads stay for the deserializer and the undo.
+- Every owning destroy hands its blocks to one journal function whose disabled branch frees them
+  as today and whose enabled branch records the owning entry.
+- Length 1644 -> 1655 lines.
