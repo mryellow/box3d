@@ -156,8 +156,10 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `shapeIdPool`/`shapes` with `fatAABBs`, `contactIdPool`/`contacts`, `jointIdPool`/`joints`,
   `islandIdPool`/`islands`, `solverSetIdPool`/`solverSets`. A bump allocation pushes a zeroed
   element onto the array at the creation site (`b3CreateBody`, `b3CreateShapeInternal`,
-  `b3CreateContact`, `b3CreateIsland`, `b3TrySleepIsland`, `b3CreateBody`'s sleeping set), which
-  the slot pool of the design §5.2 makes one operation.
+  `b3CreateContact`, `b3CreateJoint` in `src/joint.c`, `b3CreateIsland`, `b3TrySleepIsland` and
+  `b3CreateBody`'s sleeping set), which the slot pool of the design §5.2 makes one operation;
+  `b3CreateWorld` pushes the three fixed sets (`src/physics_world.c`) before history can be
+  enabled, so H3c routes that push through the same function and H4 journals nothing for it.
 - `b3BitSet` (`src/bitset.h`) is `{ uint64_t* bits; uint32_t blockCapacity; uint32_t blockCount; }`;
   `b3SetBitGrow` grows through `b3GrowBitSet`; `b3ClearBit` and `b3GetBit` are no-ops or false beyond
   `blockCount`, as the design §7.1's bitset entry assumes. `b3RemoveContactFromGraph` and
@@ -284,7 +286,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `b3Body_ApplyLinearImpulse`, `b3Body_ApplyLinearImpulseToCenter`, `b3Body_ApplyAngularImpulse`,
   each `src/body.c`); the same calls with a zero velocity, a locked or zero angular velocity, a sleepy
   target or `wake` false touch no awake structure. Cold, touching no awake structure: a static shape's create with
-  `invokeContactCreation` false and destroy, a sensor's create and destroy on a static body,
+  `invokeContactCreation` false and the destroy of a static shape with no touching contact
+  (`b3DestroyShape` passes `wakeBodies` true to `b3DestroyContact`, which wakes both bodies of a
+  touching contact, `src/shape.c`, `src/contact.c`), a sensor's create and destroy on a static body,
   `b3Shape_SetFilter` with `invokeContacts` false, the four material setters, `b3CreateJoint`
   between two sleeping bodies (a set merge when their sets differ, `src/joint.c`), `b3DestroyJoint`
   with `wakeAttached` false of a joint in a sleeping set (an awake set's joint leaves the
@@ -620,7 +624,8 @@ error.
 
 **Files.** `include/box3d/box3d.h`, `include/box3d/types.h`, new `src/world_history.h`, new
 `src/world_history.c`, `src/physics_world.h`, `src/physics_world.c`, `src/replay.h`, `src/replay.c`,
-`src/recording.c`, `src/world_snapshot.h`, `src/world_snapshot.c`, `src/core.c`, `src/CMakeLists.txt`,
+`src/recording.h`, `src/recording.c`, `src/world_snapshot.h`, `src/world_snapshot.c`, `src/core.c`,
+`src/CMakeLists.txt`,
 `test/test_history.c`, `test/main.c` (register `HistoryRingTest`, `HistoryRewindTest`,
 `HistoryReplayTest`, `HistoryCrossWorkerTest`).
 
@@ -697,13 +702,16 @@ in full are the specification. Mechanics that follow from them:
   slots are appended at the write, one per entry added since the last write and empty for a
   released one, so ids stay slot indices; the recording player never activates a serial.
   Removing an imaged slot, by eviction or by a
-  rewind's drop, decrements its list's entries, and an entry at zero is released through a new
-  `b3ReleaseGeometryEntry( reg, id )` of `src/recording.c`, the file that owns the dedup map:
-  it frees the entry's bytes and its reader slot's copy, leaves the entry struct in place with
-  NULL bytes and zero `byteCount` so ids stay slot indices (a few dozen bytes per distinct
+  rewind's drop, decrements its list's entries, and an entry at zero is released: a new
+  `b3ReleaseGeometryEntry( reg, id )` of `src/recording.c`, the file that owns the dedup map,
+  frees the entry's bytes, leaves the entry struct in place with NULL bytes and zero `byteCount`
+  so ids stay slot indices (a few dozen bytes per distinct
   geometry interned while enabled, left out of the figure as the arrays are), and removes it
-  from the map and its hash chain so the same content interned again gets a new entry. Disable
-  frees both wholesale, which no live shape survives pointing
+  from the map and its hash chain so the same content interned again gets a new entry, and the ring
+  (`src/world_history.c`, which owns the recording and the reader) frees the reader slot's copy
+  itself at every release point, eviction, a rewind's drop and the sizing-only release, through
+  `b3RecReleaseSlot( rdr, id )` added to `src/replay.c` (the slot's bytes NULL, `byteCount`
+  zero). Disable frees both wholesale, which no live shape survives pointing
   into (the rewind repoints every restored borrowed-geometry shape at its recorded pointer,
   above). Their bytes are not in `bytesUsed`, `arenaCapacityBytes` or `stagingCapacityBytes`
   and not charged against `maxBytes` (§10); `b3History_GetGeometryBytes( world )`, a read-only
@@ -824,7 +832,8 @@ in full are the specification. Mechanics that follow from them:
   10. a rewind with no step since a body create, a body destroy, `b3Body_SetTransform` on a sleeping
       body, a sensor destroy and the hull shape's destroy (the hull's last reference), each on its
       own fresh step: each `Rewind( P )` returns the hash to the one recorded at P;
-  11. geometry churn: on a fresh world with a static ground box and no other interned geometry,
+  11. geometry churn: on a fresh world with no shape but the per-tick mesh below (a box is a hull, which the
+      serializer interns too),
       `tickCount` 8, interval 1 and an unbounded budget, each tick creates a static mesh shape of
       two triangles whose vertices are unique to a step count the test keeps (monotonic across
       the rewind below) and destroys the previous tick's; with `g` the value of
@@ -1409,7 +1418,8 @@ write, so the walk alone must restore the hash:
    with no contact, each in its own set, and a hull referenced once by a static shape, stepped once
    before the enable so every sleeping proxy is in the sleeping tree; history enabled, hash
    recorded; then between steps, cold operations only (§2): a static shape created with
-   `invokeContactCreation` false and one destroyed; `b3Shape_SetFilter` with `invokeContacts` false
+   `invokeContactCreation` false and one destroyed that has no touching contact (its body's
+   contact count, read through the internal headers, `ENSURE`d 0 before the call); `b3Shape_SetFilter` with `invokeContacts` false
    on a sleeping body's shape and on a static shape; a joint created between the two lone sleeping
    bodies (a set merge, the joint in the merged sleeping set) and destroyed with `wakeAttached`
    false, and a joint created between two
