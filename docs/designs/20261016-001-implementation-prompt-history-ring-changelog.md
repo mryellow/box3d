@@ -845,3 +845,18 @@ Round 53: 1 finding (H0-M1-L0), 1 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
   reader (H3a to H3c) and H4's `b3IdPoolView` gains `freeCapacity`, so the two public memory
   counts keep their values across the boundary commits.
 - Length 1820 -> 1835 lines.
+
+## Revision 52: after review round 54
+
+Round 54: 2 findings (H0-M1-L1), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> pending.
+
+- §2's wake list names `b3Joint_SetCollideConnected( true )` with its migration condition, and
+  `HistoryRewindTest` gains a sub-scene that rewinds across it.
+- §2's cold list qualifies `b3DestroyJoint` with `wakeAttached` false to a joint in a sleeping
+  set; the H4 fixture states its joint's set.
+- Length 1835 -> 1843 lines.

@@ -262,7 +262,11 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `b3Shape_ApplyWind` with `wake` true on a sleeping body (`src/shape.c`),
   `b3Body_SetType`, `b3Body_SetAwake( true )`, `b3Body_Enable`, `b3DestroyBody` and `b3Body_Disable`
   for the bodies touching or jointed to the destroyed or disabled one, `b3CreateJoint` when either
-  body is awake, `b3DestroyJoint` with `wakeAttached` true, `b3Shape_SetFilter` with
+  body is awake, `b3DestroyJoint` with `wakeAttached` true, `b3Joint_SetCollideConnected( true )`
+  on a joint whose body with fewer shapes (B on a tie) is a dynamic body outside the disabled set
+  (it marks that body's proxies moved and calls `b3BroadPhase_MigrateBody`, which moves a
+  sleeping body's leaves into the awake tree; with `false` it destroys the contacts between the
+  two bodies without waking them, `src/joint.c`), `b3Shape_SetFilter` with
   `invokeContacts` true (`b3ResetProxy` recreates the leaf in the shape's own tree, which for a
   sleeping dynamic body's shape is the awake tree, and queues the body), the four geometry
   setters `b3Shape_SetSphere`, `b3Shape_SetCapsule`, `b3Shape_SetHull` and `b3Shape_SetMesh` (the
@@ -283,7 +287,8 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `invokeContactCreation` false and destroy, a sensor's create and destroy on a static body,
   `b3Shape_SetFilter` with `invokeContacts` false, the four material setters, `b3CreateJoint`
   between two sleeping bodies (a set merge when their sets differ, `src/joint.c`), `b3DestroyJoint`
-  with `wakeAttached` false, `b3DestroyBody` and `b3Body_Disable` of a sleeping body with no
+  with `wakeAttached` false of a joint in a sleeping set (an awake set's joint leaves the
+  constraint graph through `b3RemoveJointFromGraph`, `src/joint.c`), `b3DestroyBody` and `b3Body_Disable` of a sleeping body with no
   contact and no joint (`b3DestroyContact` with `wakeBodies` wakes both bodies of a touching
   contact, the destroyed body's own set included, `src/contact.c`), and every `userData` setter.
   The journal tests of H4 use the cold list only.
@@ -812,7 +817,9 @@ in full are the specification. Mechanics that follow from them:
   debug-drawn before and after a rewind with `b3World_Draw` under test callbacks that count
   creates and destroys; a step that grows a tree's proxy capacity followed by a rewind across it;
   a sleeping body destroyed between steps whose sleeping-tree id is taken by a body falling asleep
-  in the next step, rewound across;
+  in the next step, rewound across; a joint created between two sleeping bodies with
+  `collideConnected` false whose `b3Joint_SetCollideConnected( true )` after T moves the
+  fewer-shaped body's leaves into the awake tree, rewound across;
   steps with two different time steps followed by a rewind and `b3Joint_GetConstraintForce` before
   any step; a body put to sleep in the imaged tick while its proxy is still marked, whose pairs
   the next step must find; a shape created on a sleeping body with a rewind before and after the
@@ -1326,7 +1333,8 @@ write, so the walk alone must restore the hash:
    recorded; then between steps, cold operations only (§2): a static shape created with
    `invokeContactCreation` false and one destroyed; `b3Shape_SetFilter` with `invokeContacts` false
    on a sleeping body's shape and on a static shape; a joint created between the two lone sleeping
-   bodies (a set merge) and destroyed with `wakeAttached` false, and a joint created between two
+   bodies (a set merge, the joint in the merged sleeping set) and destroyed with `wakeAttached`
+   false, and a joint created between two
    bodies of one pile; one lone sleeping body destroyed and the other disabled; a sensor created
    on a static body and the other destroyed; the hull shape destroyed and a shape with the same
    hull content created; `b3Shape_SetFriction`, `b3Shape_SetRestitution`,
