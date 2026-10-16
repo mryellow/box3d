@@ -557,10 +557,12 @@ Two internal pieces of test machinery are shared by several entries and are writ
    mesh contact, whose copy of the scene has `b3Body_SetAwake( false )` applied to the capsule's
    body before the hash it is compared against is taken). Each of these leaves it unchanged: `b3Body_SetUserData`,
    `b3Shape_SetUserData`, `b3Joint_SetUserData`, `b3World_SetUserData`.
-3. `HashLayoutCase`: the scene of case 1 after 120 ticks, hashed, then every tree fully rebuilt by
-   the perturbation helper, the leaf visit order of a query over each tree recorded before and
-   after (as `RecordVisitOrder` in `test/test_tree_order.c` does) and `ENSURE`d different for at
-   least one tree (a tree whose orders are equal is rebuilt with more candidates), hashed again:
+3. `HashLayoutCase`: the scene of case 1 with its boxes created in two parts around a step (the
+   staging `test/test_tree_order.c`'s corridor plan uses, so the incremental layout is not the
+   rebuilt one), after 120 ticks, hashed, then every tree fully rebuilt by the perturbation
+   helper, the leaf visit order of a query over each tree recorded before and after (as
+   `RecordVisitOrder` in `test/test_tree_order.c` does) and `ENSURE`d different for at least one
+   tree, hashed again:
    equal (a rebuild changes no leaf box, proxy id or moved bit, the trees doc §8).
 4. `HashRoundTripCase`: the scene of case 1 recorded through `b3World_StartRecording` for 120
    ticks, the hash and `broadPhase.migrationQueue.count` recorded after each tick, and played back
@@ -741,8 +743,9 @@ in full are the specification. Mechanics that follow from them:
      imaged tick in turn from the newest to the oldest: each returns `b3_historyOk` and the hash equals the hash
      recorded at that tick, and the slots after it are gone (`currentTick` equals it);
   7. a rewind to tick 10, five more steps, then a rewind to tick 13 (a re-stepped tick): hash
-     equals the hash recorded at the re-stepped 13, not the original 13 (the churn differs by design
-     of the test, which skips one op on the re-step);
+     equals the hash recorded at the re-stepped 13, not the original 13 (the re-step skips the
+     churn's tick-11 body create, which the churn includes, so the body array and the id pool
+     differ at 13);
   8. two rewinds with no step between (to 15 then to 12): both `b3_historyOk`, hashes as recorded;
   9. `Rewind( P )` after `b3Body_ApplyLinearImpulse`, `b3Body_ApplyForce` and `b3Body_ApplyTorque` on
      an awake body with no step: the hash returns to the hash recorded at P;
@@ -1447,8 +1450,9 @@ them:
   `test/test_tree_order.c` does); rewind to 10, perturb, record the order again and `ENSURE` it
   differs from the order recorded at tick 10 in the original run (as `WitnessDiffers` there does),
   which is the condition the trees doc §10 test 1 states, the replay running on a layout the
-  original run did not have (a full rebuild can reproduce a layout, and a case whose orders are
-  equal is rebuilt with more candidates); then replay to 30 with the op log, and
+  original run did not have (each case's shapes are created in two parts around a step, the
+  staging `test/test_tree_order.c`'s corridor plan uses, so the full rebuild lands a layout the
+  incremental build did not); then replay to 30 with the op log, and
   `ENSURE` equality at every tick. Passes before H5 (layout independence is the engine's, the design
   §3); it guards the restore pass.
 - `HistoryCostTest` case 1, `SleepingDynamicCostCase`: 20,000 single-box dynamic bodies created
@@ -1620,9 +1624,11 @@ Measurements the closure doc needs:
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
   point and is not the denominator);
   image, journal and owned-block bytes per tick (the parts `b3History_GetSlot` returns); `bytesUsed`, the
-  retained window and the observed effective interval at `tickCount` 60 under three budgets:
-  unbounded; `maxBytes` of a quarter of the unbounded steady-state `bytesUsed`, where the ring
-  evicts at interval 1 (the ring doc §6 step 3); and `maxBytes` of one and a half imaged slots'
+  retained window and the observed effective interval at `tickCount` 60 under three budgets, history
+  enabled after ten warm-up steps as `HistoryCostTest` does (the first step clears the creation
+  marks of `large_world`'s million static proxies, which would otherwise sit in tick 0's image):
+  unbounded; `maxBytes` of a quarter of the unbounded steady-state `bytesUsed`, where the ring is
+  expected to evict at interval 1 (the ring doc §6 step 3); and `maxBytes` of one and a half imaged slots'
   charge, below the minimum window's two images, where the interval widens (step 4); restore
   milliseconds for `Rewind` 1, 5 and 9 ticks back on the unbounded ring, where interval 1 holds
   and each target is imaged, and under the widening budget one rewind to the tick

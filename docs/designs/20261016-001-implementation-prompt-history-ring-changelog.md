@@ -671,3 +671,18 @@ Round 41: 0 findings (H0-M0-L0), 0 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> pending confirmation.
 
 - No edit.
+
+## Revision 41: after review round 42
+
+Round 42: 3 findings (H0-M2-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> pending.
+
+- `HashLayoutCase` and `HistoryTreeTest` stage their shapes in two parts around a step for the
+  layout witness; the retry clause is gone.
+- §7's cost harness enables history after ten warm-up steps; the quarter budget is expected to
+  evict at interval 1, the observed interval reported.
+- `HistoryRingTest` case 7 skips the churn's tick-11 body create on the re-step.
+- Length 1743 -> 1749 lines.
