@@ -603,3 +603,17 @@ pending.
 - `HistoryRewindTest` draws T before a scheduled sub-scene's first mutation, so every counted run
   is rewound across.
 - Length 1711 -> 1720 lines.
+
+## Revision 37: after review round 37
+
+Round 37: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> pending.
+
+- `HistoryRewindTest` runs `large_world` at `tickCount` 2 until H5 and expresses its pair bounds
+  in `tickCount`; H5 moves the scene to 60; §7's phase-0 harness runs at `tickCount` 1.
+- `HashLayoutCase` records each tree's visit order before and after the rebuild and requires a
+  difference on at least one tree.
+- Length 1720 -> 1725 lines.

@@ -554,8 +554,10 @@ Two internal pieces of test machinery are shared by several entries and are writ
    body before the hash it is compared against is taken). Each of these leaves it unchanged: `b3Body_SetUserData`,
    `b3Shape_SetUserData`, `b3Joint_SetUserData`, `b3World_SetUserData`.
 3. `HashLayoutCase`: the scene of case 1 after 120 ticks, hashed, then every tree fully rebuilt by
-   the perturbation helper, hashed again: equal (a rebuild changes no leaf box, proxy id or moved
-   bit, the trees doc §8).
+   the perturbation helper, the leaf visit order of a query over each tree recorded before and
+   after (as `RecordVisitOrder` in `test/test_tree_order.c` does) and `ENSURE`d different for at
+   least one tree (a tree whose orders are equal is rebuilt with more candidates), hashed again:
+   equal (a rebuild changes no leaf box, proxy id or moved bit, the trees doc §8).
 4. `HashRoundTripCase`: the scene of case 1 recorded through `b3World_StartRecording` for 120
    ticks, the hash and `broadPhase.migrationQueue.count` recorded after each tick, and played back
    in a `b3CreatePlayer` world: at every frame whose recorded queue count is 0 (the queue is the one
@@ -745,11 +747,13 @@ in full are the specification. Mechanics that follow from them:
   `benchmark/main.c`'s table (§2), created with its capacity
   function where one exists and `workerCount` 4: step to a steady state (the scene's benchmark step
   count capped at 200, with its `Step*` where one exists), enable history with `tickCount` 60 and
-  interval 1, then for N random (T, P) pairs, seeded per scene, each drawn after the previous
-  rewind with P in (current tick, current tick + 60] and, once the world has stepped to P, T in
+  interval 1 (`large_world` with `tickCount` 2 until H5, a phase-0 image of its million static
+  bodies being over 500 MB; its structural sub-scene counts are required from H5), then for N
+  random (T, P) pairs, seeded per scene, each drawn after the previous rewind with P in (current
+  tick, current tick + `tickCount`] and, once the world has stepped to P, T in
   [`oldestImageTick`, P] with the bound read from `b3World_GetHistoryInfo` at P (interval 1, so
-  every retained tick is imaged; `P − 60` alone is not the bound, since after a rewind and a short
-  re-step the oldest retained image can be newer than that), so T is
+  every retained tick is imaged; `P − tickCount` alone is not the bound, since after a rewind and
+  a short re-step the oldest retained image can be newer than that), so T is
   retained at P: step from the current tick to P with the churn below applied by the seed between
   steps and recorded in
   the op log, recording the hash and the `userData` words of every body, shape and joint at every
@@ -1388,8 +1392,9 @@ them:
 
 **Tests.**
 
-- `HistoryRewindTest`, `HistoryReplayTest`, `HistoryCrossWorkerTest` (with its goldens unchanged)
-  and `HistoryRingTest` run unchanged and pass: that is this commit's main evidence, and they pass
+- `HistoryRewindTest` (its `large_world` scene now at `tickCount` 60, H1), `HistoryReplayTest`,
+  `HistoryCrossWorkerTest` (with its goldens unchanged) and `HistoryRingTest` run otherwise
+  unchanged and pass: that is this commit's main evidence, and they pass
   before it too, under the serializer path.
 - `HistoryUndoSufficiencyTest` (the design §12 test 8): restore exactness on scripted scenes where,
   for the rewind target T and the current tick P, each of the design §7.1's cases occurs for a body
@@ -1634,8 +1639,8 @@ Measurements the closure doc needs:
   reported separately. Each is measured at H5 (phase 1) and again at H6 (phase 2); the
   million-body scene's phase-1 figure is expected to miss on the kinematic term and the closure doc
   says so.
-- **Phase-0 figures** (informational, at H1): per scene the slot bytes per tick and the registry's
-  bytes, so the closure doc can state what H5 removed.
+- **Phase-0 figures** (informational, at H1, the harness at `tickCount` 1): per scene the slot
+  bytes per tick and the registry's bytes, so the closure doc can state what H5 removed.
 
 ## 8. Closure doc
 
