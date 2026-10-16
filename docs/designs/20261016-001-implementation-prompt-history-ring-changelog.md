@@ -320,3 +320,20 @@ Round 16: 6 findings (H0-M5-L1), 6 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §2 counts six force, torque and impulse calls and names them.
 - §7's slab sleeps as one island before the enable, asserted through the internal headers.
 - Length 1521 -> 1534 lines.
+
+## Revision 18: after review round 17
+
+Round 17: 4 findings (H2-M2-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> pending.
+
+- H3a names the shape material block's one writer and the reader's and teardown's routes through
+  it; H3b names the contact blocks' restore form and teardown; both under the restore mark, no
+  entry.
+- H4's slot pool takes detach and attach callbacks from the shape and contact files, so the pool
+  free and its undo move owned blocks through the owning file.
+- The kinematic filter case checks the leaf's filter payload (the recreated proxy takes the same
+  id back); a new case destroys a kinematic shape and creates another whose proxy reuses the id.
+- §7's rebuild timing is reported from the million-body scene only when the harness observed the
+  threshold crossing, otherwise from the rewind test's height-trigger case.
+- Length 1534 -> 1555 lines.

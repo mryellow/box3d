@@ -848,6 +848,13 @@ field exclusions are the specification. Mechanics that follow from them:
   new material and enters `b3Shape_WriteSetter`; for a block it writes the element (journals from
   H4 whatever the owner's state). `b3Shape_SetFriction`, `b3Shape_SetRestitution`,
   `b3Shape_SetSurfaceMaterial` and `b3Shape_SetMeshMaterial` call it.
+- The block itself: `b3Shape_SetMaterialBlock( world, id, count, b3SurfaceMaterial* block )` in
+  `src/shape.c` is the one writer of `materials` and `materialCount` (shape creation's allocation
+  in that file; from H4 the slot pool's detach and attach callbacks); the serializer's reader hands
+  it the block it decoded (`src/world_snapshot.c` allocates and fills the block itself today) and
+  `b3FreeLiveSimElements` releases a live shape's block through `b3Shape_FreeBlocks( world, id )`
+  of the same file; both run under the restore mark and make no entry (the design §5.2's
+  file-local loads), so this commit's reader builds and restores as before.
   Block allocation and release stay in `b3CreateShapeInternal` and `b3DestroyShapeAllocations`
   until H4 moves the release into the pool free entry.
 - `b3Shape_SetUserShape( world, id, void* )` in `src/shape.c` is the one `userShape` writer; the
@@ -901,7 +908,11 @@ the specification. Mechanics that follow from them:
   `b3ConstArray( b3TriangleCache )` declared in `src/container.h` with `b3Array`'s layout and a
   `const T* data`. The block mutator `b3Contact_SetBlocks( world, id, manifoldCount, manifolds,
   cacheCount, cache )` in `src/contact.c` is the one writer of the pointer, the count and the cache
-  header for a non-awake contact (journals from H4).
+  header for a non-awake contact (journals from H4). Its restore form `b3Contact_LoadBlocks`, under
+  the restore mark with no owner check and no entry, takes the serializer's reader's decoded
+  manifold block and cache, and `b3Contact_FreeBlocks( world, id )` releases a live contact's for
+  `b3FreeLiveSimElements`; both in `src/contact.c`, so this commit's reader builds and restores as
+  before.
 - The hot accessor `b3Contact* b3Contact_Hot( world, id )` asserts the step mark and an awake
   owner and returns the record. Its `manifolds` is pointer-to-const, so writes through it come
   from two companions in `src/contact.c` under the same assertions: `b3Manifold*
@@ -1026,12 +1037,15 @@ specification. Mechanics that follow from them:
   pair set's add and remove, the pool free's popped id, the proxy destroy undo's id.
 - Every journal call is `if ( world->history == NULL ) return;` first (the design §7.3).
 - The journaled containers: `b3JournaledSlotPool` (`src/slot_pool.c`), one per record kind, holding
-  the `b3IdPool` and the two functions its record file installs at creation, push-zeroed and
-  truncate (the record arrays' headers stay in the record file, H3a to H3c), with `alloc` (makes the
-  pool alloc entry, calling push-zeroed on a bump, which for shapes pushes the `fatAABBs` entry
-  too; the undo of a bump calls truncate) and `free` (moves the
-  record's owned blocks into the pool free entry with the counts the design names, clearing the
-  record's pointers and counts, then frees the id); `b3JournaledArray` mutators push, removeswap,
+  the `b3IdPool` and the functions its record file installs at creation: push-zeroed and truncate
+  for every kind (the record arrays' headers stay in the record file, H3a to H3c), and for shapes
+  and contacts a detach, which moves the record's owned blocks out through the file's block writer
+  (`b3Shape_SetMaterialBlock`, `b3Contact_SetBlocks`' restore form), returning their handles and
+  counts and leaving the record's pointers and counts clear, and an attach, its inverse; with
+  `alloc` (makes the pool alloc entry, calling push-zeroed on a bump, which for shapes pushes the
+  `fatAABBs` entry too; the undo of a bump calls truncate) and `free` (calls detach, puts the
+  handles into the pool free entry with the counts the design names, then frees the id; the undo
+  re-allocates the id and calls attach with the entry's handles); `b3JournaledArray` mutators push, removeswap,
   clear and set by (array tag, owner id) over the `b3ConstArray` fields of H3c, with
   `world->sensors` offering push and removeswap only and the awake set's and the colours' instances
   offering no generic push; `b3JournaledPairSet` add and remove in `src/broad_phase.c`;
@@ -1301,11 +1315,16 @@ restores its order (the trees doc §6).
   the test steps until `b3World_GetAwakeBodyCount` is the sixteen awake boxes before enabling
   history). Per-step charge at or below 256 KB. Fails before H6: the kinematic tree is imaged raw,
   20,000 proxy slots at about 100 B each.
-- `HistoryTreeTest` gains three kinematic cases: a kinematic body moved between steps by
+- `HistoryTreeTest` gains four kinematic cases: a kinematic body moved between steps by
   `b3Body_SetTransform` into contact with a sleeping pile, with the rewind across the move (the
   pass moves its proxy and the next step rebuilds the kinematic tree); a kinematic body's
-  shape filter changed after T (its proxy recreated with a possibly different id), rewound:
-  `proxyKey` equals the recorded value and the replay matches; and a sensor sweep whose visitors
+  shape filter changed after T with `invokeContacts` true (its proxy destroyed and recreated in
+  the kinematic tree, taking the same id back from the head of the proxy free list,
+  `src/dynamic_tree.c`, so this case checks the leaf's restored filter payload, not identity),
+  rewound: the category bits and the replay match; a kinematic shape destroyed after T and another
+  kinematic shape created in the following step, whose proxy takes the freed id (the free list is
+  LIFO), rewound: the first shape's `proxyKey` equals the recorded value and the replay matches;
+  and a sensor sweep whose visitors
   are more than eight convex kinematic shapes with `enableSensorEvents` set, witnessed over the
   kinematic tree as the H5 cases are: the order recorded at tick 10 in the original run against
   the order after the rewind and the perturbation (the restore pass moves listed proxies and
@@ -1414,9 +1433,11 @@ Measurements the closure doc needs:
   the harness asserts through the internal headers that the slab's bodies share one `islandId`
   before the enable), woken by `b3Body_SetAwake( true )` on one of them four ticks before the
   timed rewind, so the rewind undoes the wake and re-inserts the island's 4,096 proxies into the
-  sleeping tree past `B3_SLEEPING_TREE_MAX_HEIGHT`, firing the full rebuild, which the harness
-  confirms by reading the tree's height and the rebuild's run in a scratch build and reports with
-  the timing): capture
+  sleeping tree one by one; whether that takes the tree past `B3_SLEEPING_TREE_MAX_HEIGHT` (64,
+  checked after the insertions, `src/broad_phase.c`) depends on the layout, so the harness reads
+  the height and whether the rebuild ran in a scratch build: when it ran, the timing is reported
+  as the rebuild case; when it did not, the harness says so and the rebuild timing comes from
+  `HistoryRewindTest`'s height-trigger case run under the same scratch build): capture
   microseconds and percent
   of the step (the capture timed around the H1 insertion in a scratch build, the step timed in the
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
