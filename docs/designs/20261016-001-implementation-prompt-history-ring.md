@@ -637,7 +637,8 @@ in full are the specification. Mechanics that follow from them:
   tests, two read-only functions over the directory: `b3History_GetSlotCount( world )` and
   `b3History_GetSlot( world, index )` returning the slot's tick, imaged flag, charge and the charge's
   parts (image bytes, journal bytes, owned-block bytes, the last two zero in phase 0) in a small
-  struct; the tests and §7's harness read nothing else of the ring.
+  struct; the tests and §7's harness read nothing else of the ring but `b3History_GetGeometryBytes`
+  below.
 - A phase-0 slot is a header, the `b3SerializeWorld` image written into a `b3RecBuffer` with the
   ring's own `b3Recording` as the registry and the user-words option on, the migration queue's
   count and ids copied after it, the geometry pointer words of the live mesh, height-field and
@@ -657,7 +658,14 @@ in full are the specification. Mechanics that follow from them:
   with `countOnly` set, which tallies the exact byte count without writing (`src/recording.h`); the
   budget and window steps use that count, the arena is grown if the slot does not fit, and a second
   run serializes into a `b3RecBuffer` over the reserved region whose `capacity` is that count, so
-  `b3RecBufAppend` never grows it.
+  `b3RecBufAppend` never grows it. A phase-0 image is at most `INT_MAX` bytes: the serializer's
+  buffer, its return and `b3RecBufAppend`'s sizes are `int` (`src/recording.h`,
+  `src/world_snapshot.h`), and widening them for an artefact H5 removes is not done; H1 adds to
+  `b3RecBufAppend`'s `countOnly` branch `B3_ASSERT( size <= INT_MAX - buf->size )`, so a world
+  whose image would pass the limit fails at capture instead of writing a truncated slot. The
+  limit is the image's, not the arena's: the arena's sizes are `size_t`, and the ring doc §6's
+  `INT_MAX` note is the `core.c` byte-count add this commit changes (§2, Allocation). The design
+  §5.1's images are 5 to 51 MB, and §7's phase-0 figures record each scene's.
 - The ring's registry and reader: a `b3Recording` whose registry the capture interns new geometry
   into (`b3InternGeometry`, deduplicated by content, so a scene that creates the same mesh twice
   adds one entry), and a `b3RecReader` with `replayWorldId` set to this world whose `slots` are
@@ -665,11 +673,23 @@ in full are the specification. Mechanics that follow from them:
   entry's bytes (a slot's bytes are freed at the reader's teardown, `src/replay.c`, an entry's at
   the registry's, `src/recording.c`; the recording player runs the mirror direction, slots into
   registry, through `b3RecSeedKeyframeRegistry`);
-  entries are never freed while history is enabled, since any retained image may reference them,
-  and both are freed by disable, which no live shape survives pointing into (the rewind repoints
-  every restored borrowed-geometry shape at its recorded pointer, above). Their bytes are not in
-  `bytesUsed`, `arenaCapacityBytes` or `stagingCapacityBytes`; §7 defines and reads the figure and
-  the closure doc reports it per scene (§8); H5 removes them.
+  an entry's and its slot's bytes live while a retained image can reference them, and no longer:
+  `b3GeometryEntry` gains a `lastImagedTick` that `b3InternGeometry` stamps with the registry's
+  `stampTick` (a field the capture sets to the tick before each imaged `b3SerializeWorld`, which
+  interns every live interned shape's geometry and so touches every entry the image references;
+  the recording player never sets it), and the eviction step, after the old end has moved,
+  releases every entry whose stamp is below the oldest retained imaged tick through a new
+  `b3ReleaseGeometryEntry( reg, id )` of `src/recording.c`, the file that owns the dedup map:
+  it frees the entry's bytes and its reader slot's copy, leaves the entry in place with NULL
+  bytes and zero `byteCount` so ids stay slot indices, and removes it from the map and its hash
+  chain so the same content interned again gets a new entry. A rewind leaves the stamps alone:
+  an entry stamped on a dropped tick is kept until the oldest retained tick passes the stamp, a
+  bounded over-retention. Disable frees both wholesale, which no live shape survives pointing
+  into (the rewind repoints every restored borrowed-geometry shape at its recorded pointer,
+  above). Their bytes are not in `bytesUsed`, `arenaCapacityBytes` or `stagingCapacityBytes`
+  and not charged against `maxBytes` (§10); `b3History_GetGeometryBytes( world )`, a read-only
+  function of `src/world_history.h` for the tests and §7, returns the live entries' and slots'
+  payload bytes, and the closure doc reports it per scene (§8); H5 removes them.
 - `b3World_EnableHistory`: takes the world through `b3GetUnlockedWorldFromId`; asserts
   `world->history == NULL`, `def->tickCount >= 1`, `1 <= def->captureInterval <= def->tickCount`,
   `broadPhase.traversalDepth == 0`, `world->recording == NULL`, the player mark clear, and that
@@ -784,7 +804,17 @@ in full are the specification. Mechanics that follow from them:
      an awake body with no step: the hash returns to the hash recorded at P;
   10. a rewind with no step since a body create, a body destroy, `b3Body_SetTransform` on a sleeping
       body, a sensor destroy and the hull shape's destroy (the hull's last reference), each on its
-      own fresh step: each `Rewind( P )` returns the hash to the one recorded at P.
+      own fresh step: each `Rewind( P )` returns the hash to the one recorded at P;
+  11. geometry churn: on a fresh world with a static ground box and no other interned geometry,
+      `tickCount` 8, interval 1 and an unbounded budget, each tick creates a static mesh shape of
+      two triangles whose vertices are unique to a step count the test keeps (monotonic across
+      the rewind below) and destroys the previous tick's; with `g` the value of
+      `b3History_GetGeometryBytes` after tick 1's capture (one entry and its slot), after 40
+      steps the figure is at most 9 × `g` (the window's nine retained images reference nine
+      distinct meshes) and at least `g`, and the invariant check holds; then
+      `b3World_Rewind( historyTick − 3 )` and twelve more steps: the figure is again at most
+      9 × `g`, the entries stamped on the three dropped ticks released once the oldest retained
+      tick passed their stamps.
   Fails before H1 by not building.
 - `HistoryRewindTest` (the design §12 test 2). For each of the seventeen scenes of
   `benchmark/main.c`'s table (§2), created with its capacity
@@ -1423,7 +1453,7 @@ recorded at 0); a rewind with no step since a sensor destruction and since a hul
 hull shape and case 8's two rewinds in a row included, leaves `pendingBytes` 0; and after every
 operation the manifold allocators' summed
 `allocationCount` equals the live contacts' block count plus the manifold handles the retained
-slots and the staging buffer own, read through a third read-only function of `src/world_history.h`,
+slots and the staging buffer own, read through a fourth read-only function of `src/world_history.h`,
 `b3History_CountOwnedBlocks( world, kind )`, added in this commit. After `b3World_DisableHistory`
 with the world alive, the summed `allocationCount` equals the live contacts' block count alone
 (disable frees every owned handle, the ring doc §9 test 1); the leak check
@@ -1764,8 +1794,7 @@ Measurements the closure doc needs:
   bytes per tick and the geometry payload bytes, the sum of `byteCount` over the registry's
   entries (`b3GeometryEntry`, `src/recording.h`) plus the sum over the reader's slots
   (`b3RegistrySlot`, `src/replay.h`), the arrays and the dedup map that hold them left out, read
-  by a function added to `src/world_history.c` in the scratch build alone, never committed, that
-  walks its recording's entries and reader's slots, so the closure doc can state the payload H5
+  through `b3History_GetGeometryBytes` (H1), so the closure doc can state the payload H5
   removes.
 
 ## 8. Closure doc
@@ -1844,9 +1873,12 @@ document.
   shapes pointing into the ring's registry would make `b3World_DisableHistory` free memory live
   shapes read, and handing the registry's copies to the world at disable would add an owned
   structure that H5 removes, so neither was done.
-- **Phase-0 registry bytes are reported in the closure doc, not in `b3HistoryInfo`.** The ring doc's
-  fields have settled meanings; adding a field for a phase-0 artefact that H5 removes was considered
-  and not done.
+- **Phase-0 registry bytes are reported in the closure doc, not in `b3HistoryInfo`, and not
+  charged against `maxBytes`.** The ring doc's fields have settled meanings; adding a field or a
+  budget term for a phase-0 artefact that H5 removes was considered and not done, and the budget
+  cases of `HistoryRingTest` count slot charges alone. The bytes are bounded by release instead:
+  an entry no retained image references is freed at eviction (H1), so geometry churn cannot grow
+  the registry past what the window references.
 - **The fork is `master`**, as `20261014-002` chose and for the same reason: the tests and the
   designs' assumptions exist there; an upstream PR, if wanted, is a later cherry-pick.
 - **Seven public queries and casts open a traversal.** `b3BroadPhase_BeginTraversal` has ten

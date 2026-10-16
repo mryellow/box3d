@@ -906,3 +906,21 @@ Round 57: 1 finding (H0-M1-L0), 1 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
 - The event digest leaves the `userData` pointer words out, as H0's hash does, so it compares
   across processes and platforms; the in-process event record compares the words themselves.
 - Length 1857 -> 1861 lines.
+
+## Revision 56: after review round 58
+
+Round 58: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+pending.
+
+- A phase-0 image is at most `INT_MAX` bytes, asserted in `b3RecBufAppend`'s count-only branch;
+  the arena's `size_t` path and the `core.c` byte-count change are the ring doc's `INT_MAX` note.
+- Registry entries are stamped by the capture's interning and released at eviction once no
+  retained image references them; `b3History_GetGeometryBytes` reads the figure for the tests and
+  §7, `HistoryRingTest` case 11 bounds it under geometry churn, and §10 says why it is not charged
+  against `maxBytes`.
+- Length 1861 -> 1893 lines.
