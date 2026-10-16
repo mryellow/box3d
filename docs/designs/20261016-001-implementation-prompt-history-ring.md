@@ -540,14 +540,16 @@ Two internal pieces of test machinery are shared by several entries and are writ
    (`b3Body_IsAwake` false), so sleeping sets, the sleeping tree and the graph are all covered.
 2. `HashSensitiveCase`: starting from one scene (a sleeping box, a static box, a dynamic hull body
    resting on it, a capsule resting on the hull body, a capsule on a two-triangle mesh ground, a
-   compound whose hull child rests on the static box, a sensor, a joint, two shapes sharing one
-   hull's content, stepped until the four contacts touch),
+   static compound with a second dynamic hull body resting on its hull child (compounds are
+   static-only and no contact joins two static shapes, `src/shape.c`, `src/contact.c`), a sensor,
+   a joint, two shapes sharing one hull's content, stepped until the four contacts touch, each
+   `ENSURE`d touching before its probe),
    each of the following, applied to a fresh copy of the scene, changes the hash from the scene's: `b3Body_SetTransform` on the sleeping
    body; `b3World_SetGravity`; `b3Shape_SetSurfaceMaterial` on the static shape;
    `b3Shape_SetFilter`; destroying and recreating a body with the same def (its generation differs);
    destroying one of the two hull shapes (the database's refcount differs); destroying the sensor;
    `b3Body_SetAwake( true )` on the sleeping body; `satCache.indexA` of the hull-on-hull contact's
-   cache and of the compound's, `simplexCache.count` of the hull-and-capsule contact's and `simplexCache.count` of the
+   cache and of the hull-on-compound-child contact's, `simplexCache.count` of the hull-and-capsule contact's and `simplexCache.count` of the
    mesh contact's first triangle cache element, each written directly at H0 and, from H3b, as a
    changed copy through `b3Contact_Write` (the three convex contacts) and `b3Contact_SetBlocks` (the
    mesh contact, whose copy of the scene has `b3Body_SetAwake( false )` applied to the capsule's
@@ -622,7 +624,10 @@ in full are the specification. Mechanics that follow from them:
 - The ring's registry and reader: a `b3Recording` whose registry the capture interns new geometry
   into (`b3InternGeometry`, deduplicated by content, so a scene that creates the same mesh twice
   adds one entry), and a `b3RecReader` with `replayWorldId` set to this world whose `slots` are
-  appended for the entries added since the last capture, as `b3RecSeedKeyframeRegistry` does once;
+  appended for the entries added since the last capture, each slot holding its own copy of the
+  entry's bytes (a slot's bytes are freed at the reader's teardown, `src/replay.c`, an entry's at
+  the registry's, `src/recording.c`; the recording player runs the mirror direction, slots into
+  registry, through `b3RecSeedKeyframeRegistry`);
   entries are never freed while history is enabled, since any retained image may reference them,
   and both are freed by disable, which no live shape survives pointing into (the rewind repoints
   every restored borrowed-geometry shape at its recorded pointer, above). Their bytes are not in
@@ -814,9 +819,9 @@ in full are the specification. Mechanics that follow from them:
   the op log from T+1 to 90 with the change re-applied at tick 50, and `ENSURE` after every
   replayed step that the hash and the event digest equal the recorded ones for that tick and that
   every body, shape and joint `userData` word equals the recorded one. Then the corrected replay: a
-  rewind to 60 with one setter op dropped (never a creation or destroy), replayed to 90, differing from the record at and after the
-  first tick its results differ (asserted only as "differs somewhere", the regenerated events being
-  the corrected timeline's). Then, on the third scene, `b3World_DisableHistory` after that rewind
+  rewind to 60 with the churn's tick-70 `b3Body_SetLinearVelocity` on an awake body dropped (the
+  churn includes one, with a velocity the body does not already have), replayed to 90: the hash at
+  tick 70 differs from the recorded one (the regenerated events being the corrected timeline's). Then, on the third scene, `b3World_DisableHistory` after that rewind
   and ten more steps with a ray cast through the mesh ground and the compound each step: the
   steps run, the casts hit, and no assertion fires (the shapes point at the caller's geometry, not
   the freed registry). Fails before H1 by not building.
