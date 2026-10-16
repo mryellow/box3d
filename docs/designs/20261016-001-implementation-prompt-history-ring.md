@@ -686,7 +686,10 @@ in full are the specification. Mechanics that follow from them:
   hash set, tree, material, manifold and triangle-cache writes) and the function asserting `n <=
   (size_t)( INT_MAX - buf->size )` before narrowing to `b3RecBufAppend`'s `int`
   (`b3RecBufAppend` returns without writing or counting when its `int` size is not positive), so
-  a world whose image would pass the limit fails at capture instead of writing a truncated slot. The
+  a world whose image would pass the limit fails at capture instead of writing a truncated slot in
+  a build that compiles assertions (`B3_ASSERT` is empty in a Release build without
+  `B3_ENABLE_ASSERT`, `include/box3d/base.h`; a Release build of H1 to H4 has no guard, and the
+  largest phase-0 image §7 takes, `large_world`'s, is the design §11.1's 650 MB; §10). The
   limit is the image's, not the arena's: the arena's sizes are `size_t`, and the ring doc §6's
   `INT_MAX` note is the `core.c` byte-count add this commit changes (§2, Allocation). The design
   §5.1's images are 5 to 51 MB, and §7's phase-0 figures record each scene's.
@@ -1012,7 +1015,12 @@ that follow from it:
   serializer's reader and, from H5, the image copy go through it. Every writer of one of those
   fields takes a local copy, changes it and writes it back: `b3World_SetGravity` and the other
   public setters, `b3World_EnableSleeping` and the other enable setters, the step's `inv_h`/`inv_dt`, the
-  end-event flip, `splitIslandId` at its five sites and `compoundShapeCount` at its three (§2).
+  end-event flip, `compoundShapeCount` at its three sites (§2) and `splitIslandId` at
+  `b3DestroyIsland`, `b3TrySleepIsland`, the sleep stage's selection and the solve stage's setup,
+  which nulls it on the main thread before any task of the stage is enqueued and hands the island
+  id to `b3SplitIslandTask` through its context (a local pair of world and island id in
+  `src/solver.c`); the task's own null and the solve stage's null after the task's join are
+  deleted, so no task writes the struct while the solver tasks read it.
   Every reader reads through the pointer.
 - `const b3BodySim* b3GetBodySim`, `const b3BodyState* b3GetBodyState`, `const b3JointSim*
   b3GetJointSim`, `const b3JointSim* b3GetJointSimCheckType`. Writers use `b3SetBodySim( world,
@@ -1381,6 +1389,9 @@ specification. Mechanics that follow from them:
   `b3SolverSet_PushAwakeJoint`, `b3SolverSet_PushAwakeContact( world, contact )` (the awake set's
   `contactIndices`, for a non-touching contact: `b3CreateContact`'s push when the set is the awake
   set and `b3WakeSolverSet`'s non-touching loop, `src/contact.c` and `src/solver_set.c`),
+  `b3SolverSet_PushAwakeIsland( world, island, sim )` (the awake set's `islandSims`:
+  `b3CreateIsland`'s emplace when the set is the awake set, `src/island.c`, and
+  `b3WakeSolverSet`'s island loop, `src/solver_set.c`),
   `b3Graph_PushContact( world, contact )` and `b3Graph_PushJoint` are the only pushes onto the
   awake set's and the colours' arrays; each journals the record's pre-wake bytes through the
   structural entry before appending, the body one also every shape's record and `fatAABBs` entry,
@@ -1982,3 +1993,10 @@ document.
   at rest keeps the corridor staging's settled-plus-fresh layout to tick 10, as
   `test/test_tree_order.c`'s kinematic corridor already witnesses. Earlier revisions recorded
   the kinematic clause of the trees doc §10 test 1 as an owner item; the staging closes it.
+- **The phase-0 image limit is an assertion, not a Release check, and the serializer's `int`
+  sizes are not widened.** The serializer image exists for H1 to H4 and H5 replaces it. Capture
+  has no failure result in the design (`b3HistoryResult` is `b3_historyOk` and
+  `b3_historyTickUnavailable`), so a check effective in a Release build would need a result the
+  design does not define or an abort, and widening the serializer's sizes is work on an artefact
+  H5 removes; both were considered and not done. The scenes §7 measures keep the image under the
+  limit by a factor of three.

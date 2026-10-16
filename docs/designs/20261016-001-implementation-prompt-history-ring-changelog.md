@@ -1071,3 +1071,22 @@ Round 67: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - H5 `HistoryTreeTest`: the bullet case rejects the designated candidate by id and `ENSURE`s the
   bullet ended past it and short of the accepted hit.
 - Length 1977 -> 1984 lines.
+
+## Revision 65: after review round 68
+
+Round 68: 3 findings (H1-M2-L0), 3 applied (one in part), 0 declined. Findings: 3/5/1 -> 2/3/0 ->
+0/4/0 -> 3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 ->
+0/1/1 -> 2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 ->
+1/2/0 -> 0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 ->
+1/3/0 -> 1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 ->
+1/0/2 -> 0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 ->
+1/1/0 -> 1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> 0/2/0 -> 1/1/1 -> 0/2/0 -> 1/2/0 ->
+pending.
+
+- H2: `splitIslandId` is nulled on the main thread before the split task is enqueued, the id
+  handed to the task through a local context; the task's null and the post-join null are deleted.
+- H4: `b3SolverSet_PushAwakeIsland` joins the only-pushes list (`b3CreateIsland` into the awake
+  set, `b3WakeSolverSet`'s island loop).
+- H1: the `INT_MAX` claim holds in builds that compile assertions; §10 records why no
+  Release-effective check and no widening.
+- Length 1984 -> 2002 lines.
