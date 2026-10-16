@@ -1359,9 +1359,11 @@ write, so the walk alone must restore the hash:
    restored; then `b3Body_SetTransform` on the second lone sleeping body from inside a
    `b3World_OverlapAABB` callback over it (the traversal is open, so `b3BroadPhase_MoveProxy`
    writes the leaf in place in the sleeping tree, making the move entry, and the wake is queued
-   until the traversal ends, the trees doc §6), undone: the leaf's box through
-   `b3DynamicTree_GetAABB` equals the box read before the call and the hash is restored. The id
-   reuse across a step, a destroyed sleeping body's sleeping-tree id taken by a
+   until the traversal ends, the trees doc §6), then `b3World_Rewind( historyTick )`, since the
+   queued wake migrates the leaf into the imaged awake tree at the traversal's end (the undo
+   re-inserts the sleeping leaf from the migration's destroy entry and the move entry moves it
+   back): the leaf's box through `b3DynamicTree_GetAABB` equals the box read before the call and
+   the hash is restored. The id reuse across a step, a destroyed sleeping body's sleeping-tree id taken by a
    body falling asleep in the next step, is `HistoryRewindTest`'s case, since the awake tree takes
    part. Fails before H4 by not building.
 
@@ -1535,15 +1537,15 @@ restores its order (the trees doc §6).
   LIFO), rewound: the first shape's `proxyKey` equals the recorded value and the replay matches;
   and a sensor sweep as H5's, the bullet crossing at least nine sensor shapes on kinematic
   bodies, `enableSensorEvents` set on the bullet's shape and on every sensor, exactly eight sensor
-  begin events `ENSURE`d in the original run, witnessed over the
-  kinematic tree by the restore pass rather than the perturbation helper (the step rebuilds that
-  tree in part every tick, `src/broad_phase.c`, so a full rebuild can reproduce its tick-10
-  layout): each of the four cases moves a kinematic body by `b3Body_SetTransform` after tick 10
-  (the first case's move; the other three add one, the sweep's on one sensor's body) and, after
-  the rewind and before the replay, `ENSURE`s `b3DynamicTree_CountMovedProxies` on the kinematic
-  tree is at least 1, the pass's incremental move having marked the leaf and left the tree
-  unordered (the trees doc §6), a layout no step leaves; then replay equality of hashes and
-  events to tick 30.
+  begin events `ENSURE`d in the original run, with no layout
+  witness over the kinematic tree (the step rebuilds that tree in part every tick,
+  `src/broad_phase.c`, so neither the perturbation helper's full rebuild nor the pass's move is a
+  layout the original run provably lacked; the layout-independence witness is the H5 cases'
+  over the static and sleeping trees): each of the four cases `ENSURE`s, after the rewind and
+  before the replay, that the kinematic tree's moved set gathered by
+  `b3DynamicTree_GatherMovedProxies` equals image T's saved kinematic moved list, that every
+  restored kinematic leaf's box through `b3DynamicTree_GetAABB` equals its fat AABB entry, and
+  that the named proxy ids are as recorded; then replay equality of hashes and events to tick 30.
 
 ## 5. Goldens and scene hashes
 

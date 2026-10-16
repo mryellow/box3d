@@ -800,3 +800,18 @@ Round 50: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - `ProxyIdentityCase` exercises the sleeping-tree proxy move entry through an in-traversal
   `b3Body_SetTransform`; §6 names it.
 - Length 1790 -> 1798 lines.
+
+## Revision 49: after review round 51
+
+Round 51: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> pending.
+
+- `ProxyIdentityCase`'s in-traversal move is undone through `b3World_Rewind`, the queued wake
+  having migrated the leaf into the imaged awake tree.
+- H6's kinematic cases check the restored moved set, leaf boxes and proxy ids and claim no layout
+  witness over a tree the step rebuilds every tick.
+- Length 1798 -> 1800 lines.
