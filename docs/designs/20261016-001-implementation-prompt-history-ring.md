@@ -381,7 +381,10 @@ validates the dynamic, kinematic and sleeping trees; `b3DynamicTree_Validate` is
 - `shared/benchmarks.c` provides eighteen `Create*` (`shared/benchmarks.h`; seventeen are in the
   benchmark's table, `CreateWidePyramid` is not), `Step*` for `junkyard`, `rain`,
   `large_world`, `sleep`, `sleeping_grid`, `post_field` and `village`, `Get*Capacity` for ten, and
-  `Destroy*` for six; the benchmark's table (`benchmark/main.c`) gives each scene's step count. No
+  `Destroy*` for six; the benchmark's table (`benchmark/main.c`) gives each scene's step count.
+  `BENCHMARK_DEBUG`, set whenever `NDEBUG` is not, shrinks the scenes, `large_world`'s floor from
+  1000 by 1000 static bodies to 32 by 32, so the Debug suite and the Release harness see different
+  sizes. No
   benchmark scene uses height fields, sensors or `b3World_Explode`; the `Destroy*` functions free
   borrowed meshes, so a test disables history before calling one (the design §10, borrowed
   geometry). The test target links `shared`.
@@ -552,7 +555,9 @@ Two internal pieces of test machinery are shared by several entries and are writ
    each of the following, applied to a fresh copy of the scene, changes the hash from the scene's: `b3Body_SetTransform` on the sleeping
    body; `b3World_SetGravity`; `b3Shape_SetSurfaceMaterial` on the static shape;
    `b3Shape_SetFilter`; destroying and recreating a body with the same def (its generation differs);
-   destroying one of the two hull shapes (the database's refcount differs); destroying the sensor;
+   `b3AddHullToDatabase` on the live hull's data (from H4 with its owner's id), the hash differing
+   after it and equal to the scene's again after `b3RemoveHullFromDatabase` of that reference;
+   destroying the sensor;
    `b3Body_SetAwake( true )` on the sleeping body; `satCache.indexA` of the hull-on-hull contact's
    cache and of the hull-on-compound-child contact's, `simplexCache.indexA[0]` of the hull-and-capsule contact's and of the
    mesh contact's first triangle cache element (each `count` `ENSURE`d at least 1 first), each written directly at H0 and, from H3b, as a
@@ -760,8 +765,8 @@ in full are the specification. Mechanics that follow from them:
   `benchmark/main.c`'s table (§2), created with its capacity
   function where one exists and `workerCount` 4: step to a steady state (the scene's benchmark step
   count capped at 200, with its `Step*` where one exists), enable history with `tickCount` 60 and
-  interval 1 (`large_world` with `tickCount` 2 until H5, a phase-0 image of its million static
-  bodies being over 500 MB; its structural sub-scene counts are required from H5), then for N
+  interval 1 (the suite is a Debug build, where `large_world`'s floor is the 32 by 32 grid of
+  `BENCHMARK_DEBUG`, `shared/benchmarks.c`), then for N
   random (T, P) pairs, seeded per scene, each drawn after the previous rewind with P in (current
   tick, current tick + `tickCount`] and, once the world has stepped to P, T in
   [`oldestImageTick`, P] with the bound read from `b3World_GetHistoryInfo` at P (interval 1, so
@@ -1415,10 +1420,11 @@ them:
 
 **Tests.**
 
-- `HistoryRewindTest` (its `large_world` scene now at `tickCount` 60, H1), `HistoryReplayTest`,
-  `HistoryCrossWorkerTest` (with its goldens unchanged) and `HistoryRingTest` run otherwise
-  unchanged and pass: that is this commit's main evidence, and they pass
-  before it too, under the serializer path.
+- `HistoryRewindTest`, `HistoryReplayTest`, `HistoryCrossWorkerTest` (with its goldens unchanged)
+  and `HistoryRingTest` run unchanged and pass: that is this commit's main evidence, and they pass
+  before it too, under the serializer path. From this commit §7's Release test build runs
+  `HistoryRewindTest` once on the million-body `large_world`, which the partial image makes
+  affordable; the closure doc quotes it.
 - `HistoryUndoSufficiencyTest` (the design §12 test 8): restore exactness on scripted scenes where,
   for the rewind target T and the current tick P, each of the design §7.1's cases occurs for a body
   with touching contacts, a mesh contact and a multi-material shape: asleep at T and woken in
@@ -1542,7 +1548,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | ring doc §9 test 2, budget acceptance | §7 measurements per scene | n/a |
 | design §13 phase 0: serializer options, queue and geometry pointers beside the image, §9 step 5 performed by the rewind | Inspection; `HistoryRewindTest`'s debug-draw and `userData` cases; `HistoryRingTest` case 9; `HistoryReplayTest`'s disable-and-continue run | Build failure (H1) |
 | design §10: recording and history exclusive, player world refused, seek refused | Inspection of the assertion sites H1 names: `b3World_EnableHistory` asserts `world->recording == NULL` and the player mark clear; `b3World_StartRecording` asserts `world->history == NULL`; `b3RecPlayer_SeekFrame` and `b3RecPlayer_Restart` assert the player world's `history == NULL`; a validation-build check in `HistoryRingTest` that `b3World_StartRecording` on a history world asserts is not written (an assertion failure ends the process); the closure doc states inspection | n/a |
-| design §12 test 2, restore exactness, every churn case | `HistoryRewindTest`, 25 pairs per scene in the suite, 1,000 under `BOX3D_HISTORY_SOAK` | Build failure (H1) |
+| design §12 test 2, restore exactness, every churn case | `HistoryRewindTest`, 25 pairs per scene in the Debug suite, 1,000 under `BOX3D_HISTORY_SOAK`, and the Release run on the million-body `large_world` at H5 and H6 (§7) | Build failure (H1) |
 | design §12 test 3, replay exactness with events, host state set back | `HistoryReplayTest` | Build failure (H1) |
 | design §12 test 4, cross-worker replay and platform goldens | `HistoryCrossWorkerTest`; the owner's Windows run | Build failure (H1) |
 | design §5.2 world scalars behind a const pointer, one writer | H2 compile-boundary check; inspection of the writers | n/a (boundary) |
@@ -1574,6 +1580,10 @@ BOX3D_HISTORY_SOAK=1 ./build/bin/test HistoryRewindTest   # the 1,000-pair run, 
 cmake -S . -B build-dp -DCMAKE_BUILD_TYPE=Debug -DBOX3D_SAMPLES=OFF -DBOX3D_DOUBLE_PRECISION=ON
 cmake --build build-dp --target test
 ./build-dp/bin/test                              # whole suite, double precision, per commit
+
+cmake -S . -B build-rel-test -DCMAKE_BUILD_TYPE=Release -DBOX3D_SAMPLES=OFF
+cmake --build build-rel-test --target test
+./build-rel-test/bin/test HistoryRewindTest      # once, at H5 and at H6: the million-body large_world (NDEBUG), for the closure doc
 
 cmake -S . -B build-rel -DCMAKE_BUILD_TYPE=Release -DBOX3D_BENCHMARKS=ON -DBOX3D_SAMPLES=OFF -DBOX3D_UNIT_TESTS=OFF
 cmake --build build-rel --target benchmark

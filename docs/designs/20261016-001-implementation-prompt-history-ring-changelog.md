@@ -713,3 +713,19 @@ Round 44: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §7 defines the phase-0 registry bytes as the entry and slot byte-count sums and reads them in a
   scratch build; H1 points at §7.
 - Length 1755 -> 1759 lines.
+
+## Revision 44: after review round 45
+
+Round 45: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> pending.
+
+- `HistoryRewindTest` runs every scene at `tickCount` 60 again: the Debug suite's `large_world`
+  is the 32 by 32 floor; revision 37's window limit is withdrawn. §2 states the Debug and Release
+  sizes; §7 adds one Release run of the entry on the million-body scene at H5 and H6, which §6
+  names.
+- `HashSensitiveCase` probes the hull database with an isolated reference add and remove in place
+  of the shape destroy.
+- Length 1759 -> 1769 lines.
