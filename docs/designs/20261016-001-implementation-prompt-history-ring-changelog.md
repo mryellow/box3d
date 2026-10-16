@@ -876,3 +876,20 @@ Round 55: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   layout witness over the kinematic tree, as `test/test_tree_order.c`'s kinematic corridor does;
   the H5 bullet, the §6 row and the §10 item say so, and round 52's owner item is closed.
 - Length 1843 -> 1847 lines.
+
+## Revision 54: after review round 56
+
+Round 56: 3 findings (H0-M2-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> pending.
+
+- The in-process tests compare each tick's events field by field in order from a kept event
+  record; the digest is what a failure prints, and it stands alone only for the goldens and the
+  §7 harness.
+- The corrected replay is checked against a fresh reference run on the corrected inputs from tick
+  61 to 90, and the body's tick-70 move event is required to differ from the original's.
+- `b3World_GetBounds` leaves the fat-AABB reader list; it reads the trees' root bounds.
+- Length 1847 -> 1857 lines.

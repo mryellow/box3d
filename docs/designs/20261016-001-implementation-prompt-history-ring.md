@@ -481,7 +481,11 @@ Two internal pieces of test machinery are shared by several entries and are writ
   id), hit events (shape ids, contact id, point, normal, speed, the two user material ids), sensor
   begin and end (sensor and visitor shape ids), joint events (joint id, `userData`), read through
   the public getters after each step. The design §12 test 3 compares events by type, contents and
-  order; the digest is that comparison.
+  order, and the in-process tests make that comparison on the events themselves: the recording
+  side keeps each tick's event arrays as copies of the public structs in reported order (the
+  event record), and the replay side `ENSURE`s each array's count and each event's named fields
+  equal in order, the digest being what a failure prints. The digest alone stands where the two
+  sides are different processes or platforms: the goldens (§5) and the §7 harness.
 
 ### H0. State hash
 
@@ -847,15 +851,21 @@ in full are the specification. Mechanics that follow from them:
   counts after every replayed step;
   history enabled with `tickCount` 90
   and interval 1, 90 ticks stepped
-  with churn recorded in the op log and the per-tick hash and event digest recorded, the world
+  with churn recorded in the op log and the per-tick hash and event record recorded, the world
   `userData` and the filter context's field changed at tick 50; then for T in { 30, 60, 89, 0 }:
   `Rewind( T )`, set the world `userData` and the context field back to their values at T, replay
   the op log from T+1 to 90 with the change re-applied at tick 50, and `ENSURE` after every
-  replayed step that the hash and the event digest equal the recorded ones for that tick and that
+  replayed step that the hash equals the recorded one, the step's events equal the tick's event
+  record field by field in order, and that
   every body, shape and joint `userData` word equals the recorded one. Then the corrected replay: a
   rewind to 60 with the churn's tick-70 `b3Body_SetLinearVelocity` on an awake body dropped (the
-  churn includes one, with a velocity the body does not already have), replayed to 90: the hash at
-  tick 70 differs from the recorded one (the regenerated events being the corrected timeline's). Then, on the third scene, `b3World_DisableHistory` after that rewind
+  churn includes one, with a velocity the body does not already have), replayed to 90, against a
+  reference the test builds first: a fresh world of the same scene driven by the op log with that
+  call dropped and the tick-50 host change applied as in the original, its hash and event record
+  kept per tick. From tick 61 to 90 the rewound world's hash and events equal the reference's
+  field by field (the design §10: the events are the corrected timeline's, not stale ones), and
+  at tick 70 that body's move event differs from the original run's record in its transform, as
+  the hash does. Then, on the third scene, `b3World_DisableHistory` after that rewind
   and ten more steps with a ray cast through the mesh ground and the compound each step: the
   steps run, the casts hit, and no assertion fires (the shapes point at the caller's geometry, not
   the freed registry). Fails before H1 by not building.
@@ -864,7 +874,7 @@ in full are the specification. Mechanics that follow from them:
   scheduler's three background threads are created with the world and never changed,
   `src/physics_world.c`, `src/scheduler.c`), `b3World_SetWorkerCount` switching to 1 before the
   capture and back to 4 before the replay, then the reverse (it rebuilds the worker contexts
-  alone): equal hashes and digests at every replayed tick. Then the goldens: a fourth
+  alone): equal hashes and event records at every replayed tick. Then the goldens: a fourth
   scene, `HistoryGoldenScene` in the test file, deterministic and fixed (forty hull boxes and ten
   spheres on a wave mesh, a height field, a compound, two sensors, a chain of three joints, bodies
   created asleep and woken by a falling box, two bodies destroyed and recreated at tick 30, a
@@ -947,7 +957,7 @@ field exclusions are the specification. Mechanics that follow from them:
   a byte count (`b3BodyArray_ByteCount( world )`, capacity times element size, the value
   `b3Array_ByteCount` gives `b3GetWorldByteCount` today, §2) and nothing writable, the shape array also `const b3AABB* b3GetShapeFatAABB( world, id )` for the
   readers of a fat AABB outside the step's hot path (the collide pass's overlap test, the debug
-  draw and `b3World_GetBounds` in `src/physics_world.c`, the serializer's writer, the hash walk and
+  draw in `src/physics_world.c`, the serializer's writer, the hash walk and
   from H4 the leaf assertion); the push of a zeroed element at a bump allocation and the truncation to a
   length that undoes it are two functions of the file, which H4's slot pool calls.
 - Three routes per record, all in the record's file (the design §5.2): the write accessor with its
@@ -1519,7 +1529,7 @@ them:
   its overlap count `ENSURE`d above eight, is extra coverage and not the trees doc's sweep; both explosions' shapes are on sleeping bodies, the first several shapes of one sleeping
   body (`b3World_Explode` queries the awake and sleeping trees only, `src/physics_world.c`), so
   their witness is over the sleeping tree. Each: record the hash
-  and event digest per tick over 30 ticks with history enabled at `tickCount` 30, recording at
+  and event record per tick over 30 ticks with history enabled at `tickCount` 30, recording at
   tick 10 the leaf visit order of a query over the named tree (as `RecordVisitOrder` in
   `test/test_tree_order.c` does); rewind to 10, perturb, record the order again and `ENSURE` it
   differs from the order recorded at tick 10 in the original run (as `WitnessDiffers` there does),
