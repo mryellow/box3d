@@ -135,8 +135,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `b3GetJointSimCheckType` (`src/joint.c`) return writable pointers; `b3GetBodyState` returns NULL
   for a non-awake body. The joint setters in every joint file write through
   `b3GetJointSimCheckType` (from 6 uses in `src/parallel_joint.c` to 36 in `src/wheel_joint.c`).
-  The step's stages do not use the getters: they index the awake set's and the colours' arrays by
-  base pointer.
+  The step's stages index the awake set's and the colours' arrays by base pointer; the three
+  `b3GetBodySim` reads in `src/solver.c` (`b3EvaluateContinuousCandidate`, and `b3Solve`'s
+  hit-event pass for the two bodies) are the stages' only getter calls, read-only.
 
 **Containers today.**
 
@@ -876,8 +877,10 @@ that follow from it:
   so `b3SetJointSim` dispatches to `b3Graph_SetJointSim( world, colorIndex, localIndex, const
   b3JointSim* )` in `src/constraint_graph.c` for one, the colour's own writer once H3c hides the
   graph (H4 makes them the journaled `set` of the set's array and the awake-array write). A joint setter copies the sim, changes the field and sets it back. The
-  step's stages are unchanged in this commit: they index the awake set's and the colours' arrays by
-  base pointer, which H3c replaces with the hot element accessors when it hides the arrays.
+  step's stages are unchanged in this commit but for the three `b3GetBodySim` locals in
+  `src/solver.c` (§2), which become `const b3BodySim*`: the stages index the awake set's and the
+  colours' arrays by base pointer, which H3c replaces with the hot element accessors when it hides
+  the arrays.
 - `src/CMakeLists.txt` and `test/CMakeLists.txt`: the discarded-qualifier diagnostic is an error on
   the three compiler families (§2).
 
@@ -1617,10 +1620,12 @@ Measurements the closure doc needs:
   harness around the `b3World_Step` call; `b3World_GetProfile().step` is taken before the capture
   point and is not the denominator);
   image, journal and owned-block bytes per tick (the parts `b3History_GetSlot` returns); `bytesUsed`, the
-  retained window and the effective interval at `tickCount` 60 under an unbounded budget and under
-  `maxBytes` of a quarter of the unbounded steady-state `bytesUsed`; restore milliseconds for
-  `Rewind` 1, 5 and 9 ticks back on the unbounded ring, where interval 1 holds and each target is
-  imaged, and under the quarter budget, where the interval widens (the ring doc §6), one rewind to the tick
+  retained window and the observed effective interval at `tickCount` 60 under three budgets:
+  unbounded; `maxBytes` of a quarter of the unbounded steady-state `bytesUsed`, where the ring
+  evicts at interval 1 (the ring doc §6 step 3); and `maxBytes` of one and a half imaged slots'
+  charge, below the minimum window's two images, where the interval widens (step 4); restore
+  milliseconds for `Rewind` 1, 5 and 9 ticks back on the unbounded ring, where interval 1 holds
+  and each target is imaged, and under the widening budget one rewind to the tick
   `b3World_GetRestorableTick( currentTick − 9 )` returns, or, when that is `UINT64_MAX` (once the
   interval has widened to the window the bound can evict every image below the target, the ring
   doc §7), to the tick `b3World_GetRestorableTick( currentTick )` returns, which exists while

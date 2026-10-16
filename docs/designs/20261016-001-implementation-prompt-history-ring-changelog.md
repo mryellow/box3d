@@ -648,3 +648,16 @@ Round 39: 4 findings (H0-M3-L1), 3 applied, 1 declined. Findings: 3/5/1 -> 2/3/0
 - §2 names the seven public queries and casts that open a traversal; §10 records why the count is
   seven (the series' first declined finding).
 - Length 1730 -> 1738 lines.
+
+## Revision 40: after review round 40
+
+Round 40: 2 findings (H0-M1-L1), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> pending.
+
+- §2 names the solver's three read-only `b3GetBodySim` calls; H2 makes their locals const.
+- §7 measures eviction under the quarter budget and widening under a budget below the minimum
+  window, reporting the observed interval for each.
+- Length 1738 -> 1743 lines.
