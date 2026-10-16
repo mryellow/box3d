@@ -815,3 +815,19 @@ Round 51: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - H6's kinematic cases check the restored moved set, leaf boxes and proxy ids and claim no layout
   witness over a tree the step rebuilds every tick.
 - Length 1798 -> 1800 lines.
+
+## Revision 50: after review round 52
+
+Round 52: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> pending.
+
+- `OwnershipCase` counts the non-null handles each destroy hands over, read from the record's
+  headers before it, instead of the kinds' array totals; the handover bullet says a NULL header
+  is no block.
+- `HistoryTreeTest` claims layout witnesses over the static and sleeping trees; the §6 row says
+  so, and a §10 item records the kinematic clause of the trees doc §10 test 1 for the owner.
+- Length 1800 -> 1820 lines.

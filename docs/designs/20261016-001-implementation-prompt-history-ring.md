@@ -1179,8 +1179,9 @@ specification. Mechanics that follow from them:
 - Every journal call is `if ( world->history == NULL ) return;` first (the design §7.3). The
   ownership transfers keep that form and cost with one more line in the disabled branch: every
   owning destroy (a pool free's blocks, a set's five arrays, an island's three, a material block,
-  a hull at refcount zero, a sensor's three arrays) hands its detached handles to
-  `b3Journal_TakeBlocks( world, ... )` of `src/journal.c`, whose disabled branch frees them with
+  a hull at refcount zero, a sensor's three arrays) hands its detached non-null handles to
+  `b3Journal_TakeBlocks( world, ... )` of `src/journal.c` (a NULL header is no block, as
+  `b3Array_Destroy` treats it), whose disabled branch frees them with
   their allocators as the engine does today and returns, and whose enabled branch records the
   entry that owns them; the callers have no branch of their own, so nothing leaks with history
   disabled and nothing is freed twice with it enabled.
@@ -1337,9 +1338,17 @@ write, so the walk alone must restore the hash:
    `world->manifoldAllocators` read after the enable. Cold part: a joint between the two lone
    sleeping bodies (the merge destroys one set and one island), the multi-material shape
    destroyed, a sensor destroyed, the hull's last reference released; after each, `ENSURE` that
-   `b3History_CountOwnedBlocks( world, kind )` grew by the blocks it handed over (the set's five
-   arrays, the island's three, the material block, the sensor's three, the hull) and that
-   `pendingBytes` grew by at least their byte counts, read before each destroy;
+   `b3History_CountOwnedBlocks( world, kind )` grew by the number of non-null handles the
+   destroy hands over, counted with their byte sizes (capacity times element size) from the
+   record's headers immediately before it, and that `pendingBytes` grew by at least those
+   bytes. The counts are not the kinds' array totals: a sleeping set never allocates
+   `bodyStates`, and `b3TrySleepIsland` reserves `bodySims`, `contactIndices` and `jointSims` by
+   the island's counts (`b3Array_Reserve` with 0 allocates nothing), so a lone body's set hands
+   over `bodySims` and the emplaced `islandSims`; `b3MergeSolverSets` destroys the set with fewer
+   bodies (the second on a tie) and `b3LinkJoint`'s `b3MergeIslands` the smaller island, whose
+   `b3CreateIsland` arrays stay NULL until a push, so it hands over `bodies` alone; the sensor's
+   three are allocated at creation (`b3Array_CreateN`, `src/shape.c`); the material block and
+   the hull are one each;
    `b3History_UndoPending`: `ENSURE` the hash equals the recorded one and `pendingBytes` is 0.
    Contact part, through `b3World_Rewind` since the destroy wakes (§2): the body with the mesh
    contact destroyed between steps (its manifold block, cache, island and set into the entries);
@@ -1462,9 +1471,10 @@ them:
   the rewind). Passes before H5 under the serializer path; it is the
   regression check for the journal's sufficiency once the image is partial, and the closure doc says
   so.
-- `HistoryTreeTest` (the trees doc §10 test 1): restore-and-replay cases built so the static,
-  kinematic and sleeping trees' layouts differ after a rewind from the original run's (the
-  perturbation helper rebuilds every tree after the rewind): a bullet sweep with several competing
+- `HistoryTreeTest` (the trees doc §10 test 1): restore-and-replay cases built so the static
+  and sleeping trees' layouts differ after a rewind from the original run's (the perturbation
+  helper rebuilds every tree after the rewind; the trees doc names the kinematic tree too, and
+  H6's kinematic cases say why no layout witness is taken over it, recorded in §10): a bullet sweep with several competing
   candidates, some awake and some asleep, one of them a nearer hit that a `preSolve` rejects
   (`enablePreSolveEvents` set on the bullet and on that candidate, the callback counting its
   rejections, `ENSURE`d above zero in the original run, since the flag is off by default and gates
@@ -1592,7 +1602,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | trees doc §5 awake tree and queue imaged; §6 restore list, pass, moved lists, sleeping tree untouched; §7 proxy entries and identity; §8 rebuilds make no entry | `HistoryJournalTest` case 4; `HistoryRewindTest`'s tree cases; `HistoryTreeTest`; `HistoryHashTest` case 3; inspection | Case 4: build failure (H4) |
 | trees doc §7 every tree write a function of `broad_phase.c`, trees const outside; design §5.2 the pair set's file | H4 compile-boundary check: `b3DynamicTree_Rebuild( world->broadPhase.trees, true )` and `world->broadPhase.pairSet.count = 0;` compile at H3c and fail at H4 (discarded qualifier; a member of a pointer to an incomplete type) | n/a (boundary) |
 | trees doc §9 phase 2 | `HistoryCostTest` case 2; `HistoryTreeTest`'s kinematic cases | Yes, the 256 KB bound (H6) |
-| trees doc §10 test 1 | `HistoryTreeTest` | No, regression |
+| trees doc §10 test 1 | `HistoryTreeTest`, layout witnesses over the static and sleeping trees; its H6 kinematic cases check the restored kinematic tree's construction and the replay with no layout witness (§10) | No, regression |
 | design §12 test 5 and the ring doc §9 test 2, cost | §7 measurements | n/a |
 | design §2 requirement 2 (met from phase 2) | `HistoryCostTest` cases 1 and 2; the `large_world` figures in §7 | Yes (H5, H6) |
 | WORKFLOW AC-1 to AC-4 on the code | §8's checklist, one line per structure the three designs add | n/a |
@@ -1798,3 +1808,13 @@ document.
 - **Seven public queries and casts open a traversal.** `b3BroadPhase_BeginTraversal` has ten
   callers in `src/physics_world.c`: `b3World_Step`, `b3World_Draw`, `b3World_Explode` and the seven
   named in §2; an eighth cast path was proposed and does not exist, so the count stands.
+- **No layout witness over the kinematic tree.** The trees doc §10 test 1 names the static,
+  kinematic and sleeping trees. The pair update rebuilds the kinematic tree in part every step
+  (`b3DynamicTree_Rebuild( ..., false )`, `src/broad_phase.c`), so a layout the perturbation
+  helper lands after a rewind is not one the original run provably lacked at tick 10, and a
+  witness over its visit order could pass or fail on a correct build. `HistoryTreeTest` takes
+  its witnesses over the static tree, rebuilt only by `b3World_RebuildStaticTree`, and the
+  sleeping tree, rebuilt only past its height trigger, and H6's kinematic cases check what the
+  restore pass constructs and the replay. Whether test 1's kinematic clause is met by that
+  construction check or the trees doc should drop the kinematic tree from it is recorded for
+  the owner.
