@@ -520,7 +520,7 @@ Two internal pieces of test machinery are shared by several entries and are writ
      counts), `jointSims`, `convexContacts`, and `contacts` by each spec's contact id and
      `manifoldCount` (written at graph add, `src/constraint_graph.c`, and by the collide pass for
      a touching mesh contact, `src/physics_world.c`; read by the solver's work
-     arrangement, `src/solver.c`, and imaged with the colour; `manifoldStart` alone is per-step
+     arrangement, `src/solver.c`, and imaged with the colour; `manifoldStart` alone, written by the solver setup for the overflow colour (`src/solver.c`), is per-step
      scratch, the design §5.1);
   10. sensors in stored order: `shapeId` and `overlaps2` (visitor shape id and generation) in stored
       order; `hits` and `overlaps1` are scratch;
@@ -1108,7 +1108,8 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   `src/solver.c`'s stage setup assigns, are written through `b3Graph_SetWideScratch( world,
   colorIndex, ... )` of `src/constraint_graph.c`, a setter for those seven fields alone under the
   step mark, never journaled or imaged; the collide pass's write of
-  a touching mesh contact's spec `manifoldCount` (`src/physics_world.c`) goes through the hot
+  a touching mesh contact's spec `manifoldCount` (`src/physics_world.c`) and the solver setup's
+  write of the overflow colour's spec `manifoldStart` (`src/solver.c`) go through the hot
   element accessor `b3Graph_HotContactSpec( world, colorIndex, localIndex )`, inline, asserting
   the step mark, the colour arrays' instance of the awake-array hot accessor above.
 - Sensors: `world->sensors` becomes a pointer to an incomplete `b3SensorArray` (`src/sensor_array.h`,
@@ -1320,9 +1321,10 @@ write, so the walk alone must restore the hash:
    `n0` the sum of `allocationCount` over
    `world->manifoldAllocators` read after the enable. Cold part: a joint between the two lone
    sleeping bodies (the merge destroys one set and one island), the multi-material shape
-   destroyed, a sensor destroyed, the hull's last reference released; `ENSURE` `pendingBytes` grew
-   by at least the sum of the destroyed set's five array byte counts, the destroyed island's three,
-   the material block's, the sensor's three and the hull's `byteCount`, read before each destroy;
+   destroyed, a sensor destroyed, the hull's last reference released; after each, `ENSURE` that
+   `b3History_CountOwnedBlocks( world, kind )` grew by the blocks it handed over (the set's five
+   arrays, the island's three, the material block, the sensor's three, the hull) and that
+   `pendingBytes` grew by at least their byte counts, read before each destroy;
    `b3History_UndoPending`: `ENSURE` the hash equals the recorded one and `pendingBytes` is 0.
    Contact part, through `b3World_Rewind` since the destroy wakes (§2): the body with the mesh
    contact destroyed between steps (its manifold block, cache, island and set into the entries);
@@ -1544,7 +1546,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | design §12 test 1, the state hash | `HistoryHashTest` cases 1 to 4; inspection of the walk against the design's list | Build failure (H0) |
 | design §14, the API and its comments | Inspection of the headers; every function exercised by `HistoryRingTest` | Build failure (H1) |
 | ring doc §3 to §8: slots, two ends, interval, budget steps 1 to 4, window, charge, enable and disable, destroy | `HistoryRingTest` cases 1 to 10; the invariant check after every operation; the byte-count baselines | Build failure (H1) |
-| ring doc §9 test 1 | `HistoryRingTest`, extended in H4 for pending bytes and block ownership | Build failure (H1, H4) |
+| ring doc §9 test 1 | `HistoryRingTest`, extended in H4 for pending bytes and block ownership; `HistoryJournalTest` case 3 for ownership per block kind | Build failure (H1, H4) |
 | ring doc §9 test 2, budget acceptance | §7 measurements per scene | n/a |
 | design §13 phase 0: serializer options, queue and geometry pointers beside the image, §9 step 5 performed by the rewind | Inspection; `HistoryRewindTest`'s debug-draw and `userData` cases; `HistoryRingTest` case 9; `HistoryReplayTest`'s disable-and-continue run | Build failure (H1) |
 | design §10: recording and history exclusive, player world refused, seek refused | Inspection of the assertion sites H1 names: `b3World_EnableHistory` asserts `world->recording == NULL` and the player mark clear; `b3World_StartRecording` asserts `world->history == NULL`; `b3RecPlayer_SeekFrame` and `b3RecPlayer_Restart` assert the player world's `history == NULL`; a validation-build check in `HistoryRingTest` that `b3World_StartRecording` on a history world asserts is not written (an assertion failure ends the process); the closure doc states inspection | n/a |
@@ -1678,10 +1680,11 @@ Measurements the closure doc needs:
   million-body scene's phase-1 figure is expected to miss on the kinematic term and the closure doc
   says so.
 - **Phase-0 figures** (informational, at H1, the harness at `tickCount` 1): per scene the slot
-  bytes per tick and the registry bytes, the sum of `byteCount` over the registry's entries
-  (`b3GeometryEntry`, `src/recording.h`) plus the sum over the reader's slots (`b3RegistrySlot`,
-  `src/replay.h`), read in a scratch build through the internal headers from `world->history`'s
-  recording and reader, so the closure doc can state what H5 removed.
+  bytes per tick and the geometry payload bytes, the sum of `byteCount` over the registry's
+  entries (`b3GeometryEntry`, `src/recording.h`) plus the sum over the reader's slots
+  (`b3RegistrySlot`, `src/replay.h`), the arrays and the dedup map that hold them left out, read
+  in a scratch build through the internal headers from `world->history`'s recording and reader,
+  so the closure doc can state the payload H5 removes.
 
 ## 8. Closure doc
 
@@ -1690,7 +1693,7 @@ Written after the nine commits as
 and base hashes; suite counts per commit (tests run, passed) in both configurations; pre-existing
 failures named with output; compiler warning status and the `clang-format` check; every deviation
 from this document and the designs with its reason, the files the compiler added to the boundary
-commits (§3), the phase-0 registry bytes outside the info struct, and any §2 re-check among them;
+commits (§3), the phase-0 geometry payload bytes outside the info struct, and any §2 re-check among them;
 every out-of-scope observation, `b3Shape_SetFilter`'s always-recreate under `invokeContacts` true
 (§2) and `docs/faq.md`'s
 "no rollback" statement (§9) among them; the compile-boundary diagnostics of H2, H3a, H3b, H3c and

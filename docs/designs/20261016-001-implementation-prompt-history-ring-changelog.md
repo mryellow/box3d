@@ -729,3 +729,16 @@ Round 45: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - `HashSensitiveCase` probes the hull database with an isolated reference add and remove in place
   of the shape destroy.
 - Length 1759 -> 1769 lines.
+
+## Revision 45: after review round 46
+
+Round 46: 3 findings (H0-M2-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> pending.
+
+- §2 names the solver setup's `manifoldStart` write; H3c routes it through the hot spec accessor.
+- `OwnershipCase` checks the owned-block count per kind after each destroy; §6 cites it.
+- §7 and §8 call the phase-0 figure geometry payload bytes.
+- Length 1769 -> 1772 lines.
