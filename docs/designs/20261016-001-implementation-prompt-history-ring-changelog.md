@@ -1036,3 +1036,22 @@ Round 65 (confirmation of round 64): 2 findings (H0-M2-L0), 2 applied, 0 decline
 - §7: the million-body scene run a third time with 256 awake boxes and 64 sensors, so the awake
   term is read across two rows that differ in the awake columns alone.
 - Length 1951 -> 1958 lines.
+
+## Revision 63: after review round 66
+
+Round 66: 3 findings (H1-M1-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> 0/2/0 -> 1/1/1 -> pending.
+
+- H3b: the contact pool's free clears `manifolds`, `manifoldCount` and the cache header's union
+  bytes, so a reused slot is clean under the write accessor; `HistoryRingTest` case 12 (added in
+  H3b) reuses a convex slot for a mesh contact; §6 row updated.
+- §5: the history-disabled comparison adds a harness scene with integer `userData` tokens on
+  every body and joint and joint events firing; its digest includes the two events' words.
+- §2: `b3Shape_SetFilter( ..., true )` joins the geometry setters' entry (wakes only through
+  destroyed contacts; a contactless sleeping body stays asleep with its leaf parked).
+- Length 1958 -> 1977 lines.

@@ -269,12 +269,12 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   (it marks that body's proxies moved and calls `b3BroadPhase_MigrateBody`, which moves a
   sleeping body's leaves into the awake tree; with `false` it destroys the contacts between the
   two bodies without waking them, `src/joint.c`), `b3Shape_SetFilter` with
-  `invokeContacts` true (`b3ResetProxy` recreates the leaf in the shape's own tree, which for a
-  sleeping dynamic body's shape is the awake tree, and queues the body), the four geometry
-  setters `b3Shape_SetSphere`, `b3Shape_SetCapsule`, `b3Shape_SetHull` and `b3Shape_SetMesh` (the
-  same `b3ResetProxy` call with `wakeBodies` true, which wakes only through the contacts it
-  destroys, so a contactless sleeping body stays asleep with its leaf parked in the awake tree,
-  `src/shape.c`), `b3World_Explode` on the sleeping bodies it hits (`src/physics_world.c`),
+  `invokeContacts` true and the four geometry
+  setters `b3Shape_SetSphere`, `b3Shape_SetCapsule`, `b3Shape_SetHull` and `b3Shape_SetMesh` (one
+  `b3ResetProxy` call with `wakeBodies` true, which recreates the leaf in the shape's own tree,
+  for a sleeping dynamic body's shape the awake tree, queues the body, and wakes only through the
+  contacts it destroys, so a contactless sleeping body stays asleep with its leaf parked in the
+  awake tree, `src/shape.c`), `b3World_Explode` on the sleeping bodies it hits (`src/physics_world.c`),
   a shape created on a sleeping body (its proxy is created in the awake tree, marked, and the
   body queued, `src/shape.c`), and, on their condition, `b3Body_SetLinearVelocity` with a nonzero
   velocity, `b3Body_SetAngularVelocity` with a nonzero component the body's angular locks leave,
@@ -796,7 +796,8 @@ in full are the specification. Mechanics that follow from them:
   `b3_historyTickUnavailable` and leaves the hash unchanged. Cases, each on a fresh world created
   after `int64_t base = b3GetByteCount();` and each ending with `b3World_DisableHistory`,
   `b3DestroyWorld` and `ENSURE( b3GetByteCount() == base )`, except case 6, which ends with
-  `b3DestroyWorld` alone (its own disable call) and the same check:
+  `b3DestroyWorld` alone (its own disable call) and the same check, and case 12, which never
+  enables history:
   1. unbounded budget, `tickCount` 8, interval 1: after 20 steps the retained imaged ticks are 12
      to 20 (9 slots), and `oldestImageTick` is 12;
   2. a budget. Cases 2 to 5 run on the budget variant of the scene: the same bodies, every one
@@ -867,7 +868,16 @@ in full are the specification. Mechanics that follow from them:
       charge as case 3 sets it, each tick creating a unique mesh: after 16 steps the figure is
       at most `g` times the retained imaged slot count read through `b3History_GetSlot`'s
       imaged flags (an unimaged tick's sizing run leaves no entry behind), and at least `g`.
-  Fails before H1 by not building.
+  12. contact slot reuse across kinds (added in H3b): a dynamic hull box resting on a static box,
+      stepped until it sleeps (one convex contact); the static box's shape destroyed (the touching
+      contact destroyed and the box woken; the contact's id freed) and a static mesh shape created
+      under the box in the same call sequence (`b3CreateMeshShape` on a `b3CreateGridMesh` as
+      `test/test_recording.c` builds one), the box falling onto it and stepped until it sleeps
+      again: the mesh contact takes the freed id (`b3AllocId` pops the last freed id,
+      `src/id_pool.c`), `ENSURE`d through the internal headers, and the box is asleep; then the
+      world destroyed and the byte-count check.
+  Cases 1 to 11 fail before H1 by not building; case 12 passes at every commit and guards H3b's
+  slot clear.
 - `HistoryRewindTest` (the design §12 test 2). For each of the seventeen scenes of
   `benchmark/main.c`'s table (§2), created with its capacity
   function where one exists and `workerCount` 4: step to a steady state (the scene's benchmark step
@@ -1162,7 +1172,11 @@ the specification. Mechanics that follow from them:
   record, only a write through the pointer needs the companion.
 - `b3DestroyContact` no longer frees the manifold block or the cache: they stay on the record for
   the pool's free (H4's pool free entry); in this commit the pool's free function in
-  `src/contact.c` frees them, so no leak is introduced between H3b and H4.
+  `src/contact.c` frees them and clears `manifolds`, `manifoldCount` and the triangle cache
+  header's union bytes whatever the contact's kind (H4's `b3Contact_DetachBlocks` leaves them
+  clear the same way), so the fields `b3Contact_Write` leaves alone are null and zero in every
+  slot `b3CreateContact` reuses, a convex contact's slot reused by a mesh contact included; no
+  leak is introduced between H3b and H4.
 - The structural writers of a contact record (`b3CreateContact`, `b3DestroyContact`, the graph's
   add and remove, island link and unlink, the set transfers, the begin and end touch processing)
   go through the accessor. `HistoryHashTest` case 2's three cache writes go through
@@ -1704,7 +1718,12 @@ null-checked journal call, or code that runs only while history is enabled. So:
 - The benchmark scene hashes and event digests (§7's scratch harness, base against branch,
   history disabled) are equal every step for every scene; the digest is compared because H0's
   hash excludes the event arrays, so an event-order or event-content change would pass the hash
-  alone. One unequal step is a stop.
+  alone. The table scenes set no `userData` (`shared/benchmarks.c`) and the digest leaves the
+  word out, so this comparison adds a scene the harness builds: 64 boxes falling onto a ground
+  and a chain of eight boxes on revolute joints with `forceThreshold` 0 (every awake chain joint
+  reports a joint event each step), each body's and joint's `userData` its creation ordinal plus
+  one cast to a pointer; for this scene the digest includes the body move and joint events'
+  `userData` words as the integers they hold. One unequal step is a stop.
 - With history enabled at interval 1 and an unbounded budget, the same harness gives the same
   per-step hashes and digests as with it disabled: capture reads and never writes. A difference
   is a stop.
@@ -1729,7 +1748,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | design §12 test 4, cross-worker replay and platform goldens | `HistoryCrossWorkerTest`; the owner's Windows run | Build failure (H1) |
 | design §5.2 world scalars behind a const pointer, one writer | H2 compile-boundary check; inspection of the writers | n/a (boundary) |
 | design §5.2 const-returning sim getters, the diagnostic an error | H2 compile-boundary check; the CMake flags | n/a (boundary) |
-| design §5.2 three write routes per record; const records outside their files; owned blocks pointer-to-const; `userShape` one writer; `b3Shape_WriteMaterial` | H3a, H3b, H3c compile-boundary checks; inspection; the suite and goldens unchanged | n/a (boundary) |
+| design §5.2 three write routes per record; const records outside their files; owned blocks pointer-to-const; `userShape` one writer; `b3Shape_WriteMaterial` | H3a, H3b, H3c compile-boundary checks; inspection; the suite and goldens unchanged; `HistoryRingTest` case 12 for H3b's slot clear | n/a (boundary); case 12: no, regression |
 | design §5.2 one function each for set and island create and destroy; one sensor destroy; split hands arrays to the destroy | Inspection of H3c and H4; `HistoryJournalTest` case 3 | n/a |
 | design §7.1 every entry kind and its undo; ownership one way; the record-write rule; entering the awake set | `HistoryJournalTest` cases 1 to 4 (case 4's in-traversal move for the proxy move entry); `HistoryUndoSufficiencyTest`; `HistoryRewindTest`'s structural cases | Build failure (H4) |
 | design §6 between-step mutations undone first; `Rewind( P )` | `HistoryRingTest` cases 8 to 10; `HistoryJournalTest` case 1 | Build failure (H1, H4) |
