@@ -615,9 +615,10 @@ in full are the specification. Mechanics that follow from them:
 - `b3World_GetRestorableTick( worldId, tick )`: `UINT64_MAX` when disabled or when no retained imaged
   slot has a tick at or below `tick`, else the newest such tick; the rule is the same above
   `historyTick`.
-- `b3World_Rewind( worldId, T )`: when disabled returns `b3_historyTickUnavailable` without touching
-  the world; otherwise takes the world through `b3GetUnlockedWorldFromId`, asserts
-  `traversalDepth == 0`, locks the world, and runs the design §9: step 1 returns
+- `b3World_Rewind( worldId, T )`: takes the world through `b3GetUnlockedWorldFromId` and asserts
+  `traversalDepth == 0` first (the design §14 asserts no query or cast callback is running on
+  every call, disabled or not); when disabled returns `b3_historyTickUnavailable` without touching
+  the world; otherwise locks the world and runs the design §9: step 1 returns
   `b3_historyTickUnavailable` (after unlocking) when T is not a retained imaged tick or is later
   than `historyTick`; step 2 is empty in phase 0; step 3 is `b3DeserializeIntoShell` of slot T's
   image through the ring's reader with the release-user-shapes option on, then the migration queue
@@ -628,8 +629,10 @@ in full are the specification. Mechanics that follow from them:
   clears `bodyMoveEvents`, `sensorBeginEvents`, `contactBeginEvents`, `contactHitEvents`,
   `jointEvents` and both `sensorEndEvents` and both `contactEndEvents` buffers, sets `bodyMoveIndex`
   to `B3_NULL_INDEX` on every body of the awake set, removes the slots after T (the write position
-  moves back to the end of slot T, the directory is truncated, their charges leave `bytesUsed`) and
-  sets `historyTick = T`; step 6 runs `b3ValidateSolverSets`, `b3ValidateContacts`,
+  moves back to the end of slot T, the directory is truncated, their charges leave `bytesUsed`),
+  sets `historyTick = T` and sets the tick of the last imaged slot to T (T is imaged; left at the
+  discarded timeline's value it would hold off the next image until that tick came round again),
+  the effective interval standing; step 6 runs `b3ValidateSolverSets`, `b3ValidateContacts`,
   `b3ValidateConnectivity`, `b3ValidateBroadPhase`, `b3DynamicTree_Validate` on the static tree and
   `b3ValidateProxyTrees` in the validation build. Unlock; return `b3_historyOk`.
 - Serializer options (`src/world_snapshot.c`): `B3_SNAP_VERSION` becomes 12 with a comment naming
@@ -693,8 +696,10 @@ in full are the specification. Mechanics that follow from them:
      either works; after step 5 tick 0 is gone;
   5. a sole image under pressure: `tickCount` 1, `captureInterval` 1, `maxBytes` = `s` / 2: tick 0's
      image is retained until the next image is written, and `Rewind( 0 )` works after one step;
-  6. a rewind to each retained imaged tick in turn from the newest to the oldest, on the unbounded
-     ring after 20 steps with churn: each returns `b3_historyOk` and the hash equals the hash
+  6. cases 6 to 10 run on the churn scene with `tickCount` 60, interval 1 and an unbounded budget,
+     stepped 20 ticks with churn before the first rewind, so every tick from 0 to 20 is retained
+     and imaged (case 1's eight-tick ring has evicted tick 10 by then); a rewind to each retained
+     imaged tick in turn from the newest to the oldest: each returns `b3_historyOk` and the hash equals the hash
      recorded at that tick, and the slots after it are gone (`currentTick` equals it);
   7. a rewind to tick 10, five more steps, then a rewind to tick 13 (a re-stepped tick): hash
      equals the hash recorded at the re-stepped 13, not the original 13 (the churn differs by design
@@ -1154,8 +1159,9 @@ specification. Mechanics that follow from them:
   retained slot and by the staging buffer before the arena. `b3World_Rewind` step 2: undo the
   staging buffer's entries in reverse and reset it (also when T == P), then each retained segment
   from `historyTick` down to T+1 in reverse, each slot leaving the ring as its segment is undone
-  (its directory entry and charge removed, the write position moved back, and `historyTick` set
-  to the tick before it), since the undo hands the blocks the slot owned back to the world and a
+  (its directory entry and charge removed, the write position moved back, `historyTick` set
+  to the tick before it, and the tick of the last imaged slot set to the newest retained image's
+  when the discarded slot was imaged), since the undo hands the blocks the slot owned back to the world and a
   slot that still claimed them would be freed twice by eviction or disable (the design §7.1's
   ownership rule); the slot removal the design §9 step 5 names is therefore done by the walk, and
   step 5 keeps its event and `bodyMoveIndex` clears; then step 3 as in H1. In this commit the serializer
@@ -1525,12 +1531,14 @@ Measurements the closure doc needs:
   the design gives such a tick no target, which the closure doc notes for the owner); restore
   proportional to awake plus sensors and
   journal, reported per scene as absolute restore microseconds beside the awake body count, the
-  sensors' overlap count summed over the public sensor overlap query and the undone segments'
+  sensor count, the sensors' overlap count summed over the public sensor overlap query (recorded
+  apart, since the pass's work has a per-sensor and a per-overlap term) and the undone segments'
   bytes, with the table scenes (which have no sensor, `shared/benchmarks.c`) joined by the
-  million-body scene carrying 64 static sensor shapes with `enableSensorEvents` set on them and on
-  the awake boxes, each sensor overlapping a few of the boxes (the harness asserts the summed
-  overlap count is above zero after the warm-up steps), so the sensor term has a column that is
-  not zero everywhere, and the proportionality is
+  million-body scene run twice, with 64 and with 256 static sensor shapes (`enableSensorEvents`
+  set on them and on the awake boxes, each sensor overlapping a few of the boxes, the harness
+  asserting the summed overlap count is above zero after the warm-up steps), the awake population
+  and the churn the same in both runs so the two rows differ in the sensor columns alone, and the
+  proportionality is
   read across those columns rather than from one ratio; replay equal to N steps
   within noise, with the first replayed step after a rewind that moved a kinematic proxy reported
   separately on the million-body scene, and a rewind whose undone wake fires the sleeping tree's

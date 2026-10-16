@@ -423,3 +423,17 @@ Round 23: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §7's million-body capture-target scene keeps the slab out; the slab is a scene of its own whose
   capture figure is reported but not held to the per-awake target.
 - Length 1611 -> 1623 lines.
+
+## Revision 25: after review round 24
+
+Round 24: 4 findings (H1-M3-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> pending.
+
+- A rewind sets the ring's last-imaged tick to T; the walk's slot discard keeps it at the newest
+  retained image.
+- `b3World_Rewind` asserts the traversal depth before the disabled return.
+- `HistoryRingTest` cases 6 to 10 run on a 60-tick unbounded ring stepped 20 ticks.
+- §7 records sensor count apart from overlap count and runs the million-body scene at 64 and 256
+  sensors.
+- Length 1623 -> 1631 lines.
