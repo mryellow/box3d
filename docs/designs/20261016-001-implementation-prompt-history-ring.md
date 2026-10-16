@@ -474,18 +474,22 @@ Two internal pieces of test machinery are shared by several entries and are writ
   (the design §9: the same creation calls in the same order give the same ids).
 - **The event digest.** A per-tick hash over the step's events in reported order, each event
   array first by a tag naming its kind and its count, then each event by
-  every named field of its public struct (`include/box3d/types.h`), never its padding (a contact
+  every named field of its public struct (`include/box3d/types.h`) except a `userData` word (a
+  host pointer, left out as the design leaves every `userData` word out of H0's hash, so the
+  digest compares across processes and platforms; the event record below compares the word
+  itself), never its padding (a contact
   begin and a contact end event carry the same fields, so without the tag and the count exchanging
   one for the other would leave the digest unchanged): body move
-  events (`userData`, transform, body id, `fellAsleep`), contact begin and end (shape ids, contact
+  events (transform, body id, `fellAsleep`), contact begin and end (shape ids, contact
   id), hit events (shape ids, contact id, point, normal, speed, the two user material ids), sensor
-  begin and end (sensor and visitor shape ids), joint events (joint id, `userData`), read through
+  begin and end (sensor and visitor shape ids), joint events (joint id), read through
   the public getters after each step. The design §12 test 3 compares events by type, contents and
   order, and the in-process tests make that comparison on the events themselves: the recording
   side keeps each tick's event arrays as copies of the public structs in reported order (the
   event record), and the replay side `ENSURE`s each array's count and each event's named fields
   equal in order, the digest being what a failure prints. The digest alone stands where the two
-  sides are different processes or platforms: the goldens (§5) and the §7 harness.
+  sides are different processes or platforms: §5's benchmark comparison and the §7 harness (the
+  goldens pin the state hash alone).
 
 ### H0. State hash
 
