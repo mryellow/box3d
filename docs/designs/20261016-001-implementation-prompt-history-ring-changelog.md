@@ -476,3 +476,20 @@ Round 27: 3 findings (H2-M1-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - Every owning destroy hands its blocks to one journal function whose disabled branch frees them
   as today and whose enabled branch records the owning entry.
 - Length 1644 -> 1655 lines.
+
+## Revision 29: after review round 28
+
+Round 28: 3 findings (H0-M1-L2), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> pending.
+
+- §2 names the step's four writers through the manifold pointer, two in `src/contact_solver.c`
+  and two in `src/contact_solver_wide.inl` compiled through `src/wide4.c` and `src/wide8.c`;
+  H3b's file list and companion sentence cover the `.inl`.
+- §2's wake inventory says `b3Body_SetTransform` wakes a sleeping body and names the disabled
+  body's non-awake writes.
+- §2 states that the benchmark prints per-run times and writes only each thread count's minimum
+  to the csv; §7 tees the console to a log and reads the spread from it and the minimum from the
+  csv.
+- Length 1655 -> 1667 lines.

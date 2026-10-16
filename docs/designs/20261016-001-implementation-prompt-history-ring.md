@@ -54,7 +54,9 @@ document, `docs/designs/WORKFLOW.md` Part B, `CONTRIBUTING.md`, and the source t
 (`b3HashWorldState`, the geometry registry, `b3StartRecordingIntoBuffer`), `src/replay.h`,
 `src/replay.c` (`b3RecPlayerCreateWorld`, `b3RecCaptureKeyframe`, `b3RecPlayerRestoreKeyframe`,
 `b3RecPlayer_SeekFrame`, `b3RecPlayer_Restart`), `src/solver.c` (the stage loops, finalize, the refit
-and bullet stages, the sleep pass), `src/contact_solver.c` (store impulses), `include/box3d/box3d.h`,
+and bullet stages, the sleep pass), `src/contact_solver.c` and `src/contact_solver_wide.inl` (the
+prepare and store-impulses passes; the `.inl` is compiled through `src/wide4.c` and `src/wide8.c`),
+`include/box3d/box3d.h`,
 `include/box3d/types.h`, `include/box3d/base.h`, `test/main.c`, `test/test_macros.h`,
 `test/test_recording.c`, `test/test_determinism.c`, `test/test_awake_tree.c`,
 `test/test_tree_order.c`, `test/test_name_cache.c`, `shared/benchmarks.h`, `shared/benchmarks.c`,
@@ -111,7 +113,11 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   (`src/mesh_contact.c`, which also frees and zeroes them when no triangle manifold is accepted),
   and the triangle cache is resized in `b3RefreshCache` (`src/mesh_contact.c`). `b3DestroyContact`
   frees the manifolds and the cache itself and zeroes the pointer and count, which the design §5.2
-  moves into the pool free entry (H3b).
+  moves into the pool free entry (H3b). The step writes manifold fields through the pointer in
+  `b3PrepareContacts_Mesh` (`normalVelocity`) and `b3StoreImpulses_Mesh` (the impulses) of
+  `src/contact_solver.c` and in `b3PrepareConstraintW` and `b3StoreImpulsesW` of
+  `src/contact_solver_wide.inl`, compiled once per SIMD width through `src/wide4.c` and
+  `src/wide8.c`; each reads `contact->manifolds` into a `b3Manifold*`.
   `b3BlockAllocator` carries an `allocationCount` field with no getter (`src/block_allocator.h`).
 - `b3Joint` (`src/joint.h`): `userData`, `setIndex`, `colorIndex`, `localIndex`, the two edges,
   `jointId`, `islandId`, `islandIndex`, `drawScale`, `type`, `generation`, `collideConnected`. No heap
@@ -243,7 +249,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
 - API calls that wake a body and so, for a dynamic body, move its proxies from the sleeping tree
   into the awake tree, which the journal does not cover (the trees doc §5; a kinematic body's
   proxies stay in the kinematic tree awake or asleep, a static body never wakes, a disabled body
-  has no proxy): `b3Body_SetTransform` on any non-static body (`src/body.c`),
+  has no proxy): `b3Body_SetTransform` on a sleeping non-static body (`src/body.c`; on a disabled
+  body `b3WakeBody` returns false, and the call's writes to the disabled set's sim, the shape
+  record's `aabb` and the `fatAABBs` entry are non-awake record and set writes with no proxy),
   `b3Body_EnableSleep( false )` on a sleeping body (`src/body.c`), `b3World_EnableSleeping( false )`
   (wakes every sleeping set, `src/physics_world.c`), `b3Joint_WakeBodies` (`src/joint.c`),
   `b3Shape_ApplyWind` with `wake` true on a sleeping body (`src/shape.c`),
@@ -373,8 +381,9 @@ validates the dynamic, kinematic and sleeping trees; `b3DynamicTree_Validate` is
   benchmark scene uses height fields, sensors or `b3World_Explode`; the `Destroy*` functions free
   borrowed meshes, so a test disables history before calling one (the design §10, borrowed
   geometry). The test target links `shared`.
-- `benchmark/main.c` takes `-t=`, `-w=`, `-b=`, `-r=`, `-s` and writes `<scene>.csv`; `B3_MAX_WORKERS`
-  is 32 and `B3_TIME_TO_SLEEP` 0.5 (`include/box3d/constants.h`).
+- `benchmark/main.c` takes `-t=`, `-w=`, `-b=`, `-r=` (default 4), `-s`, prints every run's
+  milliseconds (`run N : ms`) and writes `<scene>.csv` with each thread count's minimum;
+  `B3_MAX_WORKERS` is 32 and `B3_TIME_TO_SLEEP` 0.5 (`include/box3d/constants.h`).
 
 ## 3. Rules for the implementer
 
@@ -935,7 +944,8 @@ no before run, the getters being new.
 ### H3b. Contact write accessor, manifold blocks and mesh caches
 
 **Files.** `src/contact.h`, `src/contact.c`, new `src/contact_array.h`, `src/container.h`,
-`src/CMakeLists.txt`, `src/mesh_contact.c`, `src/contact_solver.c`, `src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.c`,
+`src/CMakeLists.txt`, `src/mesh_contact.c`, `src/contact_solver.c`, `src/contact_solver_wide.inl`,
+`src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.c`,
 `src/island.c`, `src/solver_set.c`, `src/body.c`, `src/shape.c`, `src/world_snapshot.c`,
 `src/world_hash.c`, `test/test_history.c`, and any file the compiler names (§3).
 
@@ -965,8 +975,9 @@ the specification. Mechanics that follow from them:
   `b3Array( b3TriangleCache )* b3Contact_HotCache( world, contact )` returning the cache header
   (the casts live in that file and nowhere else), re-read after the hot path replaces the block
   (`b3UpdateConvexContact`, `b3ComputeMeshManifolds`). The narrow phase (`src/contact.c`,
-  `src/mesh_contact.c`), the collide pass's flag writes (`src/physics_world.c`) and store impulses
-  (`src/contact_solver.c`, which writes `b3Manifold*` into the block) use them, allocating and
+  `src/mesh_contact.c`), the collide pass's flag writes (`src/physics_world.c`) and the prepare and
+  store-impulses passes (`src/contact_solver.c` and `src/contact_solver_wide.inl`, whose
+  `b3Manifold*` lanes come from the companion instead of `contact->manifolds`) use them, allocating and
   freeing manifold blocks in place through `b3AllocateManifolds` and `b3FreeManifolds` as today;
   assigning the record's pointer and count is a write to the record and goes through the hot
   record, only a write through the pointer needs the companion.
@@ -1488,7 +1499,7 @@ cmake --build build-dp --target test
 
 cmake -S . -B build-rel -DCMAKE_BUILD_TYPE=Release -DBOX3D_BENCHMARKS=ON -DBOX3D_SAMPLES=OFF -DBOX3D_UNIT_TESTS=OFF
 cmake --build build-rel --target benchmark
-./build-rel/bin/benchmark -t=8
+./build-rel/bin/benchmark -t=8 | tee bench.log    # per-run times in the log, minima in the csv files
 ```
 
 The Debug builds carry `BOX3D_VALIDATE` (on by default at the top level), so every `B3_VALIDATE`,
@@ -1500,9 +1511,10 @@ least eight cores.
 
 Measurements the closure doc needs:
 
-- **No-regression, history disabled** (the design §7.3): for every scene, the csv total milliseconds
-  per thread count from one to eight, base against branch. A scene more than 3% slower at one or
-  eight threads, outside the run-to-run spread of four repeats, is a stop (§9).
+- **No-regression, history disabled** (the design §7.3): for every scene, the per-run milliseconds
+  from the captured console log and the csv's minimum, per thread count from one to eight, base
+  against branch. A scene whose minimum is more than 3% slower at one or eight threads, outside
+  the run-to-run spread of its four runs on either build, is a stop (§9).
 - **Scene hashes** (§5): a scratch harness, uncommitted, that creates each benchmark scene through
   `shared/benchmarks.c` with its capacity function, steps it for its benchmark length at one worker
   with its step function, and prints `b3World_ComputeStateHash` and the event digest (the
