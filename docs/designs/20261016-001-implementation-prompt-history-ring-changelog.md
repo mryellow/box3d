@@ -1149,3 +1149,18 @@ Round 72: 0 findings (H0-M0-L0), 0 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 0/0/0 -> 0/2/0 -> 0/0/0 -> pending confirmation.
 
 - No edit.
+
+## Review round 73: clean confirmation, converged at revision 67
+
+Round 73 (confirmation of round 72): 0 findings (H0-M0-L0), 0 applied, 0 declined. Series: 73
+rounds, 207 findings, 206 applied, 1 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 -> 3/3/0 ->
+2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 -> 2/4/0 ->
+0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 -> 0/1/0 ->
+2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 -> 1/1/0 ->
+1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 -> 0/0/0 ->
+2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 -> 1/1/0 ->
+2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> 0/2/0 -> 1/1/1 -> 0/2/0 -> 1/2/0 -> 0/2/0 -> 0/0/0 ->
+0/2/0 -> 0/0/0 -> SETTLED 0/0/0.
+
+- No edit. The status stays Draft until U-G1 is re-run (U-G4); Canonical is the next edit after
+  it (U-I5).
