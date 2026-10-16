@@ -493,3 +493,19 @@ Round 28: 3 findings (H0-M1-L2), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   to the csv; §7 tees the console to a log and reads the spread from it and the minimum from the
   csv.
 - Length 1655 -> 1667 lines.
+
+## Revision 30: after review round 29
+
+Round 29: 3 findings (H1-M2-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> pending.
+
+- H3a's restore mark is saved, set and put back by each holder so holders nest; `b3World_Rewind`
+  holds it around steps 2 to 5, and the rewind's geometry repoint and `bodyMoveIndex` clears are
+  restore-writer writes from H3a.
+- H1's op log records each creation's id and resolves ordinals to it, `ENSURE`ing replayed
+  creations return it; the corrected replay drops a setter op.
+- `HistoryRewindTest` schedules every structural sub-scene per scene, counts its runs and
+  `ENSURE`s every count above zero.
+- Length 1667 -> 1672 lines.

@@ -443,8 +443,10 @@ Two internal pieces of test machinery are shared by several entries and are writ
   tagged union (body create with its def, shape create with its def and geometry, joint create,
   destroy, each setter the churn uses, `b3World_Explode`, `b3World_SetUserData`, a callback context
   change) with the tick it was made in; `ReplayOps( worldId, log, tick )` re-issues the calls of
-  one tick in order. Ids are recorded as creation ordinals and resolved through the ids the replay
-  obtains, since a replayed creation gives the same id (the design §9).
+  one tick in order. Ids are recorded as creation ordinals, each with the id the creation returned in the original
+  run; the replay resolves an ordinal to that id, so an entity created at or before T resolves
+  with no replayed creation, and `ENSURE`s that each replayed creation returns the recorded id
+  (the design §9: the same creation calls in the same order give the same ids).
 - **The event digest.** A per-tick hash over the step's events in reported order, each event
   array first by a tag naming its kind and its count, then each event by
   every named field of its public struct (`include/box3d/types.h`), never its padding (a contact
@@ -768,8 +770,9 @@ in full are the specification. Mechanics that follow from them:
   step that moves it asleep; a sleep and wake of an island of at least sixteen bodies, the bulk
   placement, with a rewind across each; a rewind whose undone wake takes the sleeping tree past
   `B3_SLEEPING_TREE_MAX_HEIGHT`; a bullet whose leaf outgrew its fat AABB entry before it slept,
-  woken after T and rewound). Each structural case is a named sub-scene the churn can schedule, so
-  a failure names the case. History is disabled before the scene's `Destroy*` runs. Fails before H1
+  woken after T and rewound). Each structural case is a named sub-scene; a scene's schedule is the sub-scene list in a seeded
+  order followed by seeded draws, the test counts each sub-scene's runs and `ENSURE`s every count
+  above zero before the scene's `Destroy*`, and a failure names the case. History is disabled before the scene's `Destroy*` runs. Fails before H1
   by not building.
 - `HistoryReplayTest` (the design §12 test 3). On three scenes (the pile of `HistoryRingTest`; the
   `sleep` benchmark scene; a scene with a mesh ground, a compound, a sensor and two joints), with a
@@ -787,7 +790,7 @@ in full are the specification. Mechanics that follow from them:
   the op log from T+1 to 90 with the change re-applied at tick 50, and `ENSURE` after every
   replayed step that the hash and the event digest equal the recorded ones for that tick and that
   every body, shape and joint `userData` word equals the recorded one. Then the corrected replay: a
-  rewind to 60 with one op dropped, replayed to 90, differing from the record at and after the
+  rewind to 60 with one setter op dropped (never a creation or destroy), replayed to 90, differing from the record at and after the
   first tick its results differ (asserted only as "differs somewhere", the regenerated events being
   the corrected timeline's). Then, on the third scene, `b3World_DisableHistory` after that rewind
   and ten more steps with a ray cast through the mesh ground and the compound each step: the
@@ -920,13 +923,15 @@ field exclusions are the specification. Mechanics that follow from them:
   H3c the joint's and island's; H4's slot pool takes these as its push-zeroed and truncate.
 - The step mark: `world->inStep`, a `bool` set at `b3World_Step`'s entry and cleared at its exit,
   read by the hot accessors' assertions only (§3). The restore mark: `world->inRestore`, a `bool`
-  set and cleared, asserting it clear on entry, by each function that writes through the restore
-  writers: `b3DeserializeIntoShell` around its writes (so the serializer's reader, the recording
-  player and the phase-0 rewind all carry it), from H4 the two halves of the journal walk (so
-  `HistoryJournalTest`'s direct calls carry it and `b3World_Rewind` sets nothing itself) and from
-  H5 the image scatter; read by the restore writers' assertions only, which is the assertion the
-  design §5.2 gives them (inside `b3World_Rewind` or inside `b3DeserializeIntoShell`); no existing
-  field tells a restore from a between-step call.
+  that each function writing through the restore writers saves on entry, sets, and puts back on
+  exit, so the functions nest: `b3World_Rewind` around its steps 2 to 5 (step 3's geometry
+  repoint and step 5's `bodyMoveIndex` clears are `b3Shape_Restore` and `b3Body_Restore` writes of
+  a local copy from this commit), `b3DeserializeIntoShell` around its writes (so the serializer's
+  reader and the recording player carry it on their own), from H4 the two halves of the journal
+  walk (so `HistoryJournalTest`'s direct calls carry it) and from H5 the image scatter; read by
+  the restore writers' assertions only, which is the assertion the design §5.2 gives them (inside
+  `b3World_Rewind` or inside `b3DeserializeIntoShell`); no existing field tells a restore from a
+  between-step call.
 - Every direct assignment to a body or shape field elsewhere (`src/body.c`'s setters,
   `src/solver_set.c`'s transfers and sleep and wake, `src/island.c`'s link and unlink,
   `src/contact.c`'s edge writes, `src/joint.c`'s edge writes, `src/shape.c`'s creation and setters,
