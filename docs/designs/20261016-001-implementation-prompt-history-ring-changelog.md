@@ -1008,3 +1008,15 @@ Round 63: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - H4 `HistoryJournalTest` case 4: the in-traversal move's leaf-box check follows a direct
   `b3History_UndoPending`, before any image loads; `b3World_Rewind` then restores the hash.
 - Length 1942 -> 1951 lines.
+
+## Review round 64: clean, revision 61 stands
+
+Round 64: 0 findings (H0-M0-L0), 0 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> pending confirmation.
+
+- No edit.
