@@ -349,9 +349,12 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   sensor's three arrays, of each solver set's five arrays, of the manifold allocators and their
   block lists and of the migration queue; `b3GetIdBytes` (the free array's capacity in bytes,
   `src/id_pool.h`) on the six id pools; `b3DynamicTree_GetByteCount` on the four trees;
-  `b3GetHashSetBytes` on the pair set; and the hull database's map and clone bytes. Each
-  increment that hides a container gives it a byte-count reader and routes this function
-  through it (H3a to H3c, H4), so the two public counts keep their values.
+  `b3GetHashSetBytes` on the pair set; `b3GetBitSetBytes` (`src/bitset.h`) on each graph colour's
+  `bodySet` and `b3Array_ByteCount` of each colour's `jointSims`, `convexContacts` and `contacts`;
+  and the hull database's map and clone bytes. `b3World_GetCounters` also reads each colour's three
+  array counts into `colorCounts` and `awakeContactCount`. Each increment that hides a container
+  gives it a byte-count reader and routes this function through it (H3a to H3c, H4), so the two
+  public counts keep their values.
 - `b3DestroyWorld` (`src/physics_world.c`) stops the recording, then destroys, in order, the
   scheduler and worker contexts, the event arrays, sensors and bodies, each live shape's
   allocations, each contact's triangle cache, the hull database (asserting it is empty), the name
@@ -1167,8 +1170,8 @@ fail at H3b with the discarded-qualifier error and have no before run.
 new `src/solver_set_array.h`, `src/sensor.h`, `src/sensor.c`, new `src/sensor_array.h`, new
 `src/graph_storage.h`, `src/CMakeLists.txt`, `src/shape.c`, `src/body.c`,
 `src/physics_world.h`, `src/physics_world.c`, `src/constraint_graph.h`, `src/constraint_graph.c`,
-`src/solver.c`, `src/world_snapshot.c`, `src/world_hash.c`, `test/test_history.c`, and any file
-the compiler names (§3).
+`src/bitset.h`, `src/solver.c`, `src/world_snapshot.c`, `src/world_hash.c`, `test/test_history.c`,
+and any file the compiler names (§3).
 
 **Commit message.** `Write joint and island records through one accessor each; solver sets are created and destroyed by one function each; sensors by one`
 
@@ -1209,10 +1212,14 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   The SIMD-wide stages take their lanes' elements the same way.
 - `world->constraintGraph` becomes a pointer to an incomplete `b3ConstraintGraph` whose definition
   sits in `src/graph_storage.h`, included by `src/constraint_graph.c` only; outside that file a
-  colour is read through `const b3GraphColor* b3GetGraphColor( world, index )`, so the colours'
-  `bodySet`, `jointSims`, `convexContacts` and `contacts` headers are written only by
-  `src/constraint_graph.c`'s functions (H4: the push into a colour is the function that moves a
-  contact or joint into the awake set, journaling its pre-wake bytes); the colour's per-step
+  colour is read through `const b3GraphColor* b3GetGraphColorRecord( world, index )`
+  (`b3GetGraphColor( int )` of `include/box3d/types.h` is the debug-draw hex colour and is
+  untouched), so the colours' `bodySet`, `jointSims`, `convexContacts` and `contacts` headers are
+  written only by `src/constraint_graph.c`'s functions (H4: the push into a colour is the function
+  that moves a contact or joint into the awake set, journaling its pre-wake bytes);
+  `b3GetWorldByteCount` and `b3World_GetCounters` (`src/physics_world.c`) take each colour from
+  that accessor, the arrays' `capacity` and `count` readable on `b3ConstArray` and
+  `b3GetBitSetBytes` taking `const b3BitSet*` (`src/bitset.h`); the colour's per-step
   scratch fields (`wideConstraints`, `wideConstraintCount`, `wideMeshConstraints`,
   `wideMeshManifoldStarts`, `wideMeshConstraintCount`, and the overflow colour's
   `manifoldConstraints` and `contactConstraints`, scratch by the design §5.1), which

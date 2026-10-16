@@ -975,3 +975,20 @@ Round 61: 5 findings (H0-M4-L1), 5 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - The cold list's static-shape destroy requires no touching contact, and the H4 fixture asserts
   it; the pool inventory names `b3CreateJoint`'s push and `b3CreateWorld`'s three fixed sets.
 - Length 1925 -> 1935 lines.
+
+## Revision 60: after review round 62
+
+Round 62: 2 findings (H0-M0-L2), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> pending.
+
+- H3c's const colour accessor is `b3GetGraphColorRecord( world, index )`; the public
+  `b3GetGraphColor( int )` hex colour is untouched.
+- §2 lists `b3GetWorldByteCount`'s graph reads (each colour's `bodySet` bitset bytes and three
+  arrays) and `b3World_GetCounters`' colour counts; H3c routes both through the accessor, with
+  `b3GetBitSetBytes` taking `const b3BitSet*` and `src/bitset.h` in the file list.
+- Length 1935 -> 1942 lines.
