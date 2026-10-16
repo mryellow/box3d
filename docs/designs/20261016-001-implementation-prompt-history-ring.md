@@ -791,8 +791,10 @@ in full are the specification. Mechanics that follow from them:
   filter that reads a context struct's field, both registered, with `enablePreSolveEvents` set on
   the colliding dynamic shapes and `enableCustomFiltering` on a dynamic shape and the shapes it
   meets (both flags are off by default and gate the calls, `src/contact.c`, `src/solver.c`,
-  `src/broad_phase.c`), and each callback counting its calls and its rejections in the context
-  struct, `ENSURE`d above zero over the first run so the callback-dependent clauses are exercised;
+  `src/broad_phase.c`), and each callback counting its calls and its rejections per tick in the
+  context struct, recorded with the hash, `ENSURE`d above zero in ticks 1 to 50 and again in ticks
+  51 to 90 of the first run (both sides of the tick-50 change) and `ENSURE`d equal to the recorded
+  counts after every replayed step;
   history enabled with `tickCount` 90
   and interval 1, 90 ticks stepped
   with churn recorded in the op log and the per-tick hash and event digest recorded, the world
@@ -808,8 +810,11 @@ in full are the specification. Mechanics that follow from them:
   steps run, the casts hit, and no assertion fires (the shapes point at the caller's geometry, not
   the freed registry). Fails before H1 by not building.
 - `HistoryCrossWorkerTest` (the design §12 test 4). The three scenes of `HistoryReplayTest` run
-  under `HistoryReplayTest`'s protocol with capture at `workerCount` 1 and replay at 4, and capture
-  at 4 and replay at 1: equal hashes and digests at every replayed tick. Then the goldens: a fourth
+  under `HistoryReplayTest`'s protocol on worlds created with `workerCount` 4 (the built-in
+  scheduler's three background threads are created with the world and never changed,
+  `src/physics_world.c`, `src/scheduler.c`), `b3World_SetWorkerCount` switching to 1 before the
+  capture and back to 4 before the replay, then the reverse (it rebuilds the worker contexts
+  alone): equal hashes and digests at every replayed tick. Then the goldens: a fourth
   scene, `HistoryGoldenScene` in the test file, deterministic and fixed (forty hull boxes and ten
   spheres on a wave mesh, a height field, a compound, two sensors, a chain of three joints, bodies
   created asleep and woken by a falling box, two bodies destroyed and recreated at tick 30, a
@@ -886,7 +891,10 @@ field exclusions are the specification. Mechanics that follow from them:
   definitions sit in the two new headers, allocated by `b3CreateWorld` through a create function of
   each file and destroyed by a destroy function. Outside its file a record array exposes
   `const b3Body* b3GetBodyRecord( world, id )` (and `b3GetBodyFullId` returning const), the count,
-  and nothing writable; the push of a zeroed element at a bump allocation and the truncation to a
+  and nothing writable, the shape array also `const b3AABB* b3GetShapeFatAABB( world, id )` for the
+  readers of a fat AABB outside the step's hot path (the collide pass's overlap test, the debug
+  draw and `b3World_GetBounds` in `src/physics_world.c`, the serializer's writer, the hash walk and
+  from H4 the leaf assertion); the push of a zeroed element at a bump allocation and the truncation to a
   length that undoes it are two functions of the file, which H4's slot pool calls.
 - Three routes per record, all in the record's file (the design §5.2): the write accessor with its
   two entries, `b3Body_Write( world, const b3Body* )` (structural, journals from H4) and
@@ -1206,13 +1214,13 @@ specification. Mechanics that follow from them:
   trees; `b3BroadPhase_MoveProxy` makes the proxy move entry for the sleeping tree. The three take
   `b3World*` from this commit (`b3BroadPhase_CreateProxy( world, ... )`, `b3BroadPhase_DestroyProxy(
   world, proxyKey )`, `b3BroadPhase_MoveProxy( world, proxyKey, aabb )`), since the entry needs
-  `world->history` and the leaf assertion `world->fatAABBs`, and the standalone broad-phase case of
+  `world->history` and the leaf assertion `b3GetShapeFatAABB` (H3a), and the standalone broad-phase case of
   `test/test_awake_tree.c` (a `b3CreateBroadPhase` with no world) moves onto a world's broad phase
   through `b3CreateWorld` and the internal headers that file already includes. The undo insert
   is the tree's ordinary create, unmarked, asserting the popped id equals the recorded one; the undo
   of a create is the ordinary destroy. In the validation build the static and kinematic leaf writers
   assert, on forward writes and never in an undo, that the box they write equals
-  `fatAABBs[shapeId]` (§2).
+  the shape's fat AABB entry read through `b3GetShapeFatAABB` (§2).
 - The ring (`src/world_history.c`): a slot is header, image (still the phase-0 serializer image
   in this commit), queue copy, the geometry pointer words as in H1 (step 3's repoint stands until
   H5) and the journal segment moved in from the staging buffer at capture;

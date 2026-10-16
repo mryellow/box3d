@@ -561,3 +561,18 @@ Round 33: 4 findings (H1-M2-L1), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   and five more steps evict it.
 - `SleepingKinematicCostCase` says bodies created asleep start in a sleeping set.
 - Length 1691 -> 1703 lines.
+
+## Revision 35: after review round 34
+
+Round 34: 3 findings (H0-M3-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> pending.
+
+- H3a exposes a const fat AABB getter for the readers outside the hot path; H4's leaf assertion
+  reads through it.
+- `HistoryCrossWorkerTest` creates its worlds at four workers and switches the count with
+  `b3World_SetWorkerCount`.
+- `HistoryReplayTest` counts callback calls and rejections per tick, on both sides of the tick-50
+  change, and compares them on replay.
+- Length 1703 -> 1711 lines.
