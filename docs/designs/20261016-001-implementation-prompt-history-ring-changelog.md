@@ -437,3 +437,16 @@ Round 24: 4 findings (H1-M3-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §7 records sensor count apart from overlap count and runs the million-body scene at 64 and 256
   sensors.
 - Length 1623 -> 1631 lines.
+
+## Revision 26: after review round 25
+
+Round 25: 3 findings (H1-M2-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+pending.
+
+- H3c gives the colour's five per-step scratch fields a setter of their own under the step mark.
+- H4 gives the serializer's writer a const read route to the pair set's hash set.
+- §2's inventory adds the four geometry setters (a parked leaf without a wake for a contactless
+  sleeping body) and `b3World_Explode`.
+- Length 1631 -> 1642 lines.

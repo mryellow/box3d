@@ -251,7 +251,11 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   for the bodies touching or jointed to the destroyed or disabled one, `b3CreateJoint` when either
   body is awake, `b3DestroyJoint` with `wakeAttached` true, `b3Shape_SetFilter` with
   `invokeContacts` true (`b3ResetProxy` recreates the leaf in the shape's own tree, which for a
-  sleeping dynamic body's shape is the awake tree, and queues the body),
+  sleeping dynamic body's shape is the awake tree, and queues the body), the four geometry
+  setters `b3Shape_SetSphere`, `b3Shape_SetCapsule`, `b3Shape_SetHull` and `b3Shape_SetMesh` (the
+  same `b3ResetProxy` call with `wakeBodies` true, which wakes only through the contacts it
+  destroys, so a contactless sleeping body stays asleep with its leaf parked in the awake tree,
+  `src/shape.c`), `b3World_Explode` on the sleeping bodies it hits (`src/physics_world.c`),
   a shape created on a sleeping body (its proxy is created in the awake tree, marked, and the
   body queued, `src/shape.c`), and, on their condition, `b3Body_SetLinearVelocity` with a nonzero
   velocity, `b3Body_SetAngularVelocity` with a nonzero component the body's angular locks leave,
@@ -1016,7 +1020,12 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   colour is read through `const b3GraphColor* b3GetGraphColor( world, index )`, so the colours'
   `bodySet`, `jointSims`, `convexContacts` and `contacts` headers are written only by
   `src/constraint_graph.c`'s functions (H4: the push into a colour is the function that moves a
-  contact or joint into the awake set, journaling its pre-wake bytes); the collide pass's write of
+  contact or joint into the awake set, journaling its pre-wake bytes); the colour's per-step
+  scratch fields (`wideConstraints`, `wideConstraintCount`, `wideMeshConstraints`,
+  `wideMeshManifoldStarts`, `wideMeshConstraintCount`, scratch by the design §5.1), which
+  `src/solver.c`'s stage setup assigns, are written through `b3Graph_SetWideScratch( world,
+  colorIndex, ... )` of `src/constraint_graph.c`, a setter for those five fields alone under the
+  step mark, never journaled or imaged; the collide pass's write of
   a touching mesh contact's spec `manifoldCount` (`src/physics_world.c`) goes through the hot
   element accessor `b3Graph_HotContactSpec( world, colorIndex, localIndex )`, inline, asserting
   the step mark, the colour arrays' instance of the awake-array hot accessor above.
@@ -1096,7 +1105,9 @@ specification. Mechanics that follow from them:
   type whose definition (a `b3HashSet` inside) sits in `src/broad_phase.c`, with `b3PairSet_Contains`,
   `b3PairSet_Count`, `b3PairSet_Capacity` and `b3PairSet_Bytes` as its readers for
   `src/physics_world.c`'s memory log and validation count, a key walk `b3PairSet_ForEachKey( set,
-  fn, context )` for H0's per-key mix in `src/world_hash.c`, and `const b3IdPool*
+  fn, context )` for H0's per-key mix in `src/world_hash.c`, `const b3HashSet* b3PairSet_Raw(
+  set )` for the serializer's writer `b3SerHashSet` (`src/world_snapshot.c`), which the phase-0
+  image needs through this commit, and `const b3IdPool*
   b3SlotPool_GetIdPool( pool )` for the hash's walk of the six pools, so
   `src/contact.c`'s add and remove become the journaled ones. The generic
   `b3IdPool`, `b3HashSet`, `b3BitSet` and `b3Array` are untouched and keep serving scratch.
