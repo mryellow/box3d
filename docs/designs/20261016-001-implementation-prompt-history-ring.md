@@ -1537,8 +1537,10 @@ Measurements the closure doc needs:
   created asleep, half kinematic, in batches with a step after each as `HistoryCostTest` case 1
   does, so the awake tree's capacity stays small, awake boxes falling elsewhere, and one scripted
   transition for the first separate timing below: one kinematic body moved by `b3Body_SetTransform`
-  between steps three ticks before the timed rewind, so the rewind nine ticks back moves its proxy
-  and the first replayed step rebuilds the kinematic tree); the second separate timing comes from
+  between steps three ticks before the timed rewind, so at H6 the rewind nine ticks back moves
+  its proxy through the restore pass and the first replayed step rebuilds the kinematic tree,
+  while at H5 the tree comes back from its raw image and that step is the baseline); the second
+  separate timing comes from
   a scene of its own, the million-body grid plus one sleeping island of 4,096
   touching boxes, kept apart from the capture-target scene because the slab's awake phase lifts the
   awake tree's `proxyCapacity` past 4,096, which never shrinks and is imaged whole (the trees doc
@@ -1585,9 +1587,11 @@ Measurements the closure doc needs:
   and the churn the same in both runs so the two rows differ in the sensor columns alone, and the
   proportionality is
   read across those columns rather than from one ratio; replay equal to N steps
-  within noise, with the first replayed step after a rewind that moved a kinematic proxy reported
-  separately on the million-body scene, and a rewind whose undone wake fires the sleeping tree's
-  full rebuild reported separately. Each is measured at H5 (phase 1) and again at H6 (phase 2); the
+  within noise, with the first replayed step after the scripted kinematic move's rewind reported
+  separately on the million-body scene (at H5 the raw-image baseline; at H6 the restore-pass
+  rebuild, the harness reading in a scratch build that the pass moved the proxy and the step
+  rebuilt the tree), and a rewind whose undone wake fires the sleeping tree's full rebuild
+  reported separately. Each is measured at H5 (phase 1) and again at H6 (phase 2); the
   million-body scene's phase-1 figure is expected to miss on the kinematic term and the closure doc
   says so.
 - **Phase-0 figures** (informational, at H1): per scene the slot bytes per tick and the registry's

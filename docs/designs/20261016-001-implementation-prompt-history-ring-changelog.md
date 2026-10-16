@@ -522,3 +522,14 @@ Round 30: 3 findings (H0-M3-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   `src/shape.c` are named and the serializer's two calls are the restore add and remove.
 - `HistoryRingTest`'s H4 extension fails before H4 by not building.
 - Length 1672 -> 1676 lines.
+
+## Revision 32: after review round 31
+
+Round 31: 1 finding (H0-M1-L0), 1 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> pending.
+
+- §7's million-body kinematic timing is the raw-image baseline at H5 and the restore-pass rebuild
+  at H6, with the harness confirming the move and the rebuild.
+- Length 1676 -> 1680 lines.
