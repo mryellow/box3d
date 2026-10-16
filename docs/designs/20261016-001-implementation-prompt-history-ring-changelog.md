@@ -1136,3 +1136,16 @@ Round 71 (confirmation of round 70): 2 findings (H0-M2-L0), 2 applied, 0 decline
   writes alone; after a hot write the case rewinds before any other use or the disable.
 - H5: `HistoryRingTest` case 11 and `b3History_GetGeometryBytes` are deleted with the registry.
 - Length 2006 -> 2011 lines.
+
+## Review round 72: clean, revision 67 stands
+
+Round 72: 0 findings (H0-M0-L0), 0 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> 0/2/0 -> 1/1/1 -> 0/2/0 -> 1/2/0 -> 0/2/0 ->
+0/0/0 -> 0/2/0 -> 0/0/0 -> pending confirmation.
+
+- No edit.
