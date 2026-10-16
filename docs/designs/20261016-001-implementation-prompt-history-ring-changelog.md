@@ -1090,3 +1090,20 @@ pending.
 - H1: the `INT_MAX` claim holds in builds that compile assertions; §10 records why no
   Release-effective check and no widening.
 - Length 1984 -> 2002 lines.
+
+## Revision 66: after review round 69
+
+Round 69: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> 0/2/0 -> 1/1/1 -> 0/2/0 -> 1/2/0 -> 0/2/0 ->
+pending.
+
+- H1: the sizing-only geometry release frees the entry alone (no reader slot exists for it yet);
+  the slot release stays for eviction and a rewind's drop.
+- §3 and H3b: a case marked as having no before run is run in the working tree alone;
+  `HistoryRingTest` case 12 is so marked, with the reason.
+- Length 2002 -> 2006 lines.

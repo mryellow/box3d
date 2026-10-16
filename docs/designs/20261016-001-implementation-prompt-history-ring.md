@@ -430,7 +430,9 @@ validates the dynamic, kinematic and sleeping trees; `b3DynamicTree_Validate` is
   names, the quoted `condition false:` line or `B3_ASSERT` message naming it, not on a fixture check.
   Where it says the test fails before by not building, the build failure and its first error line
   are the evidence. Then run the same entries in the working tree, where each passes. The closure
-  doc quotes both runs.
+  doc quotes both runs. A case this document marks as having no before run (a regression guard
+  added in a commit whose test file does not build at the previous commit) is run in the working
+  tree alone, and the closure doc says so.
 - The boundary commits H2, H3a, H3b and H3c change no behaviour. Their evidence is threefold: the
   whole suite and every golden of §5 unchanged; the `HistoryCrossWorkerTest` goldens recorded in H1
   unchanged; and a compile-boundary check, a scratch translation unit per commit in the scratch
@@ -711,8 +713,8 @@ in full are the specification. Mechanics that follow from them:
   interned shape's geometry on either (`src/world_snapshot.c` has no `countOnly` branch) and so
   touches every entry the image references. After the sizing run, when the budget step leaves
   this tick unimaged (the ring doc §6 step 4), every listed entry whose `refCount` is zero is
-  released at once through the function below (new in this run; one an older image references
-  has a count) and the list cleared; when the tick is imaged the list is cleared and the write
+  released at once through the function below (new in this run, so it has no reader slot yet;
+  one an older image references has a count) and the list cleared; when the tick is imaged the list is cleared and the write
   run collects it again, and the capture writes it after the image in the slot (its bytes in
   the slot's charge), increments each listed entry's `refCount` and clears it; the reader's
   slots are appended at the write, one per entry added since the last write and empty for a
@@ -725,9 +727,10 @@ in full are the specification. Mechanics that follow from them:
   geometry interned while enabled, left out of the figure as the arrays are), and removes it
   from the map and its hash chain so the same content interned again gets a new entry, and the ring
   (`src/world_history.c`, which owns the recording and the reader) frees the reader slot's copy
-  itself at every release point, eviction, a rewind's drop and the sizing-only release, through
-  `b3RecReleaseSlot( rdr, id )` added to `src/replay.c` (the slot's bytes NULL, `byteCount`
-  zero). Disable frees both wholesale, which no live shape survives pointing
+  itself at eviction and at a rewind's drop, through `b3RecReleaseSlot( rdr, id )` added to
+  `src/replay.c` (the slot's bytes NULL, `byteCount` zero); the sizing-only release frees the
+  entry alone, and the next write appends the empty slot for its id as for any released entry
+  added since the last write. Disable frees both wholesale, which no live shape survives pointing
   into (the rewind repoints every restored borrowed-geometry shape at its recorded pointer,
   above). Their bytes are not in `bytesUsed`, `arenaCapacityBytes` or `stagingCapacityBytes`
   and not charged against `maxBytes` (§10); `b3History_GetGeometryBytes( world )`, a read-only
@@ -879,8 +882,9 @@ in full are the specification. Mechanics that follow from them:
       again: the mesh contact takes the freed id (`b3AllocId` pops the last freed id,
       `src/id_pool.c`), `ENSURE`d through the internal headers, and the box is asleep; then the
       world destroyed and the byte-count check.
-  Cases 1 to 11 fail before H1 by not building; case 12 passes at every commit and guards H3b's
-  slot clear.
+  Cases 1 to 11 fail before H1 by not building; case 12 guards H3b's slot clear and has no
+  before run (§3): H3b's `test/test_history.c` does not build at H3a, since `HistoryHashTest`'s
+  cache writes use `b3Contact_Write` and `b3Contact_SetBlocks`.
 - `HistoryRewindTest` (the design §12 test 2). For each of the seventeen scenes of
   `benchmark/main.c`'s table (§2), created with its capacity
   function where one exists and `workerCount` 4: step to a steady state (the scene's benchmark step
