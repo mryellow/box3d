@@ -533,3 +533,15 @@ Round 31: 1 finding (H0-M1-L0), 1 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 
 - §7's million-body kinematic timing is the raw-image baseline at H5 and the restore-pass rebuild
   at H6, with the harness confirming the move and the rebuild.
 - Length 1676 -> 1680 lines.
+
+## Revision 33: after review round 32
+
+Round 32: 1 finding (H0-M1-L0), 1 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> pending.
+
+- H0's hash names the contact cache member each shape pair selects, with its fields, at both
+  cache locations; `HashSensitiveCase` writes a field of each member and of a triangle cache
+  element, through the accessor and the block mutator from H3b.
+- Length 1680 -> 1691 lines.

@@ -491,8 +491,13 @@ Two internal pieces of test machinery are shared by several entries and are writ
   5. contacts in id order over every slot: `generation`, and for a live slot every field except
      `manifolds` and the union, then the `manifoldCount` manifolds field by field (points, normal,
      impulses), and the active union member only: for a mesh contact the triangle cache's `count`
-     and its `count` elements (never the header's pointer or `capacity`, which are allocation
-     state) and `queryBounds`, for a convex contact the cache;
+     and, per element, `triangleIndex` and the cache member the pair selects (never the header's
+     pointer or `capacity`, which are allocation state) and `queryBounds`, for a convex contact
+     the cache member the pair selects. The member is a function of the two shape types
+     (`src/contact.c`, `src/mesh_contact.c`): `satCache` (`separation`, `type`, `indexA`,
+     `indexB`, `hit`) for hull against hull and triangle against hull; `simplexCache` (`metric`,
+     `count`, `indexA[4]`, `indexB[4]`) for hull against sphere or capsule and triangle against
+     capsule; nothing for a pair of spheres and capsules or triangle against sphere;
   6. joints in id order over every slot: `generation`, and for a live slot every field except
      `userData`;
   7. islands in id order: for a live slot the record's scalars and the three link arrays in stored
@@ -530,13 +535,18 @@ Two internal pieces of test machinery are shared by several entries and are writ
    240 ticks at `workerCount` 1 and again at 4 (a third run at 1 repeats the first): the hash after
    every tick is equal across the three runs, and some bodies have slept by the end
    (`b3Body_IsAwake` false), so sleeping sets, the sleeping tree and the graph are all covered.
-2. `HashSensitiveCase`: starting from one scene (a sleeping box, a static box, a dynamic hull body,
-   a sensor, a joint, two shapes sharing one hull's content), each of the following, applied to a
-   fresh copy of the scene, changes the hash from the scene's: `b3Body_SetTransform` on the sleeping
+2. `HashSensitiveCase`: starting from one scene (a sleeping box, a static box, a dynamic hull body
+   resting on it, a capsule resting on the hull body, a capsule on a two-triangle mesh ground, a
+   sensor, a joint, two shapes sharing one hull's content, stepped until the three contacts touch),
+   each of the following, applied to a fresh copy of the scene, changes the hash from the scene's: `b3Body_SetTransform` on the sleeping
    body; `b3World_SetGravity`; `b3Shape_SetSurfaceMaterial` on the static shape;
    `b3Shape_SetFilter`; destroying and recreating a body with the same def (its generation differs);
    destroying one of the two hull shapes (the database's refcount differs); destroying the sensor;
-   `b3Body_SetAwake( true )` on the sleeping body. Each of these leaves it unchanged: `b3Body_SetUserData`,
+   `b3Body_SetAwake( true )` on the sleeping body; `satCache.indexA` of the hull-on-hull contact's
+   cache, `simplexCache.count` of the hull-and-capsule contact's and `simplexCache.count` of the
+   mesh contact's first triangle cache element, each written directly at H0 and, from H3b, as a
+   changed copy through `b3Contact_Write` (the two convex contacts) and `b3Contact_SetBlocks` after
+   `b3Body_SetAwake( false )` on the capsule's body (the mesh contact). Each of these leaves it unchanged: `b3Body_SetUserData`,
    `b3Shape_SetUserData`, `b3Joint_SetUserData`, `b3World_SetUserData`.
 3. `HashLayoutCase`: the scene of case 1 after 120 ticks, hashed, then every tree fully rebuilt by
    the perturbation helper, hashed again: equal (a rebuild changes no leaf box, proxy id or moved
@@ -991,7 +1001,8 @@ the specification. Mechanics that follow from them:
   `src/contact.c` frees them, so no leak is introduced between H3b and H4.
 - The structural writers of a contact record (`b3CreateContact`, `b3DestroyContact`, the graph's
   add and remove, island link and unlink, the set transfers, the begin and end touch processing)
-  go through the accessor.
+  go through the accessor. `HistoryHashTest` case 2's three cache writes go through
+  `b3Contact_Write` and `b3Contact_SetBlocks` from this commit.
 
 **Evidence.** As H2. Compile-boundary check: `world->contacts.data[0].flags = 0;` compiles at H3a
 and fails at H3b (no member `data` on the pointer to the incomplete type);
