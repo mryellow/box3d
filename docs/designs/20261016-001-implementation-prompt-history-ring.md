@@ -675,8 +675,13 @@ in full are the specification. Mechanics that follow from them:
   `b3RecBufAppend` never grows it. A phase-0 image is at most `INT_MAX` bytes: the serializer's
   buffer, its return and `b3RecBufAppend`'s sizes are `int` (`src/recording.h`,
   `src/world_snapshot.h`), and widening them for an artefact H5 removes is not done; H1 adds to
-  `b3RecBufAppend`'s `countOnly` branch `B3_ASSERT( size <= INT_MAX - buf->size )`, so a world
-  whose image would pass the limit fails at capture instead of writing a truncated slot. The
+  `b3RecBufAppend`'s `countOnly` branch `B3_ASSERT( size <= INT_MAX - buf->size )` and makes
+  `b3SnapW_Bytes` (`src/world_snapshot.c`) take `size_t`, its callers passing the product of
+  count and element size in `size_t` (the `int` casts removed at `b3SerPodArray`, the bitset,
+  hash set, tree, material, manifold and triangle-cache writes) and the function asserting `n <=
+  (size_t)( INT_MAX - buf->size )` before narrowing to `b3RecBufAppend`'s `int`
+  (`b3RecBufAppend` returns without writing or counting when its `int` size is not positive), so
+  a world whose image would pass the limit fails at capture instead of writing a truncated slot. The
   limit is the image's, not the arena's: the arena's sizes are `size_t`, and the ring doc §6's
   `INT_MAX` note is the `core.c` byte-count add this commit changes (§2, Allocation). The design
   §5.1's images are 5 to 51 MB, and §7's phase-0 figures record each scene's.
@@ -1486,11 +1491,15 @@ write, so the walk alone must restore the hash:
    restored; then `b3Body_SetTransform` on the second lone sleeping body from inside a
    `b3World_OverlapAABB` callback over it (the traversal is open, so `b3BroadPhase_MoveProxy`
    writes the leaf in place in the sleeping tree, making the move entry, and the wake is queued
-   until the traversal ends, the trees doc §6), then `b3World_Rewind( historyTick )`, since the
-   queued wake migrates the leaf into the imaged awake tree at the traversal's end (the undo
-   re-inserts the sleeping leaf from the migration's destroy entry and the move entry moves it
-   back): the leaf's box through `b3DynamicTree_GetAABB` equals the box read before the call and
-   the hash is restored. The id reuse across a step, a destroyed sleeping body's sleeping-tree id taken by a
+   until the traversal ends, the trees doc §6; at the traversal's end the queued wake migrates
+   the leaf into the awake tree, making the sleeping leaf's destroy entry), then
+   `b3History_UndoPending` (the undo re-inserts the sleeping leaf from the migration's destroy
+   entry and the move entry moves it back; the awake tree, imaged and never journaled, keeps its
+   copy until the image loads): the sleeping tree's leaf, through `b3DynamicTree_GetAABB` with
+   the proxy id recorded before the call, equals the box read before the call, checked before
+   any image loads (the phase-0 image holds the sleeping tree, and the H4 rewind's load
+   overwrites what the walk restored, above); then `b3World_Rewind( historyTick )`: the hash is
+   restored. The id reuse across a step, a destroyed sleeping body's sleeping-tree id taken by a
    body falling asleep in the next step, is `HistoryRewindTest`'s case, since the awake tree takes
    part. Fails before H4 by not building.
 

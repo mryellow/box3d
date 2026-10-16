@@ -992,3 +992,19 @@ Round 62: 2 findings (H0-M0-L2), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   arrays) and `b3World_GetCounters`' colour counts; H3c routes both through the accessor, with
   `b3GetBitSetBytes` taking `const b3BitSet*` and `src/bitset.h` in the file list.
 - Length 1935 -> 1942 lines.
+
+## Revision 61: after review round 63
+
+Round 63: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> pending.
+
+- H1: `b3SnapW_Bytes` takes `size_t`, its callers pass the count-times-size product unnarrowed,
+  and it asserts the `INT_MAX` bound before narrowing; the `countOnly` assertion stays.
+- H4 `HistoryJournalTest` case 4: the in-traversal move's leaf-box check follows a direct
+  `b3History_UndoPending`, before any image loads; `b3World_Rewind` then restores the hash.
+- Length 1942 -> 1951 lines.
