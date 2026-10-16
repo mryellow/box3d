@@ -785,3 +785,18 @@ Round 49: 3 findings (H2-M1-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - H4's pair set and slot pools expose value views with const element pointers in place of raw
   header getters.
 - Length 1783 -> 1790 lines.
+
+## Revision 48: after review round 50
+
+Round 50: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> pending.
+
+- H6's four kinematic cases are witnessed by the restore pass's own move, counted after the
+  rewind, since the step rebuilds the kinematic tree in part every tick.
+- `ProxyIdentityCase` exercises the sleeping-tree proxy move entry through an in-traversal
+  `b3Body_SetTransform`; §6 names it.
+- Length 1790 -> 1798 lines.

@@ -1356,7 +1356,12 @@ write, so the walk alone must restore the hash:
    destroy entry), then `b3History_UndoPending`: `proxyKey` equals its recorded value and the hash
    is restored, section 2 of H0's walk (the sleeping tree's proxy pool) included; then a static
    shape created, another destroyed, a third created (the free list reordered), undone: hash
-   restored. The id reuse across a step, a destroyed sleeping body's sleeping-tree id taken by a
+   restored; then `b3Body_SetTransform` on the second lone sleeping body from inside a
+   `b3World_OverlapAABB` callback over it (the traversal is open, so `b3BroadPhase_MoveProxy`
+   writes the leaf in place in the sleeping tree, making the move entry, and the wake is queued
+   until the traversal ends, the trees doc §6), undone: the leaf's box through
+   `b3DynamicTree_GetAABB` equals the box read before the call and the hash is restored. The id
+   reuse across a step, a destroyed sleeping body's sleeping-tree id taken by a
    body falling asleep in the next step, is `HistoryRewindTest`'s case, since the awake tree takes
    part. Fails before H4 by not building.
 
@@ -1531,11 +1536,14 @@ restores its order (the trees doc §6).
   and a sensor sweep as H5's, the bullet crossing at least nine sensor shapes on kinematic
   bodies, `enableSensorEvents` set on the bullet's shape and on every sensor, exactly eight sensor
   begin events `ENSURE`d in the original run, witnessed over the
-  kinematic tree as the H5 cases are: the order recorded at tick 10 in the original run against
-  the order after the rewind and the perturbation (the restore pass moves listed proxies and
-  leaves any rebuild to the first replayed step, the trees doc §6, so the perturbation helper's
-  full rebuild is what makes the layout differ, as for the other trees), then replay equality of
-  hashes and events to tick 30.
+  kinematic tree by the restore pass rather than the perturbation helper (the step rebuilds that
+  tree in part every tick, `src/broad_phase.c`, so a full rebuild can reproduce its tick-10
+  layout): each of the four cases moves a kinematic body by `b3Body_SetTransform` after tick 10
+  (the first case's move; the other three add one, the sweep's on one sensor's body) and, after
+  the rewind and before the replay, `ENSURE`s `b3DynamicTree_CountMovedProxies` on the kinematic
+  tree is at least 1, the pass's incremental move having marked the leaf and left the tree
+  unordered (the trees doc §6), a layout no step leaves; then replay equality of hashes and
+  events to tick 30.
 
 ## 5. Goldens and scene hashes
 
@@ -1574,7 +1582,7 @@ No golden policy admits a change on this branch; `test/test_determinism.c` is to
 | design §5.2 const-returning sim getters, the diagnostic an error | H2 compile-boundary check; the CMake flags | n/a (boundary) |
 | design §5.2 three write routes per record; const records outside their files; owned blocks pointer-to-const; `userShape` one writer; `b3Shape_WriteMaterial` | H3a, H3b, H3c compile-boundary checks; inspection; the suite and goldens unchanged | n/a (boundary) |
 | design §5.2 one function each for set and island create and destroy; one sensor destroy; split hands arrays to the destroy | Inspection of H3c and H4; `HistoryJournalTest` case 3 | n/a |
-| design §7.1 every entry kind and its undo; ownership one way; the record-write rule; entering the awake set | `HistoryJournalTest` cases 1 to 4; `HistoryUndoSufficiencyTest`; `HistoryRewindTest`'s structural cases | Build failure (H4) |
+| design §7.1 every entry kind and its undo; ownership one way; the record-write rule; entering the awake set | `HistoryJournalTest` cases 1 to 4 (case 4's in-traversal move for the proxy move entry); `HistoryUndoSufficiencyTest`; `HistoryRewindTest`'s structural cases | Build failure (H4) |
 | design §6 between-step mutations undone first; `Rewind( P )` | `HistoryRingTest` cases 8 to 10; `HistoryJournalTest` case 1 | Build failure (H1, H4) |
 | design §7.3 one null check with history disabled | Inspection of every journal function's first statement; §7 benchmark, base against branch, history disabled, for the cost | n/a |
 | design §6 capture steps 1 to 4; §9 steps 3 to 6 in place | `HistoryCostTest` case 1; the H1 tests unchanged under the new path; inspection | Yes, the 256 KB bound (H5) |
