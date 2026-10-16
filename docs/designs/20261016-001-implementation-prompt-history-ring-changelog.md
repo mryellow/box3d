@@ -337,3 +337,15 @@ Round 17: 4 findings (H2-M2-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §7's rebuild timing is reported from the million-body scene only when the harness observed the
   threshold crossing, otherwise from the rewind test's height-trigger case.
 - Length 1534 -> 1555 lines.
+
+## Revision 19: after review round 18
+
+Round 18: 3 findings (H0-M2-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> pending.
+
+- H2's file list carries the graph files its joint-sim writer lives in.
+- `HistoryRingTest` case 2 separates the images written over the run from the images the window
+  retains at each step, with the two-image and one-image spans stated.
+- §2's target-transform wake names its `wake` and time-step conditions.
+- Length 1555 -> 1562 lines.

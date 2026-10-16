@@ -250,7 +250,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   a shape created on a sleeping body (its proxy is created in the awake tree, marked, and the
   body queued, `src/shape.c`), and, on their condition, `b3Body_SetLinearVelocity` with a nonzero
   velocity, `b3Body_SetAngularVelocity` with a nonzero component the body's angular locks leave,
-  `b3Body_SetTargetTransform` when the velocity it implies reaches the body's `sleepThreshold`,
+  `b3Body_SetTargetTransform` with `wake` true and a positive time step when the velocity it
+  implies reaches the body's `sleepThreshold` (it returns before the velocity is computed
+  otherwise),
   and the six force, torque and impulse calls with `wake` true on a sleeping body
   (`b3Body_ApplyForce`, `b3Body_ApplyForceToCenter`, `b3Body_ApplyTorque`,
   `b3Body_ApplyLinearImpulse`, `b3Body_ApplyLinearImpulseToCenter`, `b3Body_ApplyAngularImpulse`,
@@ -656,10 +658,14 @@ in full are the specification. Mechanics that follow from them:
      scene with no churn; `maxBytes` = `s` + `s` / 2 (one image fits, two do not), `tickCount` 32,
      interval 1: the minimum window is over budget at every tick an image is due, so
      `effectiveInterval` reads 2 after step 1, 4 after step 2, 8 after step 4, 16 after step 8 and
-     32 after step 16 and every later step through step 200; the imaged ticks are 0, 32, 64, 96,
-     128, 160 and 192 (read from the directory), `bytesUsed > maxBytes` whenever two imaged slots
-     are retained, and `oldestImageTick` follows the window bound (0 through step 32, 32 through
-     step 64, and so on);
+     32 after step 16 and every later step through step 200; the images written over the run are
+     at ticks 0, 32, 64, 96, 128, 160 and 192, each seen in the directory at the step that writes
+     it, and at every step the directory retains the images at most 32 ticks behind the current
+     tick (the window bound, the ring doc §7): two images from the step that writes one until the
+     older is 33 behind (tick 0 and 32 through step 64, 32 and 64 through step 96, and so on, 160
+     and 192 through step 192), one image otherwise (192 alone from step 193 through step 200),
+     `bytesUsed > maxBytes` whenever two imaged slots are retained, and `oldestImageTick` is the
+     older retained image (0 through step 64, 32 through step 96, and so on, 192 from step 193);
   3. a single slot over budget: `tickCount` 8, interval 1, `maxBytes` = `s` / 2: the interval widens
      as in case 2 up to 8, every step's slot is written, `bytesUsed > maxBytes` at every step,
      `b3World_GetRestorableTick( historyTick )` is never `UINT64_MAX`, and `Rewind` to it restores
@@ -763,7 +769,8 @@ in full are the specification. Mechanics that follow from them:
 **Files.** `src/physics_world.h`, `src/physics_world.c`, `src/body.h`, `src/body.c`, `src/joint.h`,
 `src/joint.c`, `src/distance_joint.c`, `src/motor_joint.c`, `src/parallel_joint.c`,
 `src/prismatic_joint.c`, `src/revolute_joint.c`, `src/spherical_joint.c`, `src/weld_joint.c`,
-`src/wheel_joint.c`, `src/solver_set.h`, `src/solver_set.c`, `src/shape.c`, `src/island.c`,
+`src/wheel_joint.c`, `src/solver_set.h`, `src/solver_set.c`, `src/constraint_graph.h`,
+`src/constraint_graph.c`, `src/shape.c`, `src/island.c`,
 `src/solver.c`, `src/recording.c`, `src/world_snapshot.c`, `src/world_hash.c`, `src/CMakeLists.txt`,
 `test/CMakeLists.txt`, and any `src/` or `test/` file the compiler names (§3).
 
