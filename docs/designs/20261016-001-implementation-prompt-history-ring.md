@@ -665,10 +665,15 @@ in full are the specification. Mechanics that follow from them:
   tick's slot is a header and the empty segment in phase 0, so it is a few bytes); apply the budget
   steps 2 to 4 with the `min( 2 × interval, tickCount )` widening tested as `interval ≤ tickCount −
   interval`; evict from the old end, oldest first, each imaged slot together with the non-imaged
-  slots after it up to the next imaged slot, never into the minimum window; grow the arena by
-  allocating the larger block, copying the retained slots in tick order from offset 0, rewriting the
-  directory's offsets and freeing the old block, when the retained slots and the new one do not fit;
-  write the slot. An imaged slot is sized by a first `b3SerializeWorld` run into a `b3RecBuffer`
+  slots after it up to the next imaged slot, never into the minimum window; place the slot, one
+  contiguous region that never straddles the arena's end: with no retained slot, at offset 0;
+  with the write position at or past the oldest retained slot's offset, at the write position
+  when the span to the arena's end holds it, else at offset 0 when the span to the oldest slot's
+  offset holds it, the bytes from the write position to the end left unused until the slots
+  before them are evicted; with the write position below the oldest slot's offset, at the write
+  position when the span to that offset holds it; otherwise grow the arena by allocating the
+  larger block, copying the retained slots in tick order from offset 0, rewriting the directory's
+  offsets and freeing the old block, and place the slot after the newest; write the slot. An imaged slot is sized by a first `b3SerializeWorld` run into a `b3RecBuffer`
   with `countOnly` set, which tallies the exact byte count without writing (`src/recording.h`); the
   budget and window steps use that count, the arena is grown if the slot does not fit, and a second
   run serializes into a `b3RecBuffer` over the reserved region whose `capacity` is that count, so
@@ -1838,9 +1843,11 @@ Measurements the closure doc needs:
   million-body scene run twice, with 64 and with 256 static sensor shapes (`enableSensorEvents`
   set on them and on the awake boxes, each sensor overlapping a few of the boxes, the harness
   asserting the summed overlap count is above zero after the warm-up steps), the awake population
-  and the churn the same in both runs so the two rows differ in the sensor columns alone, and the
-  proportionality is
-  read across those columns rather than from one ratio; replay equal to N steps
+  and the churn the same in both runs so the two rows differ in the sensor columns alone, and a
+  third time with 64 sensors and 256 awake boxes in place of sixteen, the added boxes falling where
+  no sensor overlaps them, the sleeping population, the sensors, their summed overlap count and
+  the churn the same as the 64-sensor run's, so those two rows differ in the awake columns alone,
+  and the proportionality is read across those columns rather than from one ratio; replay equal to N steps
   within noise, with the first replayed step after the scripted kinematic move's rewind reported
   separately on the million-body scene (at H5 the raw-image baseline; at H6 the restore-pass
   rebuild, the harness reading in a scratch build that the pass moved the proxy and the step

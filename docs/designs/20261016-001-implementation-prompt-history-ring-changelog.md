@@ -1020,3 +1020,19 @@ Round 64: 0 findings (H0-M0-L0), 0 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> pending confirmation.
 
 - No edit.
+
+## Revision 62: after review round 65
+
+Round 65 (confirmation of round 64): 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings:
+3/5/1 -> 2/3/0 -> 0/4/0 -> 3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 ->
+1/3/0 -> 1/3/0 -> 0/1/1 -> 2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 ->
+1/1/0 -> 1/3/0 -> 1/2/0 -> 0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 ->
+0/3/0 -> 0/0/0 -> 1/3/0 -> 1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 ->
+0/2/0 -> 0/2/1 -> 1/0/2 -> 0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 ->
+0/2/1 -> 0/1/0 -> 1/1/0 -> 1/1/0 -> 2/0/1 -> 0/4/1 -> 0/0/2 -> 0/2/0 -> 0/0/0 -> 0/2/0 -> pending.
+
+- H1: slot placement in the circular arena stated (contiguous, never straddling the end; write
+  position, else offset 0, else growth).
+- §7: the million-body scene run a third time with 256 awake boxes and 64 sensors, so the awake
+  term is read across two rows that differ in the awake columns alone.
+- Length 1951 -> 1958 lines.
