@@ -661,3 +661,13 @@ Round 40: 2 findings (H0-M1-L1), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - §7 measures eviction under the quarter budget and widening under a budget below the minimum
   window, reporting the observed interval for each.
 - Length 1738 -> 1743 lines.
+
+## Review round 41: clean, revision 40 stands
+
+Round 41: 0 findings (H0-M0-L0), 0 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> pending confirmation.
+
+- No edit.
