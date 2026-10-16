@@ -700,3 +700,16 @@ Round 43: 3 findings (H0-M3-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - `HistoryRingTest`'s H4 extension checks the manifold allocators' count after a disable on the
   live world.
 - Length 1749 -> 1755 lines.
+
+## Revision 43: after review round 44
+
+Round 44: 2 findings (H0-M2-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> pending.
+
+- §3's compiler-named-file exception covers H4 for the containers it hides.
+- §7 defines the phase-0 registry bytes as the entry and slot byte-count sums and reads them in a
+  scratch build; H1 points at §7.
+- Length 1755 -> 1759 lines.

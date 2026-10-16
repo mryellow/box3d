@@ -411,8 +411,9 @@ validates the dynamic, kinematic and sleeping trees; `b3DynamicTree_Validate` is
   fail to compile at the commit with the diagnostic this document names, plus, where the commit
   introduces the const getter, statements that fail at the commit alone. The closure doc quotes
   every diagnostic.
-- Touch only the files each increment lists in §4, except that the boundary commits also touch
-  any `src/` or `test/` file the compiler names once the types change: the designs make the compiler
+- Touch only the files each increment lists in §4, except that the boundary commits, and H4 for
+  the containers it hides, also touch any `src/` or `test/` file the compiler names once the types
+  change: the designs make the compiler
   the judge of when the migration is complete (the design §5.2), so a file the compiler names is in
   scope by construction and is listed in the closure doc. Any other file is a deviation: stop and
   report rather than touch it, except the closure doc of §8.
@@ -637,8 +638,8 @@ in full are the specification. Mechanics that follow from them:
   entries are never freed while history is enabled, since any retained image may reference them,
   and both are freed by disable, which no live shape survives pointing into (the rewind repoints
   every restored borrowed-geometry shape at its recorded pointer, above). Their bytes are not in
-  `bytesUsed`, `arenaCapacityBytes` or `stagingCapacityBytes`; the closure doc reports them per
-  scene (§8), and H5 removes them.
+  `bytesUsed`, `arenaCapacityBytes` or `stagingCapacityBytes`; §7 defines and reads the figure and
+  the closure doc reports it per scene (§8); H5 removes them.
 - `b3World_EnableHistory`: takes the world through `b3GetUnlockedWorldFromId`; asserts
   `world->history == NULL`, `def->tickCount >= 1`, `1 <= def->captureInterval <= def->tickCount`,
   `broadPhase.traversalDepth == 0`, `world->recording == NULL`, the player mark clear, and that
@@ -1667,7 +1668,10 @@ Measurements the closure doc needs:
   million-body scene's phase-1 figure is expected to miss on the kinematic term and the closure doc
   says so.
 - **Phase-0 figures** (informational, at H1, the harness at `tickCount` 1): per scene the slot
-  bytes per tick and the registry's bytes, so the closure doc can state what H5 removed.
+  bytes per tick and the registry bytes, the sum of `byteCount` over the registry's entries
+  (`b3GeometryEntry`, `src/recording.h`) plus the sum over the reader's slots (`b3RegistrySlot`,
+  `src/replay.h`), read in a scratch build through the internal headers from `world->history`'s
+  recording and reader, so the closure doc can state what H5 removed.
 
 ## 8. Closure doc
 
