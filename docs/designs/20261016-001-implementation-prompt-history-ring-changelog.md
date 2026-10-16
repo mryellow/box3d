@@ -632,3 +632,19 @@ Round 38: 3 findings (H1-M2-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
 - `HistoryReplayTest`'s corrected replay drops a named velocity setter at tick 70 and checks the
   tick-70 hash.
 - Length 1725 -> 1730 lines.
+
+## Revision 39: after review round 39
+
+Round 39: 4 findings (H0-M3-L1), 3 applied, 1 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> pending.
+
+- H4 lists `test/test_broad_phase.c` and routes its pair-set read through `b3PairSet_Contains`.
+- H0's simplex cache rule hashes `count` and the first `count` entries; the probes write an
+  active index.
+- H3c names `b3CreateJoint` and the typed constructors' handoff of a completed sim to the push.
+- §2 names the seven public queries and casts that open a traversal; §10 records why the count is
+  seven (the series' first declined finding).
+- Length 1730 -> 1738 lines.

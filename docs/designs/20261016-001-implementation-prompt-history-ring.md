@@ -200,8 +200,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `b3Array( int ) migrationQueue`, `int traversalDepth`, `int migrationBatchDepth`,
   `movedSiblings` and `sleepingTreeRebuildCount`. `b3BroadPhase_BeginTraversal` and
   `b3BroadPhase_EndTraversal` exist under the design's names and are raised and lowered by
-  `b3World_Step`, `b3World_Draw`, the seven public queries and casts and `b3World_Explode`
-  (`src/physics_world.c`); `migrationBatchDepth` is raised only inside `b3WakeSolverSet` and
+  `b3World_Step`, `b3World_Draw`, `b3World_Explode` and the seven public queries and casts
+  (`b3World_OverlapAABB`, `b3World_OverlapShape`, `b3World_CollideMover`, `b3World_CastRay`,
+  `b3World_CastRayClosest`, `b3World_CastShape`, `b3World_CastMover`, `src/physics_world.c`); `migrationBatchDepth` is raised only inside `b3WakeSolverSet` and
   `b3TrySleepIsland`, which call no public API, so it is zero at every API entry. The design §9's
   "no traversal open" assertion is `traversalDepth == 0`.
 - `b3World_Step`'s tail, in order: finish `userTreeTask` if pending and `b3ValidateNoMoved`;
@@ -499,7 +500,7 @@ Two internal pieces of test machinery are shared by several entries and are writ
      compound's being its `childIndex` child's (`b3GetCompoundChild`, `src/contact.c`,
      `src/mesh_contact.c`): `satCache` (`separation`, `type`, `indexA`,
      `indexB`, `hit`) for hull against hull and triangle against hull; `simplexCache` (`metric`,
-     `count`, `indexA[4]`, `indexB[4]`) for hull against sphere or capsule and triangle against
+     `count`, then the first `count` entries of `indexA` and `indexB`) for hull against sphere or capsule and triangle against
      capsule; nothing for a pair of spheres and capsules or triangle against sphere;
   6. joints in id order over every slot: `generation`, and for a live slot every field except
      `userData`;
@@ -549,8 +550,8 @@ Two internal pieces of test machinery are shared by several entries and are writ
    `b3Shape_SetFilter`; destroying and recreating a body with the same def (its generation differs);
    destroying one of the two hull shapes (the database's refcount differs); destroying the sensor;
    `b3Body_SetAwake( true )` on the sleeping body; `satCache.indexA` of the hull-on-hull contact's
-   cache and of the hull-on-compound-child contact's, `simplexCache.count` of the hull-and-capsule contact's and `simplexCache.count` of the
-   mesh contact's first triangle cache element, each written directly at H0 and, from H3b, as a
+   cache and of the hull-on-compound-child contact's, `simplexCache.indexA[0]` of the hull-and-capsule contact's and of the
+   mesh contact's first triangle cache element (each `count` `ENSURE`d at least 1 first), each written directly at H0 and, from H3b, as a
    changed copy through `b3Contact_Write` (the three convex contacts) and `b3Contact_SetBlocks` (the
    mesh contact, whose copy of the scene has `b3Body_SetAwake( false )` applied to the capsule's
    body before the hash it is compared against is taken). Each of these leaves it unchanged: `b3Body_SetUserData`,
@@ -1065,7 +1066,10 @@ record-array and in-record array rules) is the specification. Mechanics that fol
   joint, const b3JointSim* )` and `b3Graph_PushContact( world, contact )` in
   `src/constraint_graph.c` choosing the colour as `b3CreateJointInGraph` and `b3AddContactToGraph`
   do today), so each constructor that today emplaces a zeroed element and fills it in place
-  (`b3CreateBody`, `b3CreateJointInternal`'s set branches, `b3CreateIsland`, `b3AddJointToGraph`;
+  (`b3CreateBody`; `b3CreateJoint`'s set branches in `src/joint.c`, which from this commit returns
+  the sim by value with its common fields set, each typed constructor filling its union member and
+  handing the completed value to a second function of the file that runs today's branches on it,
+  the push, the sleeping branch's merge and the link; `b3CreateIsland`; `b3AddJointToGraph`;
   the wake, sleep, merge and transfer loops of `src/solver_set.c` are that file's own) builds the
   value in a local and pushes it once, the sleeping joint branch before its set merge as today;
   H4 makes the pushes onto the awake set's and the colours' arrays the journaling forms it names.
@@ -1128,7 +1132,8 @@ arrays), `src/CMakeLists.txt`, `src/container.h`, `src/body.c`, `src/shape.c`, `
 `src/physics_world.h`, `src/physics_world.c`, `src/world_snapshot.c`, `src/world_hash.c`,
 `src/id_pool.h`,
 `src/bitset.h`, `src/table.h`, `test/test_awake_tree.c`, `test/test_tree_order.c`
-(`PerturbTreeLayout` calls the broad phase's rebuild function), `test/test_history.c`,
+(`PerturbTreeLayout` calls the broad phase's rebuild function), `test/test_broad_phase.c` (its
+`b3ContainsKey( &bp->pairSet, ... )` becomes `b3PairSet_Contains`), `test/test_history.c`,
 `test/main.c` (register `HistoryJournalTest`), and any file the compiler names (§3).
 
 **Commit message.** `Journal every cold write into a per-tick segment and undo the journal on rewind`
@@ -1728,3 +1733,6 @@ document.
   and not done.
 - **The fork is `master`**, as `20261014-002` chose and for the same reason: the tests and the
   designs' assumptions exist there; an upstream PR, if wanted, is a later cherry-pick.
+- **Seven public queries and casts open a traversal.** `b3BroadPhase_BeginTraversal` has ten
+  callers in `src/physics_world.c`: `b3World_Step`, `b3World_Draw`, `b3World_Explode` and the seven
+  named in §2; an eighth cast path was proposed and does not exist, so the count stands.
