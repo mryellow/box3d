@@ -942,3 +942,20 @@ Round 59: 2 findings (H1-M1-L0), 2 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   in the slot) and released when the last such slot is evicted or dropped by a rewind; case 11
   checks the drop and twenty branches rewound to tick 0.
 - Length 1893 -> 1907 lines.
+
+## Revision 58: after review round 60
+
+Round 60: 3 findings (H2-M0-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> 0/2/0 -> 0/2/0 -> 0/2/1 -> 1/0/2 ->
+0/0/0 -> 2/1/0 -> 0/2/0 -> 1/1/0 -> 0/2/0 -> 0/1/0 -> 0/1/1 -> 1/1/0 -> 0/2/1 -> 0/1/0 -> 1/1/0 ->
+1/1/0 -> 2/0/1 -> pending.
+
+- The registry's capture list runs under a per-run serial that is never reused across rewinds; an
+  unimaged tick's sizing run releases the entries it created; the reader's slots are appended at
+  the write. Case 11 gains a persistent mesh through branches, eviction and a restore, and a
+  budget-widened churn world.
+- The hit event's field is `approachSpeed`.
+- Length 1907 -> 1925 lines.

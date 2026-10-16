@@ -486,7 +486,7 @@ Two internal pieces of test machinery are shared by several entries and are writ
   begin and a contact end event carry the same fields, so without the tag and the count exchanging
   one for the other would leave the digest unchanged): body move
   events (transform, body id, `fellAsleep`), contact begin and end (shape ids, contact
-  id), hit events (shape ids, contact id, point, normal, speed, the two user material ids), sensor
+  id), hit events (shape ids, contact id, point, normal, `approachSpeed`, the two user material ids), sensor
   begin and end (sensor and visitor shape ids), joint events (joint id), read through
   the public getters after each step. The design §12 test 3 compares events by type, contents and
   order, and the in-process tests make that comparison on the events themselves: the recording
@@ -680,14 +680,23 @@ in full are the specification. Mechanics that follow from them:
   the registry's, `src/recording.c`; the recording player runs the mirror direction, slots into
   registry, through `b3RecSeedKeyframeRegistry`);
   an entry's and its slot's bytes live while a retained image can reference them, and no longer:
-  `b3GeometryEntry` gains a `refCount` and a `seenTick`, and `b3GeometryRegistry` a capture list
-  (`b3Array( int ) captured` and `captureTick`): `b3InternGeometry`, while `captureTick` is set,
-  appends an entry's id to the list the first time it meets it in this capture (`seenTick` !=
-  `captureTick`); the capture sets `captureTick` to the tick before each imaged
-  `b3SerializeWorld`, which interns every live interned shape's geometry and so touches every
-  entry the image references, then writes the list after the image in the slot (its bytes in
-  the slot's charge), increments each listed entry's `refCount` and clears the list; the
-  recording player never sets `captureTick`. Removing an imaged slot, by eviction or by a
+  `b3GeometryEntry` gains a `refCount` and a `seenSerial` (zero at creation), and
+  `b3GeometryRegistry` a capture list (`b3Array( int ) captured`, a serial counter and the
+  active serial, zero when inactive): `b3InternGeometry`, while a serial is active, appends an
+  entry's id to the list the first time it meets it under that serial (`seenSerial` != the
+  serial); the capture takes a fresh serial (the counter incremented, never reused, so a tick
+  captured again after a rewind is a new serial) before each `b3SerializeWorld` run, the
+  count-only sizing run and the write run alike, since the serializer interns every live
+  interned shape's geometry on either (`src/world_snapshot.c` has no `countOnly` branch) and so
+  touches every entry the image references. After the sizing run, when the budget step leaves
+  this tick unimaged (the ring doc §6 step 4), every listed entry whose `refCount` is zero is
+  released at once through the function below (new in this run; one an older image references
+  has a count) and the list cleared; when the tick is imaged the list is cleared and the write
+  run collects it again, and the capture writes it after the image in the slot (its bytes in
+  the slot's charge), increments each listed entry's `refCount` and clears it; the reader's
+  slots are appended at the write, one per entry added since the last write and empty for a
+  released one, so ids stay slot indices; the recording player never activates a serial.
+  Removing an imaged slot, by eviction or by a
   rewind's drop, decrements its list's entries, and an entry at zero is released through a new
   `b3ReleaseGeometryEntry( reg, id )` of `src/recording.c`, the file that owns the dedup map:
   it frees the entry's bytes and its reader slot's copy, leaves the entry struct in place with
@@ -824,9 +833,18 @@ in full are the specification. Mechanics that follow from them:
       distinct meshes) and at least `g`, and the invariant check holds; then
       `b3World_Rewind( historyTick − 3 )`: the figure is at most 6 × `g` at once (the three
       dropped slots' entries released by the drop), and twelve more steps return it to at most
-      9 × `g`; then, on a second fresh world of the scene with `tickCount` 8, twenty branches of
-      five steps each creating a unique mesh as above, each branch ended by `b3World_Rewind( 0 )`:
-      after every rewind the figure equals its value after tick 0's capture.
+      9 × `g`; then, on a second fresh world of the scene with a persistent two-triangle mesh shape created
+      before the enable and `tickCount` 8, twenty branches of five steps each creating a unique
+      mesh as above, each branch ended by `b3World_Rewind( 0 )`: after every rewind the figure
+      equals its value after tick 0's capture (the persistent mesh alone); then twelve more
+      steps, each creating a unique mesh (tick 0 evicted, the persistent mesh re-listed by every
+      imaged capture since under a fresh serial), and `b3World_Rewind( historyTick − 2 )`:
+      `b3_historyOk`, the hash as recorded (the persistent entry and its reader slot intact
+      through the recaptures and the eviction) and the figure at most 8 × `g`; then, on a third
+      fresh world of the scene, `tickCount` 8, interval 1 and `maxBytes` half of tick 1's slot
+      charge as case 3 sets it, each tick creating a unique mesh: after 16 steps the figure is
+      at most `g` times the retained imaged slot count read through `b3History_GetSlot`'s
+      imaged flags (an unimaged tick's sizing run leaves no entry behind), and at least `g`.
   Fails before H1 by not building.
 - `HistoryRewindTest` (the design §12 test 2). For each of the seventeen scenes of
   `benchmark/main.c`'s table (§2), created with its capacity
