@@ -686,3 +686,17 @@ Round 42: 3 findings (H0-M2-L1), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0
   evict at interval 1, the observed interval reported.
 - `HistoryRingTest` case 7 skips the churn's tick-11 body create on the re-step.
 - Length 1743 -> 1749 lines.
+
+## Revision 42: after review round 43
+
+Round 43: 3 findings (H0-M3-L0), 3 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+1/1/0 -> 1/2/0 -> 0/3/1 -> 0/1/1 -> 0/0/0 -> 0/2/1 -> 0/3/0 -> pending.
+
+- `HistoryReplayTest`'s callback counters are atomic and read into the record after each step.
+- H0's hash rule says a filter joint has no union member; `HashSensitiveCase` holds one.
+- `HistoryRingTest`'s H4 extension checks the manifold allocators' count after a disable on the
+  live world.
+- Length 1749 -> 1755 lines.

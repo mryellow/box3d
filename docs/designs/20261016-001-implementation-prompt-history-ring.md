@@ -509,7 +509,8 @@ Two internal pieces of test machinery are shared by several entries and are writ
      order;
   8. solver sets in index order: `setIndex`, then `bodySims` (every named field of `b3BodySim`),
      `bodyStates` (velocities, delta position, delta rotation, flags; never the padding fields),
-     `jointSims` (every named field of the sim and of its type's union member), `contactIndices`,
+     `jointSims` (every named field of the sim and of its type's union member; a filter joint has
+     none, `src/joint.h`), `contactIndices`,
      `islandSims`, each in stored order;
   9. graph colours in index order: `bodySet` as the ascending indices of its set bits (never block
      counts), `jointSims`, `convexContacts`, and `contacts` by each spec's contact id and
@@ -544,7 +545,8 @@ Two internal pieces of test machinery are shared by several entries and are writ
    resting on it, a capsule resting on the hull body, a capsule on a two-triangle mesh ground, a
    static compound with a second dynamic hull body resting on its hull child (compounds are
    static-only and no contact joins two static shapes, `src/shape.c`, `src/contact.c`), a sensor,
-   a joint, two shapes sharing one hull's content, stepped until the four contacts touch, each
+   a joint and a filter joint, two shapes sharing one hull's content, stepped until the four
+   contacts touch, each
    `ENSURE`d touching before its probe),
    each of the following, applied to a fresh copy of the scene, changes the hash from the scene's: `b3Body_SetTransform` on the sleeping
    body; `b3World_SetGravity`; `b3Shape_SetSurfaceMaterial` on the static shape;
@@ -812,8 +814,10 @@ in full are the specification. Mechanics that follow from them:
   filter that reads a context struct's field, both registered, with `enablePreSolveEvents` set on
   the colliding dynamic shapes and `enableCustomFiltering` on a dynamic shape and the shapes it
   meets (both flags are off by default and gate the calls, `src/contact.c`, `src/solver.c`,
-  `src/broad_phase.c`), and each callback counting its calls and its rejections per tick in the
-  context struct, recorded with the hash, `ENSURE`d above zero in ticks 1 to 50 and again in ticks
+  `src/broad_phase.c`), and each callback counting its calls and its rejections per tick in
+  `b3AtomicInt` counters of the context struct (`b3AtomicFetchAddInt`, `src/platform.h`; the
+  callbacks run on worker threads and must be thread-safe, `include/box3d/types.h`), read into the
+  record after each step with the hash, `ENSURE`d above zero in ticks 1 to 50 and again in ticks
   51 to 90 of the first run (both sides of the tick-50 change) and `ENSURE`d equal to the recorded
   counts after every replayed step;
   history enabled with `tickCount` 90
@@ -1340,7 +1344,9 @@ hull shape and case 8's two rewinds in a row included, leaves `pendingBytes` 0; 
 operation the manifold allocators' summed
 `allocationCount` equals the live contacts' block count plus the manifold handles the retained
 slots and the staging buffer own, read through a third read-only function of `src/world_history.h`,
-`b3History_CountOwnedBlocks( world, kind )`, added in this commit. The leak check
+`b3History_CountOwnedBlocks( world, kind )`, added in this commit. After `b3World_DisableHistory`
+with the world alive, the summed `allocationCount` equals the live contacts' block count alone
+(disable frees every owned handle, the ring doc §9 test 1); the leak check
 `ENSURE( b3GetByteCount() == base )` after the destroy stands as the check for every other block
 kind. The extended entry fails before H4 by not building (§6).
 
