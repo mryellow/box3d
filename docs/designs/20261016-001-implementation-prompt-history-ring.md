@@ -117,7 +117,9 @@ and structural sites; the three write routes of the design §5.2 do not exist.
   `b3PrepareContacts_Mesh` (`normalVelocity`) and `b3StoreImpulses_Mesh` (the impulses) of
   `src/contact_solver.c` and in `b3PrepareConstraintW` and `b3StoreImpulsesW` of
   `src/contact_solver_wide.inl`, compiled once per SIMD width through `src/wide4.c` and
-  `src/wide8.c`; each reads `contact->manifolds` into a `b3Manifold*`.
+  `src/wide8.c`, and in `b3CollideTask` of `src/physics_world.c` (`separation`, `normalVelocity`
+  and `persisted` of a persisted manifold's points, and `baseSeparation` after the update); each
+  reads `contact->manifolds` into a `b3Manifold*`.
   `b3BlockAllocator` carries an `allocationCount` field with no getter (`src/block_allocator.h`).
 - `b3Joint` (`src/joint.h`): `userData`, `setIndex`, `colorIndex`, `localIndex`, the two edges,
   `jointId`, `islandId`, `islandIndex`, `drawScale`, `type`, `generation`, `collideConnected`. No heap
@@ -493,8 +495,9 @@ Two internal pieces of test machinery are shared by several entries and are writ
      impulses), and the active union member only: for a mesh contact the triangle cache's `count`
      and, per element, `triangleIndex` and the cache member the pair selects (never the header's
      pointer or `capacity`, which are allocation state) and `queryBounds`, for a convex contact
-     the cache member the pair selects. The member is a function of the two shape types
-     (`src/contact.c`, `src/mesh_contact.c`): `satCache` (`separation`, `type`, `indexA`,
+     the cache member the pair selects. The member is a function of the two shape types, a
+     compound's being its `childIndex` child's (`b3GetCompoundChild`, `src/contact.c`,
+     `src/mesh_contact.c`): `satCache` (`separation`, `type`, `indexA`,
      `indexB`, `hit`) for hull against hull and triangle against hull; `simplexCache` (`metric`,
      `count`, `indexA[4]`, `indexB[4]`) for hull against sphere or capsule and triangle against
      capsule; nothing for a pair of spheres and capsules or triangle against sphere;
@@ -537,15 +540,16 @@ Two internal pieces of test machinery are shared by several entries and are writ
    (`b3Body_IsAwake` false), so sleeping sets, the sleeping tree and the graph are all covered.
 2. `HashSensitiveCase`: starting from one scene (a sleeping box, a static box, a dynamic hull body
    resting on it, a capsule resting on the hull body, a capsule on a two-triangle mesh ground, a
-   sensor, a joint, two shapes sharing one hull's content, stepped until the three contacts touch),
+   compound whose hull child rests on the static box, a sensor, a joint, two shapes sharing one
+   hull's content, stepped until the four contacts touch),
    each of the following, applied to a fresh copy of the scene, changes the hash from the scene's: `b3Body_SetTransform` on the sleeping
    body; `b3World_SetGravity`; `b3Shape_SetSurfaceMaterial` on the static shape;
    `b3Shape_SetFilter`; destroying and recreating a body with the same def (its generation differs);
    destroying one of the two hull shapes (the database's refcount differs); destroying the sensor;
    `b3Body_SetAwake( true )` on the sleeping body; `satCache.indexA` of the hull-on-hull contact's
-   cache, `simplexCache.count` of the hull-and-capsule contact's and `simplexCache.count` of the
+   cache and of the compound's, `simplexCache.count` of the hull-and-capsule contact's and `simplexCache.count` of the
    mesh contact's first triangle cache element, each written directly at H0 and, from H3b, as a
-   changed copy through `b3Contact_Write` (the two convex contacts) and `b3Contact_SetBlocks` (the
+   changed copy through `b3Contact_Write` (the three convex contacts) and `b3Contact_SetBlocks` (the
    mesh contact, whose copy of the scene has `b3Body_SetAwake( false )` applied to the capsule's
    body before the hash it is compared against is taken). Each of these leaves it unchanged: `b3Body_SetUserData`,
    `b3Shape_SetUserData`, `b3Joint_SetUserData`, `b3World_SetUserData`.
@@ -783,7 +787,10 @@ in full are the specification. Mechanics that follow from them:
   `B3_SLEEPING_TREE_MAX_HEIGHT`; a bullet whose leaf outgrew its fat AABB entry before it slept,
   woken after T and rewound). Each structural case is a named sub-scene; a scene's schedule is the sub-scene list in a seeded
   order followed by seeded draws, the test counts each sub-scene's runs and `ENSURE`s every count
-  above zero before the scene's `Destroy*`, and a failure names the case. History is disabled before the scene's `Destroy*` runs. Fails before H1
+  above zero before the scene's `Destroy*`, and a failure names the case; in a pair that runs a
+  sub-scene, T is drawn in [`oldestImageTick`, m − 1] with m the tick of the sub-scene's first
+  mutation (the pair's start tick is retained at P and m is after it, so the range is never
+  empty), so every counted run is rewound across. History is disabled before the scene's `Destroy*` runs. Fails before H1
   by not building.
 - `HistoryReplayTest` (the design §12 test 3). On three scenes (the pile of `HistoryRingTest`; the
   `sleep` benchmark scene; a scene with a mesh ground, a compound, a sensor and two joints), with a
@@ -999,7 +1006,7 @@ the specification. Mechanics that follow from them:
   `b3Array( b3TriangleCache )* b3Contact_HotCache( world, contact )` returning the cache header
   (the casts live in that file and nowhere else), re-read after the hot path replaces the block
   (`b3UpdateConvexContact`, `b3ComputeMeshManifolds`). The narrow phase (`src/contact.c`,
-  `src/mesh_contact.c`), the collide pass's flag writes (`src/physics_world.c`) and the prepare and
+  `src/mesh_contact.c`), the collide pass's flag and manifold-point writes (`src/physics_world.c`) and the prepare and
   store-impulses passes (`src/contact_solver.c` and `src/contact_solver_wide.inl`, whose
   `b3Manifold*` lanes come from the companion instead of `contact->manifolds`) use them, allocating and
   freeing manifold blocks in place through `b3AllocateManifolds` and `b3FreeManifolds` as today;
@@ -1359,9 +1366,11 @@ them:
   optimisation to measure, not this commit's.
 - Restore in place (the design §9): after step 2's walk, step 3 sets each awake-set array and
   colour array to the image's count, growing capacity only when the count exceeds it, and copies;
-  scatters body, shape, joint and island records by id through the restore writers (a shape write
-  releasing its `userShape`); for each imaged contact resizes its block to the image's count
-  through the block mutator's restore path and copies, likewise the cache and the islands' arrays;
+  scatters body, shape, contact, joint and island records by id through the restore writers (a
+  shape write releasing its `userShape`; `b3Contact_Restore` copies the record and the convex
+  cache, never the block pointer or count, H3b); for each imaged contact then resizes its block to
+  the image's count through the block mutator's restore path and copies, likewise the cache and
+  the islands' arrays;
   copies the scalars struct through `b3World_WriteScalars`, the sensors' `overlaps2` and the fat
   AABBs; step 4 per the trees doc §6: the awake tree's arrays freed and reallocated at the image's
   sizes and copied with its scalars, the queue copied back, the kinematic tree loaded the same way

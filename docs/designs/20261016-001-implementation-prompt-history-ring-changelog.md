@@ -587,3 +587,19 @@ confirmation.
 
 - No edit. One Unresolved item about the trees doc §7's pointer-to-const wording recorded for the
   owner in the round record.
+
+## Revision 36: after review round 36
+
+Round 36: 4 findings (H1-M3-L0), 4 applied, 0 declined. Findings: 3/5/1 -> 2/3/0 -> 0/4/0 ->
+3/3/0 -> 2/1/1 -> 2/2/0 -> 1/1/1 -> 2/2/1 -> 2/1/0 -> 1/1/1 -> 2/4/1 -> 1/3/0 -> 1/3/0 -> 0/1/1 ->
+2/4/0 -> 0/5/1 -> 2/2/0 -> 0/2/1 -> 1/4/0 -> 0/2/0 -> 1/1/1 -> 1/3/1 -> 1/1/0 -> 1/3/0 -> 1/2/0 ->
+0/1/0 -> 2/1/0 -> 0/1/2 -> 1/2/0 -> 0/3/0 -> 0/1/0 -> 0/1/0 -> 1/2/1 -> 0/3/0 -> 0/0/0 -> 1/3/0 ->
+pending.
+
+- H5's restore scatters contact records through `b3Contact_Restore` before resizing their blocks.
+- §2 and H3b name the collide task's manifold-point writes in `src/physics_world.c`.
+- H0's cache rule takes a compound's member from its child; `HashSensitiveCase` probes a compound
+  contact's SAT cache.
+- `HistoryRewindTest` draws T before a scheduled sub-scene's first mutation, so every counted run
+  is rewound across.
+- Length 1711 -> 1720 lines.
